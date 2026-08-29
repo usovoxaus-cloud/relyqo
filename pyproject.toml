@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "relyqo"
+version = "1.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.116.1",
+  "uvicorn[standard]==0.35.0",
+  "sqlalchemy==2.0.43",
+  "psycopg[binary]==3.2.9",
+  "redis==6.4.0",
+  "pydantic-settings==2.10.1",
+  "alembic==1.16.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.1", "httpx==0.28.1", "ruff==0.12.11"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
