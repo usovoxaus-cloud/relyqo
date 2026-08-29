@@ -66,7 +66,7 @@ def test_fregat_qr_redirect():
 
 def test_owner_issues_one_qr_per_receipt():
     Base.metadata.create_all(engine)
-    settings.owner_password = "owner-test-password"
+    settings.owner_password = "владелец-test-password"
     reference = f"TEST-{uuid.uuid4()}"
     client = TestClient(app)
     body = {"password": settings.owner_password, "transaction_reference": reference}

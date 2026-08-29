@@ -103,7 +103,7 @@ def owner_visit_token(
     body: OwnerTokenCreate, request: Request, db: Session = Depends(get_db)
 ):
     if not settings.owner_password or not hmac.compare_digest(
-        body.password, settings.owner_password
+        body.password.encode("utf-8"), settings.owner_password.encode("utf-8")
     ):
         raise HTTPException(401, "Неверный пароль владельца")
     existing = db.scalar(
