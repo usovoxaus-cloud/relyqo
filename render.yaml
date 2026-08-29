@@ -2,7 +2,7 @@ services:
   - type: web
     name: relyqo
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /v1/health
     envVars:
       - key: DATABASE_URL
@@ -15,11 +15,10 @@ services:
         value: https://relyqo.onrender.com
       - key: DEMO_MODE
         value: false
-  - type: redis
+  - type: keyvalue
     name: relyqo-redis
-    plan: starter
+    plan: free
     ipAllowList: []
 databases:
   - name: relyqo-db
-    plan: basic-256mb
-
+    plan: free
