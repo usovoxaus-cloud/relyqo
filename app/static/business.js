@@ -1,1 +1,37 @@
-const $=s=>document.querySelector(s);const labels={overall:'Общее впечатление',food:'Еда',service:'Сервис',cleanliness:'Чистота',value:'Цена и ценность'};async function load(){try{const r=await fetch('/v1/business/fregat');const d=await r.json();if(!r.ok)throw new Error(d.detail||'Данные недоступны');$('#name').textContent=d.organization.name;$('#location').textContent=`${d.organization.branch} · ${d.organization.city}`;$('#score').textContent=Number(d.relyqo_score).toFixed(1);$('#ratings').textContent=d.rating_count;$('#visits').textContent=d.verified_visits;$('#metrics').innerHTML=Object.entries(d.metrics).map(([k,v])=>`<div><div class="barTop"><span>${labels[k]}</span><b>${Number(v).toFixed(1)}</b></div><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,v))}%"></div></div></div>`).join('');$('#history').innerHTML=d.history.length?d.history.map(x=>`<i style="height:${Math.max(4,x.score)}%" title="${x.score}"></i>`).join(''):'<span class="muted">История появится после первой оценки.</span>';$('#content').classList.remove('hidden')}catch(e){$('#error').textContent=e.message;$('#error').classList.remove('hidden')}}load();
+const $ = (selector) => document.querySelector(selector);
+
+const labels = {
+  overall: "Общее впечатление",
+  food: "Качество еды",
+  service: "Обслуживание",
+  cleanliness: "Чистота",
+  value: "Соотношение цены и качества",
+};
+
+async function loadDashboard() {
+  try {
+    const response = await fetch("/v1/business/fregat", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Не удалось загрузить данные");
+
+    $("#name").textContent = data.organization.name;
+    $("#location").textContent = `${data.organization.branch} · ${data.organization.city}`;
+    $("#score").textContent = Number(data.relyqo_score).toFixed(1);
+    $("#ratings").textContent = data.rating_count;
+    $("#visits").textContent = data.verified_visits;
+    $("#metrics").innerHTML = Object.entries(data.metrics).map(([key, value]) => `
+      <div class="metric-${key}">
+        <div class="barTop"><span>${labels[key]}</span><b>${Number(value).toFixed(1)} / 100</b></div>
+        <div class="track"><div class="fill" style="width:${Math.max(0, Math.min(100, value))}%"></div></div>
+      </div>`).join("");
+    $("#history").innerHTML = data.history.length
+      ? data.history.map((item) => `<i style="height:${Math.max(4, item.score)}%" title="Score ${item.score}"></i>`).join("")
+      : '<span class="empty">График появится после первой завершённой оценки гостя.</span>';
+    $("#content").classList.remove("hidden");
+  } catch (error) {
+    $("#error").textContent = `Ошибка загрузки: ${error.message}`;
+    $("#error").classList.remove("hidden");
+  }
+}
+
+loadDashboard();

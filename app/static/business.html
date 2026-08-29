@@ -1,1 +1,38 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#082c27"><link rel="stylesheet" href="/static/style.css"><title>Fregat — Business Read Only</title><style>.dashboard{max-width:920px;margin:auto;padding:24px 18px 60px}.grid{display:grid;grid-template-columns:1.15fr .85fr;gap:18px}.scoreCard{display:flex;align-items:end;gap:8px}.scoreBig{font-size:96px;line-height:.9;color:#74e1bd;font-weight:800;letter-spacing:-.07em}.kpis{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:24px}.kpi{background:#09231f;border:1px solid #275047;border-radius:16px;padding:16px}.kpi b{display:block;font-size:28px;color:#eaf7f2}.bars{display:grid;gap:15px;margin-top:20px}.barTop{display:flex;justify-content:space-between}.track{height:8px;background:#08231f;border-radius:99px;overflow:hidden;margin-top:7px}.fill{height:100%;background:#74e1bd;border-radius:99px}.history{display:flex;align-items:end;gap:7px;height:150px;margin-top:20px}.history i{flex:1;min-width:8px;background:#3aa889;border-radius:5px 5px 0 0}.readonly{display:inline-block;color:#74e1bd;border:1px solid #286f60;border-radius:99px;padding:7px 11px;font-size:10px;letter-spacing:.12em}.muted{color:#779f95;font-size:12px}.error{padding:18px}@media(max-width:720px){.grid{grid-template-columns:1fr}.scoreBig{font-size:78px}}</style></head><body><main class="dashboard"><header><span class="mark">R</span><b>RELYQO BUSINESS</b><span class="verified">READ ONLY</span></header><div id="error" class="error hidden"></div><section id="content" class="grid hidden"><div class="card"><span class="readonly">BUSINESS · READ ONLY</span><p class="eyebrow">ДЕТЕРМИНИРОВАННЫЙ SCORE ENGINE</p><h1 id="name">Fregat</h1><p id="location" class="lead"></p><div class="scoreCard"><span id="score" class="scoreBig">—</span><span>/100</span></div><div class="kpis"><div class="kpi"><span>Подтверждённые оценки</span><b id="ratings">0</b></div><div class="kpi"><span>Verified Visits</span><b id="visits">0</b></div></div><p class="muted">Бизнес видит данные, но не может создавать, изменять или удалять оценки и Score.</p></div><div class="card"><p class="eyebrow">ПОКАЗАТЕЛИ ОПЫТА</p><h2>Что видят гости</h2><div id="metrics" class="bars"></div><p class="eyebrow" style="margin-top:30px">ИСТОРИЯ SCORE</p><div id="history" class="history"></div></div></section></main><script src="/static/business.js"></script></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#071b2c">
+  <title>Fregat — панель RELYQO</title>
+  <style>
+    :root{font-family:Inter,Segoe UI,Arial,sans-serif;color:#f7fbff;background:#07111f;color-scheme:dark}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 0,#123f4d 0,transparent 34%),radial-gradient(circle at 100% 20%,#251d55 0,transparent 28%),#07111f}
+    .dashboard{max-width:1120px;margin:auto;padding:30px 18px 70px}.topbar{display:flex;align-items:center;gap:13px;margin-bottom:24px}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#64e0b5;color:#06281f;font-size:25px;font-weight:900}.brand{font-weight:900;letter-spacing:.05em}.badge{margin-left:auto;padding:8px 12px;border:1px solid #5ed9b0;border-radius:999px;color:#7de8c4;font-size:11px;font-weight:800;letter-spacing:.09em}
+    .notice{margin-bottom:18px;padding:15px 17px;border:1px solid #27536b;border-radius:16px;background:#0e293a;color:#c8e9f5;font-size:14px;line-height:1.5}.notice b{color:#fff}
+    .grid{display:grid;grid-template-columns:1.08fr .92fr;gap:18px}.card{padding:26px;border:1px solid #203a50;border-radius:24px;background:rgba(10,28,43,.94);box-shadow:0 20px 50px rgba(0,0,0,.24)}.eyebrow{margin:0 0 10px;color:#79a6b8;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{margin:0;font-size:42px}h2{margin:4px 0 20px;font-size:25px}.location{margin:7px 0 25px;color:#b9d0dc}
+    .scoreBox{padding:22px;border:1px solid #2c856d;border-radius:20px;background:linear-gradient(135deg,#0d493c,#102f37)}.scoreLabel{display:block;color:#b5f6df;font-weight:700}.scoreRow{display:flex;align-items:flex-end;gap:9px;margin-top:8px}.scoreBig{font-size:86px;line-height:.85;color:#72edbd;font-weight:900;letter-spacing:-.07em}.outof{padding-bottom:8px;color:#b9ded2;font-size:18px}.scoreHelp{margin:15px 0 0;color:#b7d6ce;font-size:13px;line-height:1.45}
+    .kpis{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:15px}.kpi{padding:18px;border-radius:18px}.kpi span{display:block;font-size:13px;font-weight:700}.kpi b{display:block;margin-top:8px;font-size:34px}.ratings{border:1px solid #7059ce;background:#2d255f;color:#ded6ff}.visits{border:1px solid #287bb9;background:#113b5b;color:#d6eeff}.readonlyText{margin:18px 2px 0;color:#91aebc;font-size:12px;line-height:1.55}
+    .bars{display:grid;gap:17px}.barTop{display:flex;justify-content:space-between;gap:15px}.barTop span{font-size:14px;font-weight:700}.barTop b{font-size:16px}.track{height:11px;margin-top:8px;overflow:hidden;border-radius:99px;background:#13283a}.fill{height:100%;border-radius:99px}.metric-overall .fill{background:#5fe0ab}.metric-food .fill{background:#ffac53}.metric-service .fill{background:#52a8ff}.metric-cleanliness .fill{background:#b183ff}.metric-value .fill{background:#ff6fae}.metric-overall b{color:#7aebbc}.metric-food b{color:#ffc079}.metric-service b{color:#7cbdff}.metric-cleanliness b{color:#c8a8ff}.metric-value b{color:#ff91c0}
+    .historyTitle{margin-top:31px}.history{display:flex;align-items:flex-end;gap:7px;height:118px;padding:13px 10px 0;border-left:1px solid #294054;border-bottom:1px solid #294054}.history i{flex:1;min-width:8px;background:linear-gradient(#72edbd,#287c69);border-radius:5px 5px 0 0}.empty{align-self:center;color:#91aebc;font-size:13px;line-height:1.5}.error{padding:18px;border:1px solid #b9505d;border-radius:15px;background:#4d1d29;color:#ffd8dd}.hidden{display:none}
+    @media(max-width:760px){.dashboard{padding-top:18px}.brand{font-size:14px}.badge{font-size:9px}.grid{grid-template-columns:1fr}.card{padding:21px}.scoreBig{font-size:72px}h1{font-size:36px}}
+  </style>
+</head>
+<body>
+  <main class="dashboard">
+    <header class="topbar"><span class="logo">R</span><span class="brand">RELYQO BUSINESS</span><span class="badge">ТОЛЬКО ПРОСМОТР</span></header>
+    <div class="notice"><b>Это информационная панель ресторана.</b> RELYQO автоматически считает результат по подтверждённым оценкам гостей. Ресторан не может менять оценки или Score.</div>
+    <div id="error" class="error hidden"></div>
+    <section id="content" class="grid hidden">
+      <article class="card">
+        <p class="eyebrow">Ресторан и филиал</p><h1 id="name">Fregat</h1><p id="location" class="location"></p>
+        <div class="scoreBox"><span class="scoreLabel">RELYQO SCORE — итоговая оценка</span><div class="scoreRow"><span id="score" class="scoreBig">—</span><span class="outof">из 100</span></div><p class="scoreHelp">Чем выше число, тем лучше подтверждённый опыт гостей.</p></div>
+        <div class="kpis"><div class="kpi ratings"><span>Оценки гостей</span><b id="ratings">0</b></div><div class="kpi visits"><span>Подтверждённые посещения</span><b id="visits">0</b></div></div>
+        <p class="readonlyText">Режим Business — только чтение. Здесь нельзя создавать, исправлять или удалять оценки.</p>
+      </article>
+      <article class="card"><p class="eyebrow">Оценки по категориям</p><h2>Что понравилось гостям</h2><div id="metrics" class="bars"></div><p class="eyebrow historyTitle">Как менялся итоговый Score</p><div id="history" class="history"></div></article>
+    </section>
+  </main>
+  <script src="/static/business.js?v=business-3"></script>
+</body>
+</html>
