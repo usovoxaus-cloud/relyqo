@@ -14,6 +14,7 @@ dependencies = [
   "redis==6.4.0",
   "pydantic-settings==2.10.1",
   "alembic==1.16.5",
+  "qrcode[pil]==8.2",
 ]
 
 [project.optional-dependencies]
@@ -24,4 +25,3 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-

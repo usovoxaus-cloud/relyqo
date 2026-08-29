@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -33,9 +33,66 @@ static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static), name="static")
 
 
+def ensure_fregat(db: Session) -> tuple[Organization, Branch]:
+    org = db.scalar(select(Organization).where(Organization.name == "Fregat"))
+    if not org:
+        org = Organization(name="Fregat", city="Tashkent")
+        db.add(org)
+        db.flush()
+    branch = db.scalar(
+        select(Branch).where(
+            Branch.organization_id == org.id,
+            Branch.name == "Shota Rustaveli 69",
+        )
+    )
+    if not branch:
+        branch = Branch(organization_id=org.id, name="Shota Rustaveli 69")
+        db.add(branch)
+        db.flush()
+    return org, branch
+
+
+def issue_visit_token(branch: Branch, db: Session) -> str:
+    token, _ = create_token(branch.id)
+    db.add(
+        VisitToken(
+            branch_id=branch.id,
+            token_hash=token_hash(token),
+            expires_at=datetime.utcnow() + timedelta(hours=3),
+        )
+    )
+    return token
+
+
 @app.get("/", include_in_schema=False)
 def web():
     return FileResponse(static / "index.html")
+
+
+@app.get("/fregat", include_in_schema=False)
+def fregat_visit(db: Session = Depends(get_db)):
+    """Pilot QR entry: each scan receives a fresh one-time visit token."""
+    _, branch = ensure_fregat(db)
+    token = issue_visit_token(branch, db)
+    db.commit()
+    return RedirectResponse(url=f"/?token={token}", status_code=303)
+
+
+@app.get("/fregat/qr.png", include_in_schema=False)
+def fregat_qr(request: Request):
+    import io
+    import qrcode
+
+    target = f"{str(request.base_url).rstrip('/')}/fregat"
+    image = qrcode.make(target)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return Response(output.getvalue(), media_type="image/png")
+
+
+@app.get("/fregat/qr", response_class=HTMLResponse, include_in_schema=False)
+def fregat_qr_page():
+    return """<!doctype html><html lang='ru'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Fregat — RELYQO QR</title><style>body{font-family:Arial,sans-serif;text-align:center;padding:36px;color:#082c27}img{width:min(72vw,420px)}h1{font-size:42px;margin-bottom:4px}p{font-size:20px}.brand{letter-spacing:.18em;color:#16715f;font-weight:700}@media print{button{display:none}}</style></head><body><div class='brand'>RELYQO · VERIFIED VISIT</div><h1>Fregat</h1><p>Shota Rustaveli 69 · Tashkent</p><img src='/fregat/qr.png' alt='QR для оценки Fregat'><p>Отсканируйте QR после посещения<br>и оставьте честную оценку.</p><button onclick='print()'>Печать</button></body></html>"""
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)

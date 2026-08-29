@@ -53,3 +53,10 @@ def test_demo_visit_url():
     response = TestClient(app).post("/v1/demo/visit")
     assert response.status_code == 200
     assert "?token=" in response.json()["visit_url"]
+
+
+def test_fregat_qr_redirect():
+    Base.metadata.create_all(engine)
+    response = TestClient(app).get("/fregat", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/?token=")
