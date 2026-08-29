@@ -17,13 +17,9 @@ class Settings:
             os.getenv("DATABASE_URL", "sqlite:///./relyqo.db")
         )
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self.qr_secret = os.getenv(
-            "QR_SECRET", "development-secret-change-me-32chars"
-        )
+        self.qr_secret = os.getenv("QR_SECRET", "development-secret-change-me-32chars")
         self.owner_password = os.getenv("OWNER_PASSWORD") or None
-        self.public_base_url = os.getenv(
-            "PUBLIC_BASE_URL", "http://localhost:8000"
-        )
+        self.public_base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
         self.demo_mode = os.getenv("DEMO_MODE", "true").strip().lower() in {
             "1",
             "true",
