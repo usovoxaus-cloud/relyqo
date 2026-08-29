@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
@@ -73,6 +73,11 @@ def web():
 @app.get("/owner", include_in_schema=False)
 def owner_web():
     return FileResponse(static / "owner.html")
+
+
+@app.get("/business", include_in_schema=False)
+def business_web():
+    return FileResponse(static / "business.html")
 
 
 @app.get("/fregat", include_in_schema=False)
@@ -327,3 +332,65 @@ def business_read(
     if x_role != "BUSINESS_VIEWER":
         raise HTTPException(403)
     return score(organization_id, db)
+
+
+@app.get("/v1/business/fregat")
+def fregat_business_dashboard(db: Session = Depends(get_db)):
+    """Read-only aggregate view. No Business mutation endpoints exist."""
+    org = db.scalar(select(Organization).where(Organization.name == "Fregat"))
+    if not org:
+        raise HTTPException(404, "Fregat ещё не создан")
+    branch = db.scalar(select(Branch).where(Branch.organization_id == org.id).limit(1))
+    averages = db.execute(
+        select(
+            func.avg(Rating.overall),
+            func.avg(Rating.food),
+            func.avg(Rating.service),
+            func.avg(Rating.cleanliness),
+            func.avg(Rating.value),
+        ).where(Rating.organization_id == org.id, Rating.included.is_(True))
+    ).one()
+    verified_visits = db.scalar(
+        select(func.count(Visit.id))
+        .join(Branch, Visit.branch_id == Branch.id)
+        .where(Branch.organization_id == org.id)
+    )
+    history = db.scalars(
+        select(ScoreHistory)
+        .where(ScoreHistory.organization_id == org.id)
+        .order_by(ScoreHistory.calculated_at.desc())
+        .limit(12)
+    ).all()
+
+    def metric(value):
+        return round(float(value) * 10, 1) if value is not None else 0.0
+
+    return {
+        "organization": {
+            "id": org.id,
+            "name": org.name,
+            "city": org.city,
+            "branch": branch.name if branch else None,
+        },
+        "relyqo_score": org.score,
+        "rating_count": org.rating_count,
+        "verified_visits": verified_visits or 0,
+        "metrics": {
+            "overall": metric(averages[0]),
+            "food": metric(averages[1]),
+            "service": metric(averages[2]),
+            "cleanliness": metric(averages[3]),
+            "value": metric(averages[4]),
+        },
+        "history": [
+            {"score": item.score, "calculated_at": item.calculated_at.isoformat() + "Z"}
+            for item in reversed(history)
+        ],
+        "permissions": {
+            "ratings_create": False,
+            "ratings_update": False,
+            "ratings_delete": False,
+            "score_update": False,
+        },
+        "calculation": "deterministic_weighted_ces_v1",
+    }

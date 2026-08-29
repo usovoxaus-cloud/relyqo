@@ -74,3 +74,13 @@ def test_owner_issues_one_qr_per_receipt():
     assert issued.status_code == 200
     assert "/v1/qr.png?token=" in issued.json()["qr_url"]
     assert client.post("/v1/owner/visit-token", json=body).status_code == 409
+
+
+def test_business_fregat_is_read_only():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    client.get("/fregat", follow_redirects=False)
+    response = client.get("/v1/business/fregat")
+    assert response.status_code == 200
+    assert all(value is False for value in response.json()["permissions"].values())
+    assert client.post("/v1/business/fregat", json={}).status_code == 405
