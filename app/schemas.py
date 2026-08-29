@@ -12,3 +12,8 @@ class RatingCreate(BaseModel):
     service: int = Field(ge=1, le=10)
     cleanliness: int = Field(ge=1, le=10)
     value: int = Field(ge=1, le=10)
+
+
+class OwnerTokenCreate(BaseModel):
+    password: str = Field(min_length=8, max_length=200)
+    transaction_reference: str = Field(min_length=1, max_length=120)

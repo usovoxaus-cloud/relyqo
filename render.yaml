@@ -11,10 +11,12 @@ services:
         fromService: {type: redis, name: relyqo-redis, property: connectionString}
       - key: QR_SECRET
         generateValue: true
+      - key: OWNER_PASSWORD
+        sync: false
       - key: PUBLIC_BASE_URL
         value: https://relyqo.onrender.com
       - key: DEMO_MODE
-        value: true
+        value: false
   - type: keyvalue
     name: relyqo-redis
     plan: free

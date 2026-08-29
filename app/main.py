@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import hmac
 from pathlib import Path
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +19,7 @@ from .models import (
     Visit,
     VisitToken,
 )
-from .schemas import RatingCreate, VerifyVisit
+from .schemas import OwnerTokenCreate, RatingCreate, VerifyVisit
 from .score import calculate_ces, weighted_score
 from .security import create_token, token_hash, verify_signature
 
@@ -69,9 +70,16 @@ def web():
     return FileResponse(static / "index.html")
 
 
+@app.get("/owner", include_in_schema=False)
+def owner_web():
+    return FileResponse(static / "owner.html")
+
+
 @app.get("/fregat", include_in_schema=False)
 def fregat_visit(db: Session = Depends(get_db)):
     """Pilot QR entry: each scan receives a fresh one-time visit token."""
+    if not settings.demo_mode:
+        raise HTTPException(404)
     _, branch = ensure_fregat(db)
     token = issue_visit_token(branch, db)
     db.commit()
@@ -84,6 +92,65 @@ def fregat_qr(request: Request):
     import qrcode
 
     target = f"{str(request.base_url).rstrip('/')}/fregat"
+    image = qrcode.make(target)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return Response(output.getvalue(), media_type="image/png")
+
+
+@app.post("/v1/owner/visit-token")
+def owner_visit_token(
+    body: OwnerTokenCreate, request: Request, db: Session = Depends(get_db)
+):
+    if not settings.owner_password or not hmac.compare_digest(
+        body.password, settings.owner_password
+    ):
+        raise HTTPException(401, "Неверный пароль владельца")
+    existing = db.scalar(
+        select(VisitToken).where(
+            VisitToken.transaction_reference == body.transaction_reference
+        )
+    )
+    if existing:
+        raise HTTPException(409, "Для этого чека QR уже выпускался")
+    _, branch = ensure_fregat(db)
+    token = issue_visit_token(branch, db)
+    record = db.scalar(
+        select(VisitToken).where(VisitToken.token_hash == token_hash(token))
+    )
+    record.transaction_reference = body.transaction_reference
+    db.add(
+        AuditLog(
+            actor_type="OWNER",
+            action="VISIT_TOKEN_ISSUED",
+            entity_type="VISIT_TOKEN",
+            entity_id=record.id,
+        )
+    )
+    db.commit()
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "expires_in": 10800,
+        "visit_url": f"{base_url}/?token={token}",
+        "qr_url": f"{base_url}/v1/qr.png?token={token}",
+    }
+
+
+@app.get("/v1/qr.png", include_in_schema=False)
+def token_qr(token: str, request: Request, db: Session = Depends(get_db)):
+    import io
+    import qrcode
+
+    try:
+        verify_signature(token)
+    except Exception as exc:
+        raise HTTPException(400, "Недействительный QR") from exc
+    record = db.scalar(
+        select(VisitToken).where(VisitToken.token_hash == token_hash(token))
+    )
+    if not record or record.used_at or record.expires_at < datetime.utcnow():
+        raise HTTPException(410, "QR недоступен")
+    target = f"{str(request.base_url).rstrip('/')}/?token={token}"
     image = qrcode.make(target)
     output = io.BytesIO()
     image.save(output, format="PNG")

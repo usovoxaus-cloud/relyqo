@@ -22,6 +22,10 @@ python -m app.scripts.seed_demo
 
 Для Railway/Fly.io используйте `Dockerfile` и подключите PostgreSQL + Redis, задав переменные из `.env.example`.
 
+## Owner-панель Fregat
+
+После деплоя задайте секрет `OWNER_PASSWORD` в Render и откройте `/owner`. Владелец вводит номер чека и пароль, после чего получает одноразовый QR со сроком действия 3 часа. Один номер чека нельзя использовать повторно.
+
 ## Неприкосновенные правила
 
 - Business API предоставляет только GET; мутаций для BUSINESS_VIEWER нет.

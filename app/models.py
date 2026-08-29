@@ -43,6 +43,9 @@ class VisitToken(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    transaction_reference: Mapped[str | None] = mapped_column(
+        String(120), unique=True, nullable=True
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

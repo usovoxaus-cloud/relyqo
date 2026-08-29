@@ -4,6 +4,8 @@ from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import Branch, Organization, VisitToken
 from app.security import create_token, token_hash
+from app.config import settings
+import uuid
 
 
 def test_qr_rating_score_flow():
@@ -60,3 +62,15 @@ def test_fregat_qr_redirect():
     response = TestClient(app).get("/fregat", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"].startswith("/?token=")
+
+
+def test_owner_issues_one_qr_per_receipt():
+    Base.metadata.create_all(engine)
+    settings.owner_password = "owner-test-password"
+    reference = f"TEST-{uuid.uuid4()}"
+    client = TestClient(app)
+    body = {"password": settings.owner_password, "transaction_reference": reference}
+    issued = client.post("/v1/owner/visit-token", json=body)
+    assert issued.status_code == 200
+    assert "/v1/qr.png?token=" in issued.json()["qr_url"]
+    assert client.post("/v1/owner/visit-token", json=body).status_code == 409
