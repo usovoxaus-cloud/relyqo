@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +20,7 @@ from .models import (
 )
 from .schemas import RatingCreate, VerifyVisit
 from .score import calculate_ces, weighted_score
-from .security import token_hash, verify_signature
+from .security import create_token, token_hash, verify_signature
 
 app = FastAPI(title="RELYQO API", version="1.1.0")
 app.add_middleware(
@@ -54,6 +54,38 @@ def sw():
 def health(db: Session = Depends(get_db)):
     db.execute(select(1))
     return {"status": "ok", "version": "1.1.0"}
+
+
+@app.post("/v1/demo/visit")
+def demo_visit(request: Request, db: Session = Depends(get_db)):
+    """Create a short-lived demo visit URL. Disabled when DEMO_MODE=false."""
+    if not settings.demo_mode:
+        raise HTTPException(404)
+    org = db.scalar(select(Organization).where(Organization.name == "Saffron Table"))
+    if not org:
+        org = Organization(name="Saffron Table", city="Tashkent")
+        db.add(org)
+        db.flush()
+    branch = db.scalar(select(Branch).where(Branch.organization_id == org.id))
+    if not branch:
+        branch = Branch(organization_id=org.id, name="Tashkent City")
+        db.add(branch)
+        db.flush()
+    token, _ = create_token(branch.id)
+    db.add(
+        VisitToken(
+            branch_id=branch.id,
+            token_hash=token_hash(token),
+            expires_at=datetime.utcnow() + timedelta(hours=3),
+        )
+    )
+    db.commit()
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "organization_id": org.id,
+        "expires_in": 10800,
+        "visit_url": f"{base_url}/?token={token}",
+    }
 
 
 @app.post("/v1/visits/verify-token")

@@ -46,3 +46,10 @@ def test_qr_rating_score_flow():
     )
     public = client.get(f"/v1/organizations/{org_id}/score")
     assert public.json()["calculation"] == "deterministic_weighted_ces_v1"
+
+
+def test_demo_visit_url():
+    Base.metadata.create_all(engine)
+    response = TestClient(app).post("/v1/demo/visit")
+    assert response.status_code == 200
+    assert "?token=" in response.json()["visit_url"]

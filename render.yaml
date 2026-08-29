@@ -14,7 +14,7 @@ services:
       - key: PUBLIC_BASE_URL
         value: https://relyqo.onrender.com
       - key: DEMO_MODE
-        value: false
+        value: true
   - type: keyvalue
     name: relyqo-redis
     plan: free
