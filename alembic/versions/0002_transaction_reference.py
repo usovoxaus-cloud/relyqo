@@ -10,15 +10,25 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        "visit_tokens",
-        sa.Column("transaction_reference", sa.String(length=120), nullable=True),
-    )
-    op.create_unique_constraint(
-        "uq_visit_tokens_transaction_reference",
-        "visit_tokens",
-        ["transaction_reference"],
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("visit_tokens")}
+    if "transaction_reference" not in columns:
+        with op.batch_alter_table("visit_tokens") as batch:
+            batch.add_column(
+                sa.Column(
+                    "transaction_reference", sa.String(length=120), nullable=True
+                )
+            )
+    unique_columns = {
+        tuple(constraint["column_names"])
+        for constraint in sa.inspect(bind).get_unique_constraints("visit_tokens")
+    }
+    if ("transaction_reference",) not in unique_columns:
+        with op.batch_alter_table("visit_tokens") as batch:
+            batch.create_unique_constraint(
+                "uq_visit_tokens_transaction_reference", ["transaction_reference"]
+            )
 
 
 def downgrade():
