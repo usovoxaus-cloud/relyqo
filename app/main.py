@@ -1,8 +1,10 @@
 from datetime import datetime, timedelta
 import hmac
+import json
 from pathlib import Path
 import re
 import secrets
+from threading import Lock
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -11,6 +13,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
+from .ai import AIServiceError, AIUnavailableError, generate_business_insight
 from .db import get_db
 from .models import (
     AuditLog,
@@ -113,6 +116,11 @@ OWNER_ROLE = "FREGAT_OWNER"
 STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
 _DUMMY_PASSWORD_HASH = password_hash("dummy-password-used-for-timing-only")
+AI_CACHE_MINUTES = 10
+AI_COOLDOWN_SECONDS = 60
+_ai_cache: dict[str, dict] = {}
+_ai_last_request: dict[str, datetime] = {}
+_ai_lock = Lock()
 
 
 def bootstrap_user(username: str, password: str, db: Session) -> User | None:
@@ -1107,5 +1115,86 @@ def fregat_business_dashboard(response: Response, db: Session = Depends(get_db))
             "ratings_delete": False,
             "score_update": False,
         },
+        "ai": {
+            "configured": bool(settings.openai_api_key),
+            "model": settings.openai_model if settings.openai_api_key else None,
+            "affects_score": False,
+            "can_change_ratings": False,
+            "can_decide_reviews": False,
+        },
         "calculation": "deterministic_weighted_ces_v1",
     }
+
+
+@app.get("/v1/business/fregat/ai-insights")
+def fregat_ai_insights(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, OWNER_ROLE)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    if not settings.openai_api_key:
+        raise HTTPException(
+            503,
+            "AI-аналитик ещё не подключён: добавьте OPENAI_API_KEY в Render",
+        )
+    dashboard = fregat_business_dashboard(Response(), db)
+    payload = {
+        "restaurant": dashboard["organization"]["name"],
+        "city": dashboard["organization"]["city"],
+        "relyqo_score": dashboard["relyqo_score"],
+        "score_source": dashboard["calculation"],
+        "included_rating_count": dashboard["rating_count"],
+        "verified_visit_count": dashboard["verified_visits"],
+        "category_scores": dashboard["metrics"],
+        "pilot": dashboard["pilot"],
+    }
+    signature = token_hash(json.dumps(payload, sort_keys=True))
+    now = datetime.utcnow()
+    with _ai_lock:
+        cached = _ai_cache.get(signature)
+        if cached and cached["expires_at"] > now:
+            return {
+                **cached["response"],
+                "cached": True,
+            }
+        last_request = _ai_last_request.get(user.id)
+        if last_request:
+            seconds_left = AI_COOLDOWN_SECONDS - int(
+                (now - last_request).total_seconds()
+            )
+            if seconds_left > 0:
+                raise HTTPException(
+                    429,
+                    f"Повторный AI-анализ будет доступен через {seconds_left} сек.",
+                )
+        _ai_last_request[user.id] = now
+    try:
+        analysis = generate_business_insight(payload)
+    except AIUnavailableError as exc:
+        raise HTTPException(503, "AI-аналитик ещё не подключён") from exc
+    except AIServiceError as exc:
+        with _ai_lock:
+            _ai_last_request.pop(user.id, None)
+        raise HTTPException(
+            502,
+            "AI-сервис временно недоступен. Попробуйте позже",
+        ) from exc
+    result = {
+        "analysis": analysis,
+        "model": settings.openai_model,
+        "generated_at": now.isoformat() + "Z",
+        "cached": False,
+        "disclaimer": (
+            "AI даёт справочные рекомендации и не влияет на Score, оценки "
+            "или решения Owner Review."
+        ),
+    }
+    with _ai_lock:
+        _ai_cache.clear()
+        _ai_cache[signature] = {
+            "expires_at": now + timedelta(minutes=AI_CACHE_MINUTES),
+            "response": result,
+        }
+    return result

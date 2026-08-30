@@ -8,6 +8,10 @@ from app.security import create_token, password_hash, token_hash, verify_passwor
 from app.config import settings
 import uuid
 from urllib.parse import parse_qs, urlsplit
+from types import SimpleNamespace
+import sys
+import app.main as main_module
+from app.ai import generate_business_insight
 
 OWNER_TEST_PASSWORD = "owner-test-password-123"
 REVIEW_TEST_PASSWORD = "review-test-password-123"
@@ -402,3 +406,75 @@ def test_recovery_page_is_not_cached():
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO RECOVERY" in response.text
+
+
+def test_ai_insights_are_owner_only_read_only_and_optional(monkeypatch):
+    Base.metadata.create_all(engine)
+    settings.owner_password = OWNER_TEST_PASSWORD
+    public = TestClient(app)
+    assert public.get("/v1/business/fregat/ai-insights").status_code == 401
+
+    owner = TestClient(app)
+    assert owner.post(
+        "/v1/auth/login",
+        json={"username": "fregat-owner", "password": OWNER_TEST_PASSWORD},
+    ).status_code == 200
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    assert owner.get("/v1/business/fregat/ai-insights").status_code == 503
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-api-key")
+    monkeypatch.setattr(settings, "openai_model", "test-model")
+    main_module._ai_cache.clear()
+    main_module._ai_last_request.clear()
+    captured = {}
+
+    def fake_insight(metrics):
+        captured.update(metrics)
+        return "1. Ранний сигнал.\n2. Сильная сторона.\n3. Проверка.\n4. Действия."
+
+    monkeypatch.setattr(main_module, "generate_business_insight", fake_insight)
+    before = owner.get("/v1/business/fregat").json()
+    generated = owner.get("/v1/business/fregat/ai-insights")
+    after = owner.get("/v1/business/fregat").json()
+    assert generated.status_code == 200
+    assert generated.json()["model"] == "test-model"
+    assert generated.json()["cached"] is False
+    assert captured["score_source"] == "deterministic_weighted_ces_v1"
+    assert "organization_id" not in captured
+    assert before["relyqo_score"] == after["relyqo_score"]
+    assert before["rating_count"] == after["rating_count"]
+    assert all(value is False for value in after["permissions"].values())
+    assert after["ai"]["affects_score"] is False
+    assert owner.post("/v1/business/fregat/ai-insights", json={}).status_code == 405
+
+
+def test_openai_request_is_aggregate_only_and_not_stored(monkeypatch):
+    captured = {}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(output_text="Безопасная агрегированная рекомендация")
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setattr(settings, "openai_api_key", "test-secret")
+    monkeypatch.setattr(settings, "openai_model", "test-model")
+    result = generate_business_insight(
+        {
+            "relyqo_score": 38.4,
+            "included_rating_count": 4,
+            "category_scores": {"service": 32.5},
+        }
+    )
+    assert result == "Безопасная агрегированная рекомендация"
+    assert captured["model"] == "test-model"
+    assert captured["reasoning"] == {"effort": "low"}
+    assert captured["store"] is False
+    assert captured["text"] == {"verbosity": "low"}
+    assert "test-secret" not in captured["input"]
+    assert "не изменяй RELYQO Score" in captured["instructions"]
