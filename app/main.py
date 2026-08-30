@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import hmac
 from pathlib import Path
+import re
 import secrets
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +24,15 @@ from .models import (
     VisitToken,
     User,
 )
-from .schemas import LoginRequest, OwnerTokenCreate, RatingCreate, ReviewDecision, VerifyVisit
+from .schemas import (
+    LoginRequest,
+    OwnerTokenCreate,
+    RatingCreate,
+    ReviewDecision,
+    StaffCreate,
+    StaffStatus,
+    VerifyVisit,
+)
 from .score import calculate_ces, review_reason, weighted_score
 from .security import (
     create_token,
@@ -63,13 +72,16 @@ def ensure_fregat(db: Session) -> tuple[Organization, Branch]:
     return org, branch
 
 
-def issue_visit_token(branch: Branch, db: Session) -> str:
+def issue_visit_token(
+    branch: Branch, db: Session, issued_by_user_id: str | None = None
+) -> str:
     token, _ = create_token(branch.id)
     db.add(
         VisitToken(
             branch_id=branch.id,
             token_hash=token_hash(token),
             expires_at=datetime.utcnow() + timedelta(hours=3),
+            issued_by_user_id=issued_by_user_id,
         )
     )
     return token
@@ -92,6 +104,7 @@ def recalculate_organization(org: Organization, db: Session) -> None:
 SESSION_COOKIE = "relyqo_session"
 SESSION_HOURS = 8
 OWNER_ROLE = "FREGAT_OWNER"
+STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
 
 
@@ -132,7 +145,11 @@ def authenticate(username: str, password: str, db: Session) -> User | None:
     return user
 
 
-def session_user(token: str | None, db: Session, role: str | None = None) -> User:
+def session_user(
+    token: str | None,
+    db: Session,
+    roles: str | set[str] | None = None,
+) -> User:
     if not token:
         raise HTTPException(401, "Войдите в аккаунт")
     session = db.scalar(
@@ -146,7 +163,8 @@ def session_user(token: str | None, db: Session, role: str | None = None) -> Use
     user = db.get(User, session.user_id)
     if not user or not user.active:
         raise HTTPException(401, "Аккаунт отключён")
-    if role and user.role != role:
+    allowed_roles = {roles} if isinstance(roles, str) else roles
+    if allowed_roles and user.role not in allowed_roles:
         raise HTTPException(403, "У этого аккаунта нет доступа")
     return user
 
@@ -176,6 +194,14 @@ def business_web():
 def review_web():
     return FileResponse(
         static / "review.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/staff", include_in_schema=False)
+def staff_web():
+    return FileResponse(
+        static / "staff.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
 
@@ -263,6 +289,142 @@ def logout(
     return {"status": "SIGNED_OUT"}
 
 
+@app.post("/v1/owner/staff")
+def create_staff_account(
+    body: StaffCreate,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    username = body.username.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
+        raise HTTPException(
+            422,
+            "Имя: латинские буквы, цифры, точка, дефис или подчёркивание",
+        )
+    if db.scalar(select(User).where(User.username == username)):
+        raise HTTPException(409, "Это имя пользователя уже занято")
+    staff = User(
+        username=username,
+        password_hash=password_hash(body.password),
+        role=STAFF_ROLE,
+        organization_id=owner.organization_id,
+    )
+    db.add(staff)
+    db.flush()
+    db.add(
+        AuditLog(
+            actor_type=owner.role,
+            action="STAFF_ACCOUNT_CREATED",
+            entity_type="USER",
+            entity_id=staff.id,
+        )
+    )
+    db.commit()
+    return {
+        "id": staff.id,
+        "username": staff.username,
+        "role": staff.role,
+        "active": staff.active,
+    }
+
+
+@app.get("/v1/owner/staff")
+def list_staff_accounts(
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    staff = db.scalars(
+        select(User)
+        .where(
+            User.organization_id == owner.organization_id,
+            User.role == STAFF_ROLE,
+        )
+        .order_by(User.username)
+    ).all()
+    return {
+        "items": [
+            {
+                "id": user.id,
+                "username": user.username,
+                "active": user.active,
+                "created_at": user.created_at,
+            }
+            for user in staff
+        ]
+    }
+
+
+@app.post("/v1/owner/staff/{user_id}/status")
+def set_staff_status(
+    user_id: str,
+    body: StaffStatus,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    staff = db.get(User, user_id)
+    if (
+        not staff
+        or staff.role != STAFF_ROLE
+        or staff.organization_id != owner.organization_id
+    ):
+        raise HTTPException(404, "Сотрудник не найден")
+    staff.active = body.active
+    db.add_all(
+        [
+            staff,
+            AuditLog(
+                actor_type=owner.role,
+                action="STAFF_ACCOUNT_ENABLED" if body.active else "STAFF_ACCOUNT_DISABLED",
+                entity_type="USER",
+                entity_id=staff.id,
+            ),
+        ]
+    )
+    db.commit()
+    return {"id": staff.id, "username": staff.username, "active": staff.active}
+
+
+@app.get("/v1/owner/qr-log")
+def owner_qr_log(
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    rows = db.execute(
+        select(VisitToken, Branch)
+        .join(Branch, VisitToken.branch_id == Branch.id)
+        .where(Branch.organization_id == owner.organization_id)
+        .order_by(VisitToken.created_at.desc())
+        .limit(100)
+    ).all()
+    items = []
+    for token, branch in rows:
+        issuer = db.get(User, token.issued_by_user_id) if token.issued_by_user_id else None
+        status = (
+            "USED"
+            if token.used_at
+            else "EXPIRED"
+            if token.expires_at < datetime.utcnow()
+            else "ACTIVE"
+        )
+        items.append(
+            {
+                "id": token.id,
+                "transaction_reference": token.transaction_reference,
+                "branch": branch.name,
+                "issued_by": issuer.username if issuer else "legacy/system",
+                "created_at": token.created_at,
+                "expires_at": token.expires_at,
+                "used_at": token.used_at,
+                "status": status,
+            }
+        )
+    return {"items": items, "count": len(items)}
+
+
 @app.get("/fregat", include_in_schema=False)
 def fregat_visit(db: Session = Depends(get_db)):
     """Pilot QR entry: each scan receives a fresh one-time visit token."""
@@ -293,7 +455,7 @@ def owner_visit_token(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    user = session_user(relyqo_session, db, OWNER_ROLE)
+    user = session_user(relyqo_session, db, {OWNER_ROLE, STAFF_ROLE})
     existing = db.scalar(
         select(VisitToken).where(
             VisitToken.transaction_reference == body.transaction_reference
@@ -304,14 +466,14 @@ def owner_visit_token(
     _, branch = ensure_fregat(db)
     if user.organization_id != branch.organization_id:
         raise HTTPException(403, "Нет доступа к этому ресторану")
-    token = issue_visit_token(branch, db)
+    token = issue_visit_token(branch, db, user.id)
     record = db.scalar(
         select(VisitToken).where(VisitToken.token_hash == token_hash(token))
     )
     record.transaction_reference = body.transaction_reference
     db.add(
         AuditLog(
-            actor_type="OWNER",
+            actor_type=user.role,
             action="VISIT_TOKEN_ISSUED",
             entity_type="VISIT_TOKEN",
             entity_id=record.id,

@@ -48,6 +48,12 @@ class VisitToken(Base):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    issued_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=now, nullable=True
+    )
 
 
 class Visit(Base):

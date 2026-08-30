@@ -85,6 +85,56 @@ def test_owner_issues_one_qr_per_receipt():
     assert client.post("/v1/owner/visit-token", json=body).status_code == 409
 
 
+def test_owner_manages_staff_and_staff_qr_is_auditable():
+    Base.metadata.create_all(engine)
+    settings.owner_password = OWNER_TEST_PASSWORD
+    username = f"cashier-{uuid.uuid4().hex[:8]}"
+    staff_password = "cashier-password-123"
+    owner = TestClient(app)
+    assert owner.post(
+        "/v1/auth/login",
+        json={"username": "fregat-owner", "password": OWNER_TEST_PASSWORD},
+    ).status_code == 200
+    created = owner.post(
+        "/v1/owner/staff",
+        json={"username": username, "password": staff_password},
+    )
+    assert created.status_code == 200
+    staff_id = created.json()["id"]
+    with SessionLocal() as db:
+        user = db.get(User, staff_id)
+        assert user.role == "FREGAT_STAFF"
+        assert verify_password(staff_password, user.password_hash)
+    staff = TestClient(app)
+    assert staff.post(
+        "/v1/auth/login",
+        json={"username": username, "password": staff_password},
+    ).status_code == 200
+    reference = f"STAFF-{uuid.uuid4()}"
+    issued = staff.post(
+        "/v1/owner/visit-token",
+        json={"transaction_reference": reference},
+    )
+    assert issued.status_code == 200
+    assert staff.get("/v1/owner/qr-log").status_code == 403
+    assert staff.get("/v1/review/ratings").status_code == 403
+    log = owner.get("/v1/owner/qr-log")
+    assert log.status_code == 200
+    item = next(
+        item for item in log.json()["items"] if item["transaction_reference"] == reference
+    )
+    assert item["issued_by"] == username
+    assert item["status"] == "ACTIVE"
+    assert owner.post(
+        f"/v1/owner/staff/{staff_id}/status", json={"active": False}
+    ).status_code == 200
+    assert staff.get("/v1/auth/me").status_code == 401
+    assert staff.post(
+        "/v1/owner/visit-token",
+        json={"transaction_reference": f"DENIED-{uuid.uuid4()}"},
+    ).status_code == 401
+
+
 def test_business_fregat_is_read_only():
     Base.metadata.create_all(engine)
     client = TestClient(app)
@@ -182,6 +232,13 @@ def test_review_page_is_not_cached():
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO OWNER REVIEW" in response.text
+
+
+def test_staff_page_is_not_cached():
+    response = TestClient(app).get("/staff")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert "RELYQO STAFF" in response.text
 
 
 def test_account_password_is_hashed_and_logout_revokes_session():
