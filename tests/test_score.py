@@ -1,5 +1,5 @@
 import pytest
-from app.score import calculate_ces, weighted_score
+from app.score import calculate_ces, review_reason, weighted_score
 
 
 def test_ces_formula():
@@ -21,3 +21,8 @@ def test_empty_score():
 def test_range_validation():
     with pytest.raises(ValueError):
         calculate_ces(11, 8, 8, 8, 8)
+
+
+def test_negative_feedback_is_not_automatically_disputed():
+    assert review_reason(1, 1, 1, 1, 1) is None
+    assert review_reason(10, 1, 1, 1, 1) is not None

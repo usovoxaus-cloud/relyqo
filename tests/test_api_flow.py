@@ -6,6 +6,7 @@ from app.models import Branch, Organization, VisitToken
 from app.security import create_token, token_hash
 from app.config import settings
 import uuid
+from urllib.parse import parse_qs, urlsplit
 
 
 def test_qr_rating_score_flow():
@@ -94,3 +95,60 @@ def test_business_page_loads_data_inline_without_cache():
     assert "loadDashboard()" in response.text
     assert 'id="content" class="grid"' in response.text
     assert "/static/business.js" not in response.text
+
+
+def test_contradictory_rating_requires_independent_review():
+    Base.metadata.create_all(engine)
+    settings.owner_password = "restaurant-owner-password"
+    settings.review_password = "platform-review-password"
+    client = TestClient(app)
+    redirect = client.get("/fregat", follow_redirects=False)
+    initial = client.get("/v1/business/fregat").json()
+    token = parse_qs(urlsplit(redirect.headers["location"]).query)["token"][0]
+    visit = client.post("/v1/visits/verify-token", json={"token": token}).json()
+    submitted = client.post(
+        "/v1/ratings",
+        json={
+            "visit_id": visit["visit_id"],
+            "overall": 10,
+            "food": 1,
+            "service": 1,
+            "cleanliness": 1,
+            "value": 1,
+        },
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "PENDING_REVIEW"
+    assert submitted.json()["included_in_rating"] is False
+    assert submitted.json()["rating_count"] == initial["rating_count"]
+    assert client.get("/v1/review/ratings").status_code == 401
+    assert (
+        client.get(
+            "/v1/review/ratings",
+            headers={"x-review-password": settings.owner_password},
+        ).status_code
+        == 401
+    )
+    queue = client.get(
+        "/v1/review/ratings",
+        headers={"x-review-password": settings.review_password},
+    ).json()
+    item = next(
+        item
+        for item in queue["items"]
+        if item["rating_id"] == submitted.json()["rating_id"]
+    )
+    decision = client.post(
+        f"/v1/review/ratings/{item['review_id']}/decision",
+        json={"password": settings.review_password, "decision": "APPROVE"},
+    )
+    assert decision.status_code == 200
+    assert decision.json()["included_in_rating"] is True
+    assert decision.json()["rating_count"] == initial["rating_count"] + 1
+
+
+def test_review_page_is_not_cached():
+    response = TestClient(app).get("/review")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert "RELYQO OWNER REVIEW" in response.text

@@ -13,6 +13,8 @@ services:
         generateValue: true
       - key: OWNER_PASSWORD
         sync: false
+      - key: REVIEW_PASSWORD
+        sync: false
       - key: PUBLIC_BASE_URL
         value: https://relyqo.onrender.com
       - key: DEMO_MODE

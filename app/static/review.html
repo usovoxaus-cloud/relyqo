@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101528">
+  <title>RELYQO Owner Review</title>
+  <style>
+    :root{font-family:Inter,Segoe UI,Arial,sans-serif;color:#f8fbff;background:#090d19;color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 0 0,#213f50 0,transparent 33%),radial-gradient(circle at 100% 10%,#39245f 0,transparent 28%),#090d19}.shell{max-width:1000px;margin:auto;padding:28px 18px 70px}.top{display:flex;align-items:center;gap:13px;margin-bottom:22px}.logo{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#71e5bd;color:#06291f;font-size:25px;font-weight:900}.brand{font-weight:900;letter-spacing:.06em}.secure{margin-left:auto;padding:8px 12px;border:1px solid #715bc4;border-radius:99px;color:#c8baff;font-size:10px;font-weight:800;letter-spacing:.1em}.panel{padding:24px;border:1px solid #263950;border-radius:22px;background:rgba(13,24,40,.95);box-shadow:0 22px 55px rgba(0,0,0,.3)}h1{margin:4px 0 8px;font-size:34px}.lead{margin:0 0 21px;color:#a8bdca;line-height:1.55}.login{display:grid;grid-template-columns:1fr auto;gap:10px}input{min-width:0;padding:14px 15px;border:1px solid #38516a;border-radius:13px;background:#091522;color:#fff;font-size:16px}button{border:0;border-radius:12px;padding:13px 17px;font-weight:800;cursor:pointer}.load{background:#72e5bd;color:#06291f}.error{min-height:20px;color:#ff8f9b;font-size:13px}.summary{display:flex;justify-content:space-between;align-items:center;margin:28px 2px 13px}.summary h2{margin:0}.count{padding:6px 10px;border-radius:99px;background:#2e2558;color:#d6ccff;font-weight:800}.items{display:grid;gap:14px}.review{padding:20px;border:1px solid #34425a;border-radius:19px;background:#101b2b}.reviewHead{display:flex;justify-content:space-between;gap:12px}.restaurant{font-size:20px;font-weight:900}.pending{color:#ffc46e;font-size:11px;font-weight:800;letter-spacing:.08em}.reason{margin:12px 0;padding:11px 13px;border-left:3px solid #ffb14f;background:#332615;color:#ffd99c}.scores{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin:15px 0}.score{padding:10px 6px;text-align:center;border-radius:11px;background:#18283a}.score span{display:block;color:#93aabd;font-size:10px}.score b{display:block;margin-top:5px;font-size:20px}.actions{display:flex;gap:10px}.approve{background:#58d5a9;color:#06291f}.reject{background:#552630;color:#ffadb6;border:1px solid #a44552}.empty{padding:28px;text-align:center;border:1px dashed #405168;border-radius:18px;color:#9eb3c1}.rule{margin-top:20px;color:#849aaa;font-size:12px;line-height:1.55}.hidden{display:none}@media(max-width:680px){.login{grid-template-columns:1fr}.scores{grid-template-columns:repeat(3,1fr)}.reviewHead{display:block}.pending{display:block;margin-top:5px}.actions{display:grid}.brand{font-size:13px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top"><span class="logo">R</span><span class="brand">RELYQO OWNER REVIEW</span><span class="secure">ЗАЩИЩЕНО</span></header>
+    <section class="panel">
+      <p style="margin:0;color:#8f7be0;font-size:11px;font-weight:800;letter-spacing:.13em">НЕЗАВИСИМАЯ ПРОВЕРКА RELYQO</p>
+      <h1>Спорные оценки</h1>
+      <p class="lead">Эта панель доступна только RELYQO Review. Ресторан не имеет доступа к решениям и не может менять оценки или Score.</p>
+      <div class="login"><input id="password" type="password" autocomplete="current-password" placeholder="Пароль RELYQO Review"><button id="load" class="load">Открыть очередь</button></div>
+      <p id="error" class="error"></p>
+      <div id="queue" class="hidden"><div class="summary"><h2>Ожидают решения</h2><span id="count" class="count">0</span></div><div id="items" class="items"></div><p class="rule">Низкая оценка сама по себе не считается спорной. Проверка включается только при сильном внутреннем противоречии между категориями. Все решения записываются в Audit Log.</p></div>
+    </section>
+  </main>
+  <script>
+    const $=selector=>document.querySelector(selector);
+    const labels={overall:'Общее',food:'Еда',service:'Сервис',cleanliness:'Чистота',value:'Цена',ces:'CES'};
+    const escapeHtml=value=>String(value).replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    async function loadQueue(){
+      try{
+        $('#error').textContent='';
+        const response=await fetch('/v1/review/ratings',{headers:{'x-review-password':$('#password').value},cache:'no-store'});
+        const data=await response.json();
+        if(!response.ok)throw new Error(data.detail||'Не удалось открыть очередь');
+        $('#count').textContent=data.count;
+        $('#items').innerHTML=data.items.length?data.items.map(item=>`<article class="review"><div class="reviewHead"><span class="restaurant">${escapeHtml(item.organization)}</span><span class="pending">ОЖИДАЕТ REVIEW</span></div><p class="reason">${escapeHtml(item.reason)}</p><div class="scores">${Object.entries(item.scores).map(([key,value])=>`<div class="score"><span>${labels[key]}</span><b>${Number(value).toFixed(key==='ces'?1:0)}</b></div>`).join('')}</div><div class="actions"><button class="approve" data-id="${item.review_id}" data-decision="APPROVE">Подтвердить оценку</button><button class="reject" data-id="${item.review_id}" data-decision="REJECT">Отклонить оценку</button></div></article>`).join(''):'<div class="empty">Сейчас спорных оценок нет.</div>';
+        $('#queue').classList.remove('hidden');
+      }catch(error){$('#error').textContent=error.message;}
+    }
+    $('#load').onclick=loadQueue;
+    $('#items').onclick=async event=>{
+      const button=event.target.closest('button[data-decision]');if(!button)return;
+      try{
+        button.disabled=true;$('#error').textContent='';
+        const response=await fetch(`/v1/review/ratings/${button.dataset.id}/decision`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:$('#password').value,decision:button.dataset.decision})});
+        const data=await response.json();if(!response.ok)throw new Error(data.detail||'Не удалось сохранить решение');await loadQueue();
+      }catch(error){button.disabled=false;$('#error').textContent=error.message;}
+    };
+  </script>
+</body>
+</html>

@@ -19,6 +19,7 @@ class Settings:
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.qr_secret = os.getenv("QR_SECRET", "development-secret-change-me-32chars")
         self.owner_password = os.getenv("OWNER_PASSWORD") or None
+        self.review_password = os.getenv("REVIEW_PASSWORD") or None
         self.public_base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
         self.demo_mode = os.getenv("DEMO_MODE", "true").strip().lower() in {
             "1",

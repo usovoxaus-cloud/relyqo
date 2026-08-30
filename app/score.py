@@ -26,3 +26,13 @@ def weighted_score(rows) -> float:
         sum(ces * weight for ces, weight in valid) / sum(weight for _, weight in valid),
         2,
     )
+
+
+def review_reason(
+    overall: int, food: int, service: int, cleanliness: int, value: int
+) -> str | None:
+    """Flag internal contradiction, never merely negative feedback."""
+    values = [overall, food, service, cleanliness, value]
+    if max(values) - min(values) >= 6:
+        return "Большой разброс между категориями оценки"
+    return None

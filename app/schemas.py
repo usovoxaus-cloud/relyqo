@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -17,3 +18,8 @@ class RatingCreate(BaseModel):
 class OwnerTokenCreate(BaseModel):
     password: str = Field(min_length=8, max_length=200)
     transaction_reference: str = Field(min_length=1, max_length=120)
+
+
+class ReviewDecision(BaseModel):
+    password: str = Field(min_length=8, max_length=200)
+    decision: Literal["APPROVE", "REJECT"]

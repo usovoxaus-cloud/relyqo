@@ -14,13 +14,14 @@ from .models import (
     AuditLog,
     Branch,
     Organization,
+    OwnerReview,
     Rating,
     ScoreHistory,
     Visit,
     VisitToken,
 )
-from .schemas import OwnerTokenCreate, RatingCreate, VerifyVisit
-from .score import calculate_ces, weighted_score
+from .schemas import OwnerTokenCreate, RatingCreate, ReviewDecision, VerifyVisit
+from .score import calculate_ces, review_reason, weighted_score
 from .security import create_token, token_hash, verify_signature
 
 app = FastAPI(title="RELYQO API", version="1.1.0")
@@ -65,6 +66,29 @@ def issue_visit_token(branch: Branch, db: Session) -> str:
     return token
 
 
+def recalculate_organization(org: Organization, db: Session) -> None:
+    rows = db.execute(
+        select(Rating.ces, Rating.trust_weight, Rating.included).where(
+            Rating.organization_id == org.id
+        )
+    ).all()
+    org.score = weighted_score(rows)
+    org.rating_count = len([row for row in rows if row.included])
+    db.add(org)
+    db.add(
+        ScoreHistory(organization_id=org.id, score=org.score)
+    )
+
+
+def require_review_password(password: str | None) -> None:
+    if not settings.review_password:
+        raise HTTPException(503, "RELYQO Review ещё не настроен")
+    if not password or not hmac.compare_digest(
+        password.encode("utf-8"), settings.review_password.encode("utf-8")
+    ):
+        raise HTTPException(401, "Неверный пароль RELYQO Review")
+
+
 @app.get("/", include_in_schema=False)
 def web():
     return FileResponse(static / "index.html")
@@ -79,6 +103,14 @@ def owner_web():
 def business_web():
     return FileResponse(
         static / "business.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/review", include_in_schema=False)
+def review_web():
+    return FileResponse(
+        static / "review.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
 
@@ -271,11 +303,16 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
     ces = calculate_ces(
         body.overall, body.food, body.service, body.cleanliness, body.value
     )
+    pending_reason = review_reason(
+        body.overall, body.food, body.service, body.cleanliness, body.value
+    )
     rating = Rating(
         **body.model_dump(),
         organization_id=org.id,
         ces=ces,
         trust_weight=visit.verification_score,
+        included=pending_reason is None,
+        status="PENDING_REVIEW" if pending_reason else "ACCEPTED",
     )
     db.add(rating)
     try:
@@ -283,24 +320,32 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Для этого посещения оценка уже поставлена")
-    rows = db.execute(
-        select(Rating.ces, Rating.trust_weight, Rating.included).where(
-            Rating.organization_id == org.id
+    if pending_reason:
+        db.add_all(
+            [
+                OwnerReview(
+                    entity_type="RATING",
+                    entity_id=rating.id,
+                    reason=pending_reason,
+                ),
+                AuditLog(
+                    actor_type="SCORE_ENGINE",
+                    action="RATING_QUEUED_FOR_REVIEW",
+                    entity_type="RATING",
+                    entity_id=rating.id,
+                ),
+            ]
         )
-    ).all()
-    org.score = weighted_score(rows)
-    org.rating_count = len([r for r in rows if r.included])
-    db.add_all(
-        [
-            ScoreHistory(organization_id=org.id, score=org.score),
+    else:
+        recalculate_organization(org, db)
+        db.add(
             AuditLog(
                 actor_type="SCORE_ENGINE",
                 action="SCORE_RECALCULATED",
                 entity_type="ORGANIZATION",
                 entity_id=org.id,
-            ),
-        ]
-    )
+            )
+        )
     db.commit()
     return {
         "rating_id": rating.id,
@@ -335,6 +380,91 @@ def business_read(
     if x_role != "BUSINESS_VIEWER":
         raise HTTPException(403)
     return score(organization_id, db)
+
+
+@app.get("/v1/review/ratings")
+def pending_rating_reviews(
+    x_review_password: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    require_review_password(x_review_password)
+    reviews = db.scalars(
+        select(OwnerReview)
+        .where(
+            OwnerReview.entity_type == "RATING",
+            OwnerReview.status == "PENDING",
+        )
+        .order_by(OwnerReview.id)
+    ).all()
+    result = []
+    for review in reviews:
+        rating = db.get(Rating, review.entity_id)
+        if not rating:
+            continue
+        org = db.get(Organization, rating.organization_id)
+        result.append(
+            {
+                "review_id": review.id,
+                "rating_id": rating.id,
+                "organization": org.name if org else "Неизвестная организация",
+                "reason": review.reason,
+                "status": review.status,
+                "created_at": rating.created_at,
+                "scores": {
+                    "overall": rating.overall,
+                    "food": rating.food,
+                    "service": rating.service,
+                    "cleanliness": rating.cleanliness,
+                    "value": rating.value,
+                    "ces": rating.ces,
+                },
+            }
+        )
+    return {"items": result, "count": len(result)}
+
+
+@app.post("/v1/review/ratings/{review_id}/decision")
+def decide_rating_review(
+    review_id: str,
+    body: ReviewDecision,
+    db: Session = Depends(get_db),
+):
+    require_review_password(body.password)
+    review = db.get(OwnerReview, review_id)
+    if not review or review.entity_type != "RATING":
+        raise HTTPException(404, "Спорная оценка не найдена")
+    if review.status != "PENDING":
+        raise HTTPException(409, "Решение уже принято")
+    rating = db.get(Rating, review.entity_id)
+    if not rating:
+        raise HTTPException(404, "Оценка не найдена")
+    approved = body.decision == "APPROVE"
+    review.status = "APPROVED" if approved else "REJECTED"
+    rating.included = approved
+    rating.status = "ACCEPTED" if approved else "REJECTED"
+    org = db.get(Organization, rating.organization_id)
+    recalculate_organization(org, db)
+    db.add_all(
+        [
+            review,
+            rating,
+            AuditLog(
+                actor_type="RELYQO_REVIEWER",
+                action=f"RATING_REVIEW_{review.status}",
+                entity_type="RATING",
+                entity_id=rating.id,
+            ),
+        ]
+    )
+    db.commit()
+    return {
+        "review_id": review.id,
+        "status": review.status,
+        "rating_status": rating.status,
+        "included_in_rating": rating.included,
+        "relyqo_score": org.score,
+        "rating_count": org.rating_count,
+    }
 
 
 @app.get("/v1/business/fregat")
