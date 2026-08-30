@@ -7,7 +7,7 @@ from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
@@ -27,9 +27,11 @@ from .models import (
 from .schemas import (
     LoginRequest,
     OwnerTokenCreate,
+    PasswordChange,
     RatingCreate,
     ReviewDecision,
     StaffCreate,
+    StaffPasswordReset,
     StaffStatus,
     VerifyVisit,
 )
@@ -103,9 +105,12 @@ def recalculate_organization(org: Organization, db: Session) -> None:
 
 SESSION_COOKIE = "relyqo_session"
 SESSION_HOURS = 8
+MAX_LOGIN_ATTEMPTS = 5
+LOGIN_LOCK_MINUTES = 15
 OWNER_ROLE = "FREGAT_OWNER"
 STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
+_DUMMY_PASSWORD_HASH = password_hash("dummy-password-used-for-timing-only")
 
 
 def bootstrap_user(username: str, password: str, db: Session) -> User | None:
@@ -140,9 +145,53 @@ def authenticate(username: str, password: str, db: Session) -> User | None:
     user = db.scalar(select(User).where(User.username == username))
     if not user:
         user = bootstrap_user(username, password, db)
-    if not user or not user.active or not verify_password(password, user.password_hash):
+    if not user:
+        verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
+    now = datetime.utcnow()
+    if user.locked_until and user.locked_until > now:
+        raise HTTPException(
+            429,
+            "Слишком много попыток входа. Повторите через 15 минут",
+        )
+    if not user.active or not verify_password(password, user.password_hash):
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
+            user.locked_until = now + timedelta(minutes=LOGIN_LOCK_MINUTES)
+        locked = user.failed_login_attempts >= MAX_LOGIN_ATTEMPTS
+        db.add_all(
+            [
+                user,
+                AuditLog(
+                    actor_type=user.role,
+                    action="AUTH_LOGIN_LOCKED" if locked else "AUTH_LOGIN_FAILED",
+                    entity_type="USER",
+                    entity_id=user.id,
+                ),
+            ]
+        )
+        db.commit()
+        if locked:
+            raise HTTPException(
+                429,
+                "Слишком много попыток входа. Повторите через 15 минут",
+            )
+        return None
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    db.add(user)
     return user
+
+
+def revoke_user_sessions(user_id: str, db: Session) -> None:
+    db.execute(
+        update(AuthSession)
+        .where(
+            AuthSession.user_id == user_id,
+            AuthSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=datetime.utcnow())
+    )
 
 
 def session_user(
@@ -289,6 +338,39 @@ def logout(
     return {"status": "SIGNED_OUT"}
 
 
+@app.post("/v1/auth/change-password")
+def change_password(
+    body: PasswordChange,
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db)
+    if not verify_password(body.current_password, user.password_hash):
+        raise HTTPException(401, "Текущий пароль указан неверно")
+    if verify_password(body.new_password, user.password_hash):
+        raise HTTPException(422, "Новый пароль должен отличаться от текущего")
+    user.password_hash = password_hash(body.new_password)
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    revoke_user_sessions(user.id, db)
+    db.add_all(
+        [
+            user,
+            AuditLog(
+                actor_type=user.role,
+                action="AUTH_PASSWORD_CHANGED",
+                entity_type="USER",
+                entity_id=user.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "PASSWORD_CHANGED", "login_required": True}
+
+
 @app.post("/v1/owner/staff")
 def create_staff_account(
     body: StaffCreate,
@@ -372,6 +454,8 @@ def set_staff_status(
     ):
         raise HTTPException(404, "Сотрудник не найден")
     staff.active = body.active
+    if not body.active:
+        revoke_user_sessions(staff.id, db)
     db.add_all(
         [
             staff,
@@ -385,6 +469,46 @@ def set_staff_status(
     )
     db.commit()
     return {"id": staff.id, "username": staff.username, "active": staff.active}
+
+
+@app.post("/v1/owner/staff/{user_id}/reset-password")
+def reset_staff_password(
+    user_id: str,
+    body: StaffPasswordReset,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    staff = db.get(User, user_id)
+    if (
+        not staff
+        or staff.role != STAFF_ROLE
+        or staff.organization_id != owner.organization_id
+    ):
+        raise HTTPException(404, "Сотрудник не найден")
+    if verify_password(body.new_password, staff.password_hash):
+        raise HTTPException(422, "Новый пароль должен отличаться от прежнего")
+    staff.password_hash = password_hash(body.new_password)
+    staff.failed_login_attempts = 0
+    staff.locked_until = None
+    revoke_user_sessions(staff.id, db)
+    db.add_all(
+        [
+            staff,
+            AuditLog(
+                actor_type=owner.role,
+                action="STAFF_PASSWORD_RESET",
+                entity_type="USER",
+                entity_id=staff.id,
+            ),
+        ]
+    )
+    db.commit()
+    return {
+        "id": staff.id,
+        "username": staff.username,
+        "status": "PASSWORD_RESET",
+    }
 
 
 @app.get("/v1/owner/qr-log")

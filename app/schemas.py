@@ -35,3 +35,12 @@ class StaffCreate(BaseModel):
 
 class StaffStatus(BaseModel):
     active: bool
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=8, max_length=200)
+    new_password: str = Field(min_length=10, max_length=200)
+
+
+class StaffPasswordReset(BaseModel):
+    new_password: str = Field(min_length=10, max_length=200)

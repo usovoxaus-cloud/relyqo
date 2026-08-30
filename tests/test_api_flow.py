@@ -259,3 +259,72 @@ def test_account_password_is_hashed_and_logout_revokes_session():
     assert client.get("/v1/auth/me").status_code == 200
     assert client.post("/v1/auth/logout").status_code == 200
     assert client.get("/v1/auth/me").status_code == 401
+
+
+def test_password_change_reset_and_login_lockout():
+    Base.metadata.create_all(engine)
+    settings.owner_password = OWNER_TEST_PASSWORD
+    username = f"secure-{uuid.uuid4().hex[:8]}"
+    original = "staff-original-password"
+    changed = "staff-changed-password"
+    reset = "staff-reset-password"
+    owner = TestClient(app)
+    assert owner.post(
+        "/v1/auth/login",
+        json={"username": "fregat-owner", "password": OWNER_TEST_PASSWORD},
+    ).status_code == 200
+    created = owner.post(
+        "/v1/owner/staff",
+        json={"username": username, "password": original},
+    ).json()
+
+    first_session = TestClient(app)
+    second_session = TestClient(app)
+    assert first_session.post(
+        "/v1/auth/login", json={"username": username, "password": original}
+    ).status_code == 200
+    assert second_session.post(
+        "/v1/auth/login", json={"username": username, "password": original}
+    ).status_code == 200
+    changed_response = first_session.post(
+        "/v1/auth/change-password",
+        json={"current_password": original, "new_password": changed},
+    )
+    assert changed_response.status_code == 200
+    assert changed_response.json()["login_required"] is True
+    assert first_session.get("/v1/auth/me").status_code == 401
+    assert second_session.get("/v1/auth/me").status_code == 401
+    assert TestClient(app).post(
+        "/v1/auth/login", json={"username": username, "password": original}
+    ).status_code == 401
+
+    active_session = TestClient(app)
+    assert active_session.post(
+        "/v1/auth/login", json={"username": username, "password": changed}
+    ).status_code == 200
+    reset_response = owner.post(
+        f"/v1/owner/staff/{created['id']}/reset-password",
+        json={"new_password": reset},
+    )
+    assert reset_response.status_code == 200
+    assert active_session.get("/v1/auth/me").status_code == 401
+    assert TestClient(app).post(
+        "/v1/auth/login", json={"username": username, "password": changed}
+    ).status_code == 401
+    assert TestClient(app).post(
+        "/v1/auth/login", json={"username": username, "password": reset}
+    ).status_code == 200
+
+    for attempt in range(5):
+        response = TestClient(app).post(
+            "/v1/auth/login",
+            json={"username": username, "password": f"wrong-password-{attempt}"},
+        )
+    assert response.status_code == 429
+    assert TestClient(app).post(
+        "/v1/auth/login", json={"username": username, "password": reset}
+    ).status_code == 429
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == username))
+        assert user.failed_login_attempts == 5
+        assert user.locked_until > datetime.utcnow()
