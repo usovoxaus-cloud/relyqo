@@ -77,7 +77,10 @@ def owner_web():
 
 @app.get("/business", include_in_schema=False)
 def business_web():
-    return FileResponse(static / "business.html")
+    return FileResponse(
+        static / "business.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/fregat", include_in_schema=False)

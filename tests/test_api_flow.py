@@ -84,3 +84,12 @@ def test_business_fregat_is_read_only():
     assert response.status_code == 200
     assert all(value is False for value in response.json()["permissions"].values())
     assert client.post("/v1/business/fregat", json={}).status_code == 405
+
+
+def test_business_page_loads_data_inline_without_cache():
+    response = TestClient(app).get("/business")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert "loadDashboard()" in response.text
+    assert 'id="content" class="grid"' in response.text
+    assert "/static/business.js" not in response.text

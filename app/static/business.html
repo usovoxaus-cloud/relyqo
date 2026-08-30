@@ -23,7 +23,7 @@
     <header class="topbar"><span class="logo">R</span><span class="brand">RELYQO BUSINESS</span><span class="badge">ТОЛЬКО ПРОСМОТР</span></header>
     <div class="notice"><b>Это информационная панель ресторана.</b> RELYQO автоматически считает результат по подтверждённым оценкам гостей. Ресторан не может менять оценки или Score.</div>
     <div id="error" class="error hidden"></div>
-    <section id="content" class="grid hidden">
+    <section id="content" class="grid">
       <article class="card">
         <p class="eyebrow">Ресторан и филиал</p><h1 id="name">Fregat</h1><p id="location" class="location"></p>
         <div class="scoreBox"><span class="scoreLabel">RELYQO SCORE — итоговая оценка</span><div class="scoreRow"><span id="score" class="scoreBig">—</span><span class="outof">из 100</span></div><p class="scoreHelp">Чем выше число, тем лучше подтверждённый опыт гостей.</p></div>
@@ -33,6 +33,27 @@
       <article class="card"><p class="eyebrow">Оценки по категориям</p><h2>Что понравилось гостям</h2><div id="metrics" class="bars"></div><p class="eyebrow historyTitle">Как менялся итоговый Score</p><div id="history" class="history"></div></article>
     </section>
   </main>
-  <script src="/static/business.js?v=business-3"></script>
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const labels = {overall:'Общее впечатление',food:'Качество еды',service:'Обслуживание',cleanliness:'Чистота',value:'Соотношение цены и качества'};
+    async function loadDashboard(){
+      try{
+        const response=await fetch('/v1/business/fregat',{cache:'no-store'});
+        const data=await response.json();
+        if(!response.ok)throw new Error(data.detail||'Не удалось загрузить данные');
+        $('#name').textContent=data.organization.name;
+        $('#location').textContent=`${data.organization.branch} · ${data.organization.city}`;
+        $('#score').textContent=Number(data.relyqo_score).toFixed(1);
+        $('#ratings').textContent=data.rating_count;
+        $('#visits').textContent=data.verified_visits;
+        $('#metrics').innerHTML=Object.entries(data.metrics).map(([key,value])=>`<div class="metric-${key}"><div class="barTop"><span>${labels[key]}</span><b>${Number(value).toFixed(1)} / 100</b></div><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,value))}%"></div></div></div>`).join('');
+        $('#history').innerHTML=data.history.length?data.history.map(item=>`<i style="height:${Math.max(4,item.score)}%" title="Score ${item.score}"></i>`).join(''):'<span class="empty">График появится после первой завершённой оценки гостя.</span>';
+      }catch(error){
+        $('#error').textContent=`Ошибка загрузки: ${error.message}`;
+        $('#error').classList.remove('hidden');
+      }
+    }
+    loadDashboard();
+  </script>
 </body>
 </html>
