@@ -82,6 +82,7 @@ def test_business_fregat_is_read_only():
     client.get("/fregat", follow_redirects=False)
     response = client.get("/v1/business/fregat")
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
     assert all(value is False for value in response.json()["permissions"].values())
     assert client.post("/v1/business/fregat", json={}).status_code == 405
 

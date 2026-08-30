@@ -338,8 +338,9 @@ def business_read(
 
 
 @app.get("/v1/business/fregat")
-def fregat_business_dashboard(db: Session = Depends(get_db)):
+def fregat_business_dashboard(response: Response, db: Session = Depends(get_db)):
     """Read-only aggregate view. No Business mutation endpoints exist."""
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     org = db.scalar(select(Organization).where(Organization.name == "Fregat"))
     if not org:
         raise HTTPException(404, "Fregat ещё не создан")
