@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 import hmac
 from pathlib import Path
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+import secrets
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +13,7 @@ from .config import settings
 from .db import get_db
 from .models import (
     AuditLog,
+    AuthSession,
     Branch,
     Organization,
     OwnerReview,
@@ -19,10 +21,17 @@ from .models import (
     ScoreHistory,
     Visit,
     VisitToken,
+    User,
 )
-from .schemas import OwnerTokenCreate, RatingCreate, ReviewDecision, VerifyVisit
+from .schemas import LoginRequest, OwnerTokenCreate, RatingCreate, ReviewDecision, VerifyVisit
 from .score import calculate_ces, review_reason, weighted_score
-from .security import create_token, token_hash, verify_signature
+from .security import (
+    create_token,
+    password_hash,
+    token_hash,
+    verify_password,
+    verify_signature,
+)
 
 app = FastAPI(title="RELYQO API", version="1.1.0")
 app.add_middleware(
@@ -80,13 +89,66 @@ def recalculate_organization(org: Organization, db: Session) -> None:
     )
 
 
-def require_review_password(password: str | None) -> None:
-    if not settings.review_password:
-        raise HTTPException(503, "RELYQO Review ещё не настроен")
-    if not password or not hmac.compare_digest(
-        password.encode("utf-8"), settings.review_password.encode("utf-8")
+SESSION_COOKIE = "relyqo_session"
+SESSION_HOURS = 8
+OWNER_ROLE = "FREGAT_OWNER"
+REVIEWER_ROLE = "RELYQO_REVIEWER"
+
+
+def bootstrap_user(username: str, password: str, db: Session) -> User | None:
+    """Create the two initial accounts from legacy Render secrets once."""
+    if username == "fregat-owner":
+        expected = settings.owner_password
+        role = OWNER_ROLE
+        org, _ = ensure_fregat(db)
+        organization_id = org.id
+    elif username == "relyqo-reviewer":
+        expected = settings.review_password
+        role = REVIEWER_ROLE
+        organization_id = None
+    else:
+        return None
+    if not expected or not hmac.compare_digest(
+        password.encode("utf-8"), expected.encode("utf-8")
     ):
-        raise HTTPException(401, "Неверный пароль RELYQO Review")
+        return None
+    user = User(
+        username=username,
+        password_hash=password_hash(password),
+        role=role,
+        organization_id=organization_id,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+def authenticate(username: str, password: str, db: Session) -> User | None:
+    user = db.scalar(select(User).where(User.username == username))
+    if not user:
+        user = bootstrap_user(username, password, db)
+    if not user or not user.active or not verify_password(password, user.password_hash):
+        return None
+    return user
+
+
+def session_user(token: str | None, db: Session, role: str | None = None) -> User:
+    if not token:
+        raise HTTPException(401, "Войдите в аккаунт")
+    session = db.scalar(
+        select(AuthSession).where(
+            AuthSession.token_hash == token_hash(token),
+            AuthSession.revoked_at.is_(None),
+        )
+    )
+    if not session or session.expires_at < datetime.utcnow():
+        raise HTTPException(401, "Сессия истекла. Войдите снова")
+    user = db.get(User, session.user_id)
+    if not user or not user.active:
+        raise HTTPException(401, "Аккаунт отключён")
+    if role and user.role != role:
+        raise HTTPException(403, "У этого аккаунта нет доступа")
+    return user
 
 
 @app.get("/", include_in_schema=False)
@@ -96,7 +158,10 @@ def web():
 
 @app.get("/owner", include_in_schema=False)
 def owner_web():
-    return FileResponse(static / "owner.html")
+    return FileResponse(
+        static / "owner.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/business", include_in_schema=False)
@@ -113,6 +178,89 @@ def review_web():
         static / "review.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
+
+
+@app.post("/v1/auth/login")
+def login(
+    body: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    user = authenticate(body.username.strip().lower(), body.password, db)
+    if not user:
+        raise HTTPException(401, "Неверное имя пользователя или пароль")
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    raw_token = secrets.token_urlsafe(32)
+    session = AuthSession(
+        user_id=user.id,
+        token_hash=token_hash(raw_token),
+        expires_at=datetime.utcnow() + timedelta(hours=SESSION_HOURS),
+    )
+    db.add_all(
+        [
+            session,
+            AuditLog(
+                actor_type=user.role,
+                action="AUTH_LOGIN",
+                entity_type="USER",
+                entity_id=user.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.set_cookie(
+        SESSION_COOKIE,
+        raw_token,
+        max_age=SESSION_HOURS * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return {"username": user.username, "role": user.role}
+
+
+@app.get("/v1/auth/me")
+def me(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {"username": user.username, "role": user.role}
+
+
+@app.post("/v1/auth/logout")
+def logout(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    session = db.scalar(
+        select(AuthSession).where(
+            AuthSession.token_hash == token_hash(relyqo_session),
+            AuthSession.revoked_at.is_(None),
+        )
+    )
+    session.revoked_at = datetime.utcnow()
+    db.add_all(
+        [
+            session,
+            AuditLog(
+                actor_type=user.role,
+                action="AUTH_LOGOUT",
+                entity_type="USER",
+                entity_id=user.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "SIGNED_OUT"}
 
 
 @app.get("/fregat", include_in_schema=False)
@@ -140,12 +288,12 @@ def fregat_qr(request: Request):
 
 @app.post("/v1/owner/visit-token")
 def owner_visit_token(
-    body: OwnerTokenCreate, request: Request, db: Session = Depends(get_db)
+    body: OwnerTokenCreate,
+    request: Request,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
 ):
-    if not settings.owner_password or not hmac.compare_digest(
-        body.password.encode("utf-8"), settings.owner_password.encode("utf-8")
-    ):
-        raise HTTPException(401, "Неверный пароль владельца")
+    user = session_user(relyqo_session, db, OWNER_ROLE)
     existing = db.scalar(
         select(VisitToken).where(
             VisitToken.transaction_reference == body.transaction_reference
@@ -154,6 +302,8 @@ def owner_visit_token(
     if existing:
         raise HTTPException(409, "Для этого чека QR уже выпускался")
     _, branch = ensure_fregat(db)
+    if user.organization_id != branch.organization_id:
+        raise HTTPException(403, "Нет доступа к этому ресторану")
     token = issue_visit_token(branch, db)
     record = db.scalar(
         select(VisitToken).where(VisitToken.token_hash == token_hash(token))
@@ -384,10 +534,10 @@ def business_read(
 
 @app.get("/v1/review/ratings")
 def pending_rating_reviews(
-    x_review_password: str | None = Header(default=None),
+    relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    require_review_password(x_review_password)
+    session_user(relyqo_session, db, REVIEWER_ROLE)
     reviews = db.scalars(
         select(OwnerReview)
         .where(
@@ -427,9 +577,10 @@ def pending_rating_reviews(
 def decide_rating_review(
     review_id: str,
     body: ReviewDecision,
+    relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    require_review_password(body.password)
+    user = session_user(relyqo_session, db, REVIEWER_ROLE)
     review = db.get(OwnerReview, review_id)
     if not review or review.entity_type != "RATING":
         raise HTTPException(404, "Спорная оценка не найдена")
@@ -449,7 +600,7 @@ def decide_rating_review(
             review,
             rating,
             AuditLog(
-                actor_type="RELYQO_REVIEWER",
+                actor_type=user.role,
                 action=f"RATING_REVIEW_{review.status}",
                 entity_type="RATING",
                 entity_id=rating.id,

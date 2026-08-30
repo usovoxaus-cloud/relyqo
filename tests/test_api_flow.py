@@ -1,12 +1,16 @@
 from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Branch, Organization, VisitToken
-from app.security import create_token, token_hash
+from app.models import Branch, Organization, User, VisitToken
+from app.security import create_token, token_hash, verify_password
 from app.config import settings
 import uuid
 from urllib.parse import parse_qs, urlsplit
+
+OWNER_TEST_PASSWORD = "owner-test-password-123"
+REVIEW_TEST_PASSWORD = "review-test-password-123"
 
 
 def test_qr_rating_score_flow():
@@ -67,10 +71,14 @@ def test_fregat_qr_redirect():
 
 def test_owner_issues_one_qr_per_receipt():
     Base.metadata.create_all(engine)
-    settings.owner_password = "владелец-test-password"
+    settings.owner_password = OWNER_TEST_PASSWORD
     reference = f"TEST-{uuid.uuid4()}"
     client = TestClient(app)
-    body = {"password": settings.owner_password, "transaction_reference": reference}
+    assert client.post(
+        "/v1/auth/login",
+        json={"username": "fregat-owner", "password": OWNER_TEST_PASSWORD},
+    ).status_code == 200
+    body = {"transaction_reference": reference}
     issued = client.post("/v1/owner/visit-token", json=body)
     assert issued.status_code == 200
     assert "/v1/qr.png?token=" in issued.json()["qr_url"]
@@ -99,8 +107,8 @@ def test_business_page_loads_data_inline_without_cache():
 
 def test_contradictory_rating_requires_independent_review():
     Base.metadata.create_all(engine)
-    settings.owner_password = "restaurant-owner-password"
-    settings.review_password = "platform-review-password"
+    settings.owner_password = OWNER_TEST_PASSWORD
+    settings.review_password = REVIEW_TEST_PASSWORD
     client = TestClient(app)
     redirect = client.get("/fregat", follow_redirects=False)
     initial = client.get("/v1/business/fregat").json()
@@ -122,17 +130,20 @@ def test_contradictory_rating_requires_independent_review():
     assert submitted.json()["included_in_rating"] is False
     assert submitted.json()["rating_count"] == initial["rating_count"]
     assert client.get("/v1/review/ratings").status_code == 401
-    assert (
-        client.get(
-            "/v1/review/ratings",
-            headers={"x-review-password": settings.owner_password},
-        ).status_code
-        == 401
-    )
-    queue = client.get(
-        "/v1/review/ratings",
-        headers={"x-review-password": settings.review_password},
-    ).json()
+    assert client.post(
+        "/v1/auth/login",
+        json={"username": "fregat-owner", "password": OWNER_TEST_PASSWORD},
+    ).status_code == 200
+    assert client.get("/v1/review/ratings").status_code == 403
+    assert client.post(
+        "/v1/auth/login",
+        json={"username": "relyqo-reviewer", "password": REVIEW_TEST_PASSWORD},
+    ).status_code == 200
+    assert client.post(
+        "/v1/owner/visit-token",
+        json={"transaction_reference": f"DENIED-{uuid.uuid4()}"},
+    ).status_code == 403
+    queue = client.get("/v1/review/ratings").json()
     item = next(
         item
         for item in queue["items"]
@@ -140,7 +151,7 @@ def test_contradictory_rating_requires_independent_review():
     )
     decision = client.post(
         f"/v1/review/ratings/{item['review_id']}/decision",
-        json={"password": settings.review_password, "decision": "APPROVE"},
+        json={"decision": "APPROVE"},
     )
     assert decision.status_code == 200
     assert decision.json()["included_in_rating"] is True
@@ -152,3 +163,23 @@ def test_review_page_is_not_cached():
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO OWNER REVIEW" in response.text
+
+
+def test_account_password_is_hashed_and_logout_revokes_session():
+    Base.metadata.create_all(engine)
+    settings.review_password = REVIEW_TEST_PASSWORD
+    client = TestClient(app, base_url="https://testserver")
+    login = client.post(
+        "/v1/auth/login",
+        json={"username": "relyqo-reviewer", "password": REVIEW_TEST_PASSWORD},
+    )
+    assert login.status_code == 200
+    assert "httponly" in login.headers["set-cookie"].lower()
+    assert "secure" in login.headers["set-cookie"].lower()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == "relyqo-reviewer"))
+        assert user.password_hash != REVIEW_TEST_PASSWORD
+        assert verify_password(REVIEW_TEST_PASSWORD, user.password_hash)
+    assert client.get("/v1/auth/me").status_code == 200
+    assert client.post("/v1/auth/logout").status_code == 200
+    assert client.get("/v1/auth/me").status_code == 401

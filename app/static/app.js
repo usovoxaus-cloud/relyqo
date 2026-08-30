@@ -45,6 +45,8 @@ $("#submit").onclick = async () => {
     metrics.forEach(([id]) => { body[id] = Number($("#" + id).value); });
     const result = await api("/v1/ratings", body);
     $("#score").textContent = result.relyqo_score.toFixed(1);
+    $("#doneStatus").textContent = result.status === "PENDING_REVIEW" ? "ОЦЕНКА ПОЛУЧЕНА" : "ОЦЕНКА УЧТЕНА";
+    $("#doneTitle").textContent = result.status === "PENDING_REVIEW" ? "Ожидает независимой проверки" : "RELYQO Score обновлён";
     $("#summary").textContent = result.status === "PENDING_REVIEW"
       ? "Оценка получена и направлена в RELYQO Owner Review. До решения она не влияет на Score."
       : `Ваша оценка ${result.ces_score.toFixed(1)} учтена. Всего подтверждённых оценок: ${result.rating_count}.`;

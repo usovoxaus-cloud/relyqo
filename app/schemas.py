@@ -16,10 +16,13 @@ class RatingCreate(BaseModel):
 
 
 class OwnerTokenCreate(BaseModel):
-    password: str = Field(min_length=8, max_length=200)
     transaction_reference: str = Field(min_length=1, max_length=120)
 
 
 class ReviewDecision(BaseModel):
-    password: str = Field(min_length=8, max_length=200)
     decision: Literal["APPROVE", "REJECT"]
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=8, max_length=200)
