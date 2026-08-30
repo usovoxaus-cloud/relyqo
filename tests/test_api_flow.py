@@ -92,7 +92,25 @@ def test_business_fregat_is_read_only():
     response = client.get("/v1/business/fregat")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
-    assert all(value is False for value in response.json()["permissions"].values())
+    data = response.json()
+    assert all(value is False for value in data["permissions"].values())
+    pilot = data["pilot"]
+    assert pilot["sample_target"] == 20
+    assert pilot["remaining_to_target"] == max(0, 20 - data["rating_count"])
+    assert pilot["incomplete_visits"] == max(
+        0, data["verified_visits"] - pilot["submitted_ratings"]
+    )
+    expected_completion = (
+        round(pilot["submitted_ratings"] / data["verified_visits"] * 100, 1)
+        if data["verified_visits"]
+        else 0.0
+    )
+    assert pilot["completion_rate"] == expected_completion
+    if data["rating_count"]:
+        assert (
+            pilot["strongest_category"]["score"]
+            >= pilot["weakest_category"]["score"]
+        )
     assert client.post("/v1/business/fregat", json={}).status_code == 405
 
 
@@ -102,6 +120,7 @@ def test_business_page_loads_data_inline_without_cache():
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "loadDashboard()" in response.text
     assert 'id="content" class="grid"' in response.text
+    assert "Пилот по текущим данным" in response.text
     assert "/static/business.js" not in response.text
 
 

@@ -15,7 +15,8 @@
     .kpis{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:15px}.kpi{padding:18px;border-radius:18px}.kpi span{display:block;font-size:13px;font-weight:700}.kpi b{display:block;margin-top:8px;font-size:34px}.ratings{border:1px solid #7059ce;background:#2d255f;color:#ded6ff}.visits{border:1px solid #287bb9;background:#113b5b;color:#d6eeff}.readonlyText{margin:18px 2px 0;color:#91aebc;font-size:12px;line-height:1.55}
     .bars{display:grid;gap:17px}.barTop{display:flex;justify-content:space-between;gap:15px}.barTop span{font-size:14px;font-weight:700}.barTop b{font-size:16px}.track{height:11px;margin-top:8px;overflow:hidden;border-radius:99px;background:#13283a}.fill{height:100%;border-radius:99px}.metric-overall .fill{background:#5fe0ab}.metric-food .fill{background:#ffac53}.metric-service .fill{background:#52a8ff}.metric-cleanliness .fill{background:#b183ff}.metric-value .fill{background:#ff6fae}.metric-overall b{color:#7aebbc}.metric-food b{color:#ffc079}.metric-service b{color:#7cbdff}.metric-cleanliness b{color:#c8a8ff}.metric-value b{color:#ff91c0}
     .historyTitle{margin-top:31px}.history{display:flex;align-items:flex-end;gap:7px;height:118px;padding:13px 10px 0;border-left:1px solid #294054;border-bottom:1px solid #294054}.history i{flex:1;min-width:8px;background:linear-gradient(#72edbd,#287c69);border-radius:5px 5px 0 0}.empty{align-self:center;color:#91aebc;font-size:13px;line-height:1.5}.error{padding:18px;border:1px solid #b9505d;border-radius:15px;background:#4d1d29;color:#ffd8dd}.hidden{display:none}
-    @media(max-width:760px){.dashboard{padding-top:18px}.brand{font-size:14px}.badge{font-size:9px}.grid{grid-template-columns:1fr}.card{padding:21px}.scoreBig{font-size:72px}h1{font-size:36px}}
+    .pilot{margin-top:18px}.pilotHead{display:flex;justify-content:space-between;align-items:start;gap:15px}.sampleBadge{padding:8px 11px;border-radius:99px;background:#3a2d1a;color:#ffc979;font-size:11px;font-weight:900}.sampleTrack{height:12px;margin-top:14px;overflow:hidden;border-radius:99px;background:#172d3e}.sampleFill{height:100%;border-radius:99px;background:linear-gradient(90deg,#ffae55,#ffe07d)}.sampleText{display:flex;justify-content:space-between;margin-top:8px;color:#a9bfca;font-size:12px}.pilotStats{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-top:22px}.pilotStat{padding:15px;border:1px solid #29425a;border-radius:16px;background:#0d2233}.pilotStat span{display:block;color:#9db4c1;font-size:12px}.pilotStat b{display:block;margin-top:7px;font-size:25px}.insights{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:12px}.insight{padding:16px;border-radius:16px}.strong{border:1px solid #2d806a;background:#10392f}.weak{border:1px solid #a66b35;background:#3c2b1c}.insight span{display:block;font-size:12px}.insight b{display:block;margin-top:6px;font-size:19px}.warning{margin-top:15px;padding:14px 16px;border-left:4px solid #ffba5c;border-radius:10px;background:#302619;color:#ffdca8;font-size:13px;line-height:1.5}
+    @media(max-width:760px){.dashboard{padding-top:18px}.brand{font-size:14px}.badge{font-size:9px}.grid{grid-template-columns:1fr}.card{padding:21px}.scoreBig{font-size:72px}h1{font-size:36px}.pilotStats{grid-template-columns:1fr 1fr}.insights{grid-template-columns:1fr}.pilotHead{display:block}.sampleBadge{display:inline-block;margin-top:8px}}
   </style>
 </head>
 <body>
@@ -32,6 +33,7 @@
       </article>
       <article class="card"><p class="eyebrow">Оценки по категориям</p><h2>Что понравилось гостям</h2><div id="metrics" class="bars"></div><p class="eyebrow historyTitle">Как менялся итоговый Score</p><div id="history" class="history"></div></article>
     </section>
+    <section class="card pilot"><div class="pilotHead"><div><p class="eyebrow">Пилот по текущим данным</p><h2 style="margin-bottom:5px">Достаточность выборки</h2><span id="sampleSummary" class="updated"></span></div><span id="sampleBadge" class="sampleBadge">РАННЯЯ ВЫБОРКА</span></div><div class="sampleTrack"><div id="sampleFill" class="sampleFill" style="width:0"></div></div><div class="sampleText"><span id="sampleCount">0 из 20 оценок</span><span id="sampleRemaining">Осталось 20</span></div><div class="pilotStats"><div class="pilotStat"><span>Отправили оценку</span><b id="submitted">0</b></div><div class="pilotStat"><span>Завершение формы</span><b id="completion">0%</b></div><div class="pilotStat"><span>Не завершили</span><b id="incomplete">0</b></div><div class="pilotStat"><span>Ожидают Review</span><b id="pending">0</b></div></div><div class="insights"><div class="insight strong"><span>Самая сильная категория</span><b id="strongest">—</b></div><div class="insight weak"><span>Требует внимания</span><b id="weakest">—</b></div></div><div id="sampleWarning" class="warning"></div></section>
   </main>
   <script>
     const $ = (selector) => document.querySelector(selector);
@@ -50,6 +52,20 @@
         $('#score').textContent=Number(data.relyqo_score).toFixed(1);
         $('#ratings').textContent=data.rating_count;
         $('#visits').textContent=data.verified_visits;
+        const pilot=data.pilot;
+        const samplePercent=Math.min(100,data.rating_count/pilot.sample_target*100);
+        $('#sampleFill').style.width=`${samplePercent}%`;
+        $('#sampleCount').textContent=`${data.rating_count} из ${pilot.sample_target} учтённых оценок`;
+        $('#sampleRemaining').textContent=pilot.remaining_to_target?`Осталось ${pilot.remaining_to_target}`:'Цель достигнута';
+        $('#sampleSummary').textContent=pilot.sample_status==='EARLY'?'Данные уже полезны как ранний сигнал, но выборка пока мала.':'Минимальная пилотная выборка собрана.';
+        $('#sampleBadge').textContent=pilot.sample_status==='EARLY'?'РАННЯЯ ВЫБОРКА':'МИНИМУМ СОБРАН';
+        $('#submitted').textContent=pilot.submitted_ratings;
+        $('#completion').textContent=`${Number(pilot.completion_rate).toFixed(1)}%`;
+        $('#incomplete').textContent=pilot.incomplete_visits;
+        $('#pending').textContent=pilot.pending_review;
+        $('#strongest').textContent=data.rating_count?`${pilot.strongest_category.label} · ${Number(pilot.strongest_category.score).toFixed(1)}/100`:'Пока нет данных';
+        $('#weakest').textContent=data.rating_count?`${pilot.weakest_category.label} · ${Number(pilot.weakest_category.score).toFixed(1)}/100`:'Пока нет данных';
+        $('#sampleWarning').textContent=pilot.sample_status==='EARLY'?`Важно: текущая выборка — ${data.rating_count}. Этого недостаточно для кадровых или финансовых решений. Соберите ещё ${pilot.remaining_to_target} оценок, не меняя и не удаляя текущие результаты.`:'Минимальная выборка собрана. Используйте динамику и категории вместе, а не одну отдельную оценку.';
         $('#metrics').innerHTML=Object.entries(data.metrics).map(([key,value])=>`<div class="metric-${key}"><div class="barTop"><span>${labels[key]}</span><b>${Number(value).toFixed(1)} / 100</b></div><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,value))}%"></div></div></div>`).join('');
         $('#history').innerHTML=data.history.length?data.history.map(item=>`<i style="height:${Math.max(4,item.score)}%" title="Score ${item.score}"></i>`).join(''):'<span class="empty">График появится после первой завершённой оценки гостя.</span>';
         $('#updated').textContent=`Обновлено: ${new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;

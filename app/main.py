@@ -640,6 +640,15 @@ def fregat_business_dashboard(response: Response, db: Session = Depends(get_db))
         .join(Branch, Visit.branch_id == Branch.id)
         .where(Branch.organization_id == org.id)
     )
+    submitted_ratings = db.scalar(
+        select(func.count(Rating.id)).where(Rating.organization_id == org.id)
+    )
+    pending_review = db.scalar(
+        select(func.count(Rating.id)).where(
+            Rating.organization_id == org.id,
+            Rating.status == "PENDING_REVIEW",
+        )
+    )
     history = db.scalars(
         select(ScoreHistory)
         .where(ScoreHistory.organization_id == org.id)
@@ -650,6 +659,26 @@ def fregat_business_dashboard(response: Response, db: Session = Depends(get_db))
     def metric(value):
         return round(float(value) * 10, 1) if value is not None else 0.0
 
+    metrics = {
+        "overall": metric(averages[0]),
+        "food": metric(averages[1]),
+        "service": metric(averages[2]),
+        "cleanliness": metric(averages[3]),
+        "value": metric(averages[4]),
+    }
+    category_labels = {
+        "food": "Качество еды",
+        "service": "Обслуживание",
+        "cleanliness": "Чистота",
+        "value": "Цена и качество",
+    }
+    category_metrics = {key: metrics[key] for key in category_labels}
+    strongest = max(category_metrics, key=category_metrics.get)
+    weakest = min(category_metrics, key=category_metrics.get)
+    visit_count = verified_visits or 0
+    submitted_count = submitted_ratings or 0
+    sample_target = 20
+
     return {
         "organization": {
             "id": org.id,
@@ -659,13 +688,28 @@ def fregat_business_dashboard(response: Response, db: Session = Depends(get_db))
         },
         "relyqo_score": org.score,
         "rating_count": org.rating_count,
-        "verified_visits": verified_visits or 0,
-        "metrics": {
-            "overall": metric(averages[0]),
-            "food": metric(averages[1]),
-            "service": metric(averages[2]),
-            "cleanliness": metric(averages[3]),
-            "value": metric(averages[4]),
+        "verified_visits": visit_count,
+        "metrics": metrics,
+        "pilot": {
+            "sample_status": "EARLY" if org.rating_count < sample_target else "READY",
+            "sample_target": sample_target,
+            "remaining_to_target": max(0, sample_target - org.rating_count),
+            "submitted_ratings": submitted_count,
+            "completion_rate": (
+                round(submitted_count / visit_count * 100, 1) if visit_count else 0.0
+            ),
+            "incomplete_visits": max(0, visit_count - submitted_count),
+            "pending_review": pending_review or 0,
+            "strongest_category": {
+                "key": strongest,
+                "label": category_labels[strongest],
+                "score": category_metrics[strongest],
+            },
+            "weakest_category": {
+                "key": weakest,
+                "label": category_labels[weakest],
+                "score": category_metrics[weakest],
+            },
         },
         "history": [
             {"score": item.score, "calculated_at": item.calculated_at.isoformat() + "Z"}
