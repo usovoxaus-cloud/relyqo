@@ -125,6 +125,10 @@ class User(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recovery_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recovery_code_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 

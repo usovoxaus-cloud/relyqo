@@ -44,3 +44,13 @@ class PasswordChange(BaseModel):
 
 class StaffPasswordReset(BaseModel):
     new_password: str = Field(min_length=10, max_length=200)
+
+
+class AccountRecovery(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    recovery_code: str = Field(min_length=20, max_length=200)
+    new_password: str = Field(min_length=10, max_length=200)
+
+
+class RecoveryCodeCreate(BaseModel):
+    current_password: str = Field(min_length=8, max_length=200)

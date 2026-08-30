@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import Branch, Organization, User, VisitToken
-from app.security import create_token, token_hash, verify_password
+from app.security import create_token, password_hash, token_hash, verify_password
 from app.config import settings
 import uuid
 from urllib.parse import parse_qs, urlsplit
@@ -328,3 +328,77 @@ def test_password_change_reset_and_login_lockout():
         user = db.scalar(select(User).where(User.username == username))
         assert user.failed_login_attempts == 5
         assert user.locked_until > datetime.utcnow()
+
+
+def test_one_time_recovery_code_revokes_sessions_and_resets_password():
+    Base.metadata.create_all(engine)
+    username = f"review-{uuid.uuid4().hex[:8]}"
+    original = "review-original-password"
+    replacement = "review-recovered-password"
+    with SessionLocal() as db:
+        user = User(
+            username=username,
+            password_hash=password_hash(original),
+            role="RELYQO_REVIEWER",
+        )
+        db.add(user)
+        db.commit()
+        user_id = user.id
+
+    first_session = TestClient(app)
+    second_session = TestClient(app)
+    for client in (first_session, second_session):
+        assert client.post(
+            "/v1/auth/login",
+            json={"username": username, "password": original},
+        ).status_code == 200
+    assert first_session.post(
+        "/v1/auth/recovery-code",
+        json={"current_password": "incorrect-current-password"},
+    ).status_code == 401
+    recovery_response = first_session.post(
+        "/v1/auth/recovery-code", json={"current_password": original}
+    )
+    assert recovery_response.status_code == 200
+    recovery_code = recovery_response.json()["recovery_code"]
+    assert recovery_code.startswith("relyqo-")
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user.recovery_code_hash == token_hash(recovery_code)
+        assert recovery_code not in user.recovery_code_hash
+
+    recovered = TestClient(app).post(
+        "/v1/auth/recover",
+        json={
+            "username": username,
+            "recovery_code": recovery_code,
+            "new_password": replacement,
+        },
+    )
+    assert recovered.status_code == 200
+    assert first_session.get("/v1/auth/me").status_code == 401
+    assert second_session.get("/v1/auth/me").status_code == 401
+    assert TestClient(app).post(
+        "/v1/auth/login", json={"username": username, "password": original}
+    ).status_code == 401
+    assert TestClient(app).post(
+        "/v1/auth/login", json={"username": username, "password": replacement}
+    ).status_code == 200
+    assert TestClient(app).post(
+        "/v1/auth/recover",
+        json={
+            "username": username,
+            "recovery_code": recovery_code,
+            "new_password": "another-recovery-password",
+        },
+    ).status_code == 401
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        assert user.recovery_code_hash is None
+
+
+def test_recovery_page_is_not_cached():
+    response = TestClient(app).get("/recover")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    assert "RELYQO RECOVERY" in response.text

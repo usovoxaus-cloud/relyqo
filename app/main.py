@@ -25,10 +25,12 @@ from .models import (
     User,
 )
 from .schemas import (
+    AccountRecovery,
     LoginRequest,
     OwnerTokenCreate,
     PasswordChange,
     RatingCreate,
+    RecoveryCodeCreate,
     ReviewDecision,
     StaffCreate,
     StaffPasswordReset,
@@ -255,6 +257,14 @@ def staff_web():
     )
 
 
+@app.get("/recover", include_in_schema=False)
+def recover_web():
+    return FileResponse(
+        static / "recover.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.post("/v1/auth/login")
 def login(
     body: LoginRequest,
@@ -369,6 +379,96 @@ def change_password(
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.delete_cookie(SESSION_COOKIE, path="/")
     return {"status": "PASSWORD_CHANGED", "login_required": True}
+
+
+@app.post("/v1/auth/recovery-code")
+def create_recovery_code(
+    body: RecoveryCodeCreate,
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, {OWNER_ROLE, REVIEWER_ROLE})
+    if not verify_password(body.current_password, user.password_hash):
+        db.add(
+            AuditLog(
+                actor_type=user.role,
+                action="AUTH_RECOVERY_CODE_FAILED",
+                entity_type="USER",
+                entity_id=user.id,
+            )
+        )
+        db.commit()
+        raise HTTPException(401, "Текущий пароль указан неверно")
+    raw_code = f"relyqo-{secrets.token_urlsafe(32)}"
+    user.recovery_code_hash = token_hash(raw_code)
+    user.recovery_code_created_at = datetime.utcnow()
+    db.add_all(
+        [
+            user,
+            AuditLog(
+                actor_type=user.role,
+                action="AUTH_RECOVERY_CODE_CREATED",
+                entity_type="USER",
+                entity_id=user.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "recovery_code": raw_code,
+        "created_at": user.recovery_code_created_at,
+        "warning": "SAVE_NOW_SHOWN_ONCE",
+    }
+
+
+@app.post("/v1/auth/recover")
+def recover_account(body: AccountRecovery, response: Response, db: Session = Depends(get_db)):
+    username = body.username.strip().lower()
+    user = db.scalar(select(User).where(User.username == username))
+    supplied_hash = token_hash(body.recovery_code.strip())
+    valid_role = bool(user and user.role in {OWNER_ROLE, REVIEWER_ROLE})
+    valid_code = bool(
+        valid_role
+        and user.recovery_code_hash
+        and hmac.compare_digest(supplied_hash, user.recovery_code_hash)
+    )
+    if not valid_code:
+        if valid_role:
+            db.add(
+                AuditLog(
+                    actor_type=user.role,
+                    action="AUTH_RECOVERY_FAILED",
+                    entity_type="USER",
+                    entity_id=user.id,
+                )
+            )
+            db.commit()
+        raise HTTPException(401, "Неверное имя пользователя или код восстановления")
+    if verify_password(body.new_password, user.password_hash):
+        raise HTTPException(422, "Новый пароль должен отличаться от прежнего")
+    user.password_hash = password_hash(body.new_password)
+    user.recovery_code_hash = None
+    user.recovery_code_created_at = None
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    revoke_user_sessions(user.id, db)
+    db.add_all(
+        [
+            user,
+            AuditLog(
+                actor_type=user.role,
+                action="AUTH_ACCOUNT_RECOVERED",
+                entity_type="USER",
+                entity_id=user.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return {"status": "ACCOUNT_RECOVERED", "login_required": True}
 
 
 @app.post("/v1/owner/staff")

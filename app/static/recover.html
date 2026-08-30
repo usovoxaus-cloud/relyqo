@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1725">
+  <title>RELYQO — восстановление доступа</title>
+  <style>
+    :root{font-family:Inter,Segoe UI,Arial,sans-serif;color:#f4f9ff;background:#080e18;color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 0,#174c45 0,transparent 34%),radial-gradient(circle at 100% 0,#332055 0,transparent 31%),#080e18}.shell{max-width:680px;margin:auto;padding:28px 18px 70px}.top{display:flex;align-items:center;gap:12px;margin-bottom:22px}.logo{display:grid;place-items:center;width:44px;height:44px;border-radius:13px;background:#72e5bd;color:#06291f;font-size:26px;font-weight:900}.brand{font-weight:900;letter-spacing:.05em}.secure{margin-left:auto;padding:7px 11px;border:1px solid #5d7590;border-radius:99px;color:#b7c8d8;font-size:10px;font-weight:800}.card{padding:27px;border:1px solid #2b4056;border-radius:23px;background:rgba(11,24,39,.96);box-shadow:0 22px 55px rgba(0,0,0,.32)}.eyebrow{color:#79dfbd;font-size:11px;font-weight:800;letter-spacing:.13em}h1{margin:7px 0 12px;font-size:34px}.lead{color:#a9bdca;line-height:1.55}.fields{display:grid;gap:12px;margin-top:22px}label{display:grid;gap:7px;color:#c1d1dc;font-size:13px}input{width:100%;padding:14px 15px;border:1px solid #3b5771;border-radius:13px;background:#071321;color:#fff;font-size:16px}button{border:0;border-radius:12px;padding:14px 17px;background:#72e5bd;color:#06291f;font-weight:900;cursor:pointer}.error{min-height:21px;color:#ff929d;font-size:13px}.success{margin-top:20px;padding:18px;border:1px solid #358a6e;border-radius:15px;background:#0b3028;color:#c8f8e8;line-height:1.5}.links{display:flex;gap:10px;flex-wrap:wrap;margin-top:13px}.links a{padding:10px 13px;border-radius:10px;background:#17354a;color:#cdeaff;text-decoration:none;font-weight:800}.note{margin-top:18px;padding:12px 14px;border-left:3px solid #7185a0;background:#101d2d;color:#9db0bf;font-size:12px;line-height:1.5}.hidden{display:none}@media(max-width:520px){.card{padding:21px}h1{font-size:28px}.brand{font-size:13px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top"><span class="logo">R</span><span class="brand">RELYQO RECOVERY</span><span class="secure">ОДНОРАЗОВЫЙ КОД</span></header>
+    <section class="card">
+      <p class="eyebrow">ВОССТАНОВЛЕНИЕ ДОСТУПА</p>
+      <h1>Установить новый пароль</h1>
+      <p class="lead">Используйте резервный код, который был заранее создан в защищённой панели. После восстановления код и все старые сеансы станут недействительными.</p>
+      <div id="form" class="fields">
+        <label>Имя пользователя<input id="username" autocomplete="username" placeholder="fregat-owner или relyqo-reviewer"></label>
+        <label>Резервный код<input id="recoveryCode" autocomplete="off" placeholder="relyqo-..."></label>
+        <label>Новый пароль<input id="newPassword" type="password" autocomplete="new-password" placeholder="Минимум 10 символов"></label>
+        <button id="recover">Восстановить доступ</button>
+      </div>
+      <p id="error" class="error"></p>
+      <div id="success" class="success hidden">Пароль изменён. Резервный код использован и больше не действует.<div class="links"><a href="/owner">Войти как владелец</a><a href="/review">Открыть RELYQO Review</a></div></div>
+      <div class="note">Для сотрудника Fregat пароль сбрасывает владелец в панели Owner. Резервный код предназначен только для владельца и независимого RELYQO Review.</div>
+    </section>
+  </main>
+  <script>
+    const $=selector=>document.querySelector(selector);
+    async function requestJson(url,options={}){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw new Error(data.detail||'Ошибка запроса');return data;}
+    $('#recover').onclick=async()=>{try{$('#error').textContent='';await requestJson('/v1/auth/recover',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:$('#username').value.trim(),recovery_code:$('#recoveryCode').value.trim(),new_password:$('#newPassword').value})});$('#form').classList.add('hidden');$('#success').classList.remove('hidden');$('#recoveryCode').value='';$('#newPassword').value='';}catch(error){$('#error').textContent=error.message;}};
+  </script>
+</body>
+</html>
