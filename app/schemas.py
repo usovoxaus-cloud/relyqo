@@ -22,6 +22,16 @@ class NearbySearch(BaseModel):
     limit: int = Field(default=200, ge=1, le=200)
 
 
+class CommunityRatingCreate(BaseModel):
+    object_key: str = Field(min_length=8, max_length=320)
+    source: Literal["GOOGLE", "RELYQO_PARTNER"]
+    overall: int = Field(ge=1, le=10)
+    quality: int = Field(ge=1, le=10)
+    service: int = Field(ge=1, le=10)
+    cleanliness: int = Field(ge=1, le=10)
+    value: int = Field(ge=1, le=10)
+
+
 class OwnerTokenCreate(BaseModel):
     transaction_reference: str = Field(min_length=1, max_length=120)
 

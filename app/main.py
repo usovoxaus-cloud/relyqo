@@ -20,6 +20,7 @@ from .models import (
     AuditLog,
     AuthSession,
     Branch,
+    CommunityRating,
     Organization,
     OwnerReview,
     Rating,
@@ -30,6 +31,7 @@ from .models import (
 )
 from .schemas import (
     AccountRecovery,
+    CommunityRatingCreate,
     LoginRequest,
     NearbySearch,
     OwnerTokenCreate,
@@ -145,6 +147,7 @@ def recalculate_organization(org: Organization, db: Session) -> None:
 
 
 SESSION_COOKIE = "relyqo_session"
+COMMUNITY_COOKIE = "relyqo_community_rater"
 SESSION_HOURS = 8
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCK_MINUTES = 15
@@ -157,6 +160,30 @@ AI_COOLDOWN_SECONDS = 60
 _ai_cache: dict[str, dict] = {}
 _ai_last_request: dict[str, datetime] = {}
 _ai_lock = Lock()
+
+
+def new_community_rater() -> tuple[str, str]:
+    raw_rater = secrets.token_urlsafe(32)
+    signature = hmac.new(
+        settings.qr_secret.encode(),
+        raw_rater.encode(),
+        digestmod="sha256",
+    ).hexdigest()
+    return raw_rater, f"{raw_rater}.{signature}"
+
+
+def verified_community_rater(cookie_value: str | None) -> str | None:
+    if not cookie_value or len(cookie_value) > 200 or "." not in cookie_value:
+        return None
+    raw_rater, signature = cookie_value.rsplit(".", 1)
+    expected = hmac.new(
+        settings.qr_secret.encode(),
+        raw_rater.encode(),
+        digestmod="sha256",
+    ).hexdigest()
+    if len(raw_rater) < 32 or not hmac.compare_digest(signature, expected):
+        return None
+    return raw_rater
 
 
 def bootstrap_user(username: str, password: str, db: Session) -> User | None:
@@ -289,6 +316,14 @@ def business_web():
 def nearby_web():
     return FileResponse(
         static / "nearby.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/community-rate", include_in_schema=False)
+def community_rate_web():
+    return FileResponse(
+        static / "community-rate.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
 
@@ -880,6 +915,94 @@ def public_nearby_branches(
         "radius_km": radius_km,
         "location_stored": False,
         "rating_policy": "QR_VERIFIED_VISIT_ONLY",
+    }
+
+
+def community_summary(object_key: str, db: Session) -> dict:
+    score, count = db.execute(
+        select(
+            func.avg(CommunityRating.community_score),
+            func.count(CommunityRating.id),
+        ).where(CommunityRating.object_key == object_key)
+    ).one()
+    return {
+        "object_key": object_key,
+        "community_score": round(float(score), 1) if score is not None else 0.0,
+        "rating_count": int(count),
+        "verified_relyqo_score": None,
+        "included_in_relyqo_score": False,
+    }
+
+
+@app.get("/v1/community-ratings/summary")
+def get_community_summary(
+    object_key: str,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    if not 8 <= len(object_key) <= 320:
+        raise HTTPException(422, "Некорректный идентификатор объекта")
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return community_summary(object_key, db)
+
+
+@app.post("/v1/community-ratings")
+def create_community_rating(
+    body: CommunityRatingCreate,
+    request: Request,
+    response: Response,
+    rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
+    db: Session = Depends(get_db),
+):
+    expected_prefix = "google:" if body.source == "GOOGLE" else "relyqo:"
+    if not body.object_key.startswith(expected_prefix):
+        raise HTTPException(422, "Источник и идентификатор объекта не совпадают")
+    raw_rater = verified_community_rater(rater_cookie)
+    cookie_value = rater_cookie
+    if raw_rater is None:
+        raw_rater, cookie_value = new_community_rater()
+    rater_hash = token_hash(raw_rater)
+    score = calculate_ces(
+        body.overall,
+        body.quality,
+        body.service,
+        body.cleanliness,
+        body.value,
+    )
+    rating = CommunityRating(
+        **body.model_dump(),
+        rater_hash=rater_hash,
+        community_score=score,
+    )
+    db.add(rating)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Вы уже оценили этот объект")
+    db.add(
+        AuditLog(
+            actor_type="COMMUNITY",
+            action="COMMUNITY_RATING_CREATED",
+            entity_type="COMMUNITY_RATING",
+            entity_id=rating.id,
+        )
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.set_cookie(
+        COMMUNITY_COOKIE,
+        cookie_value,
+        max_age=365 * 24 * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return {
+        "rating_id": rating.id,
+        "status": "COMMUNITY_PUBLISHED",
+        **community_summary(body.object_key, db),
     }
 
 

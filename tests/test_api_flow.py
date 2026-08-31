@@ -185,6 +185,8 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
     assert "RELYQO NEARBY" in page.text
     assert "navigator.geolocation" in page.text
     assert "не сохраняется RELYQO" in page.text
+    assert "Оценить в RELYQO" in page.text
+    assert "Verified Score по QR" in page.text
 
     monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
@@ -197,6 +199,44 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
         "google_result_limit_per_search": 20,
         "location_storage": "none",
     }
+
+
+def test_community_rating_is_public_one_per_browser_and_separate_from_score():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    rating_page = client.get("/community-rate")
+    assert rating_page.status_code == 200
+    assert rating_page.headers["cache-control"] == "no-store, max-age=0"
+    assert "Community Score" in rating_page.text
+    assert "не меняет официальный RELYQO Score" in rating_page.text
+
+    before = client.get("/v1/business/fregat").json()["relyqo_score"]
+    object_key = f"google:test-{uuid.uuid4()}"
+    body = {
+        "object_key": object_key,
+        "source": "GOOGLE",
+        "overall": 8,
+        "quality": 8,
+        "service": 8,
+        "cleanliness": 8,
+        "value": 8,
+    }
+    created = client.post("/v1/community-ratings", json=body)
+    assert created.status_code == 200
+    assert created.json()["status"] == "COMMUNITY_PUBLISHED"
+    assert created.json()["community_score"] == 80.0
+    assert created.json()["rating_count"] == 1
+    assert created.json()["included_in_relyqo_score"] is False
+    assert "httponly" in created.headers["set-cookie"].lower()
+    assert client.post("/v1/community-ratings", json=body).status_code == 409
+
+    summary = client.get(
+        "/v1/community-ratings/summary", params={"object_key": object_key}
+    )
+    assert summary.status_code == 200
+    assert summary.json()["community_score"] == 80.0
+    assert summary.json()["rating_count"] == 1
+    assert client.get("/v1/business/fregat").json()["relyqo_score"] == before
 
 
 def test_public_nearby_branches_only_returns_active_partners_in_radius():

@@ -93,6 +93,22 @@ class Rating(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class CommunityRating(Base):
+    __tablename__ = "community_ratings"
+    __table_args__ = (UniqueConstraint("object_key", "rater_hash"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    object_key: Mapped[str] = mapped_column(String(320), index=True)
+    source: Mapped[str] = mapped_column(String(30))
+    rater_hash: Mapped[str] = mapped_column(String(64), index=True)
+    overall: Mapped[int] = mapped_column(Integer)
+    quality: Mapped[int] = mapped_column(Integer)
+    service: Mapped[int] = mapped_column(Integer)
+    cleanliness: Mapped[int] = mapped_column(Integer)
+    value: Mapped[int] = mapped_column(Integer)
+    community_score: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class ScoreHistory(Base):
     __tablename__ = "score_history"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
