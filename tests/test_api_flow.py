@@ -187,6 +187,13 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
     assert "не сохраняется RELYQO" in page.text
     assert "Оценить в RELYQO" in page.text
     assert "Verified Score по QR" in page.text
+    assert "♡ Избранные" in page.text
+    assert "relyqo_favorites_v1" in page.text
+    assert 'id="radius"' in page.text
+    assert "radius:zoneRadius*1000" in page.text
+    assert 'id="resultLimit"' in page.text
+    assert "searchCenters" in page.text
+    assert "до 100" in page.text
 
     monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
