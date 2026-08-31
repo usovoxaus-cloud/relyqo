@@ -328,6 +328,22 @@ def community_rate_web():
     )
 
 
+@app.get("/place", include_in_schema=False)
+def place_web():
+    return FileResponse(
+        static / "place.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/rankings", include_in_schema=False)
+def rankings_web():
+    return FileResponse(
+        static / "rankings.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/review", include_in_schema=False)
 def review_web():
     return FileResponse(
@@ -925,10 +941,37 @@ def community_summary(object_key: str, db: Session) -> dict:
             func.count(CommunityRating.id),
         ).where(CommunityRating.object_key == object_key)
     ).one()
+    aggregated = (
+        select(
+            CommunityRating.object_key.label("object_key"),
+            func.avg(CommunityRating.community_score).label("score"),
+            func.count(CommunityRating.id).label("rating_count"),
+        )
+        .group_by(CommunityRating.object_key)
+        .subquery()
+    )
+    ranked = select(
+        aggregated.c.object_key,
+        func.row_number()
+        .over(
+            order_by=(
+                aggregated.c.score.desc(),
+                aggregated.c.rating_count.desc(),
+                aggregated.c.object_key.asc(),
+            )
+        )
+        .label("position"),
+    ).subquery()
+    position = db.scalar(
+        select(ranked.c.position).where(ranked.c.object_key == object_key)
+    )
+    rated_objects = db.scalar(select(func.count()).select_from(aggregated)) or 0
     return {
         "object_key": object_key,
         "community_score": round(float(score), 1) if score is not None else 0.0,
         "rating_count": int(count),
+        "community_global_position": int(position) if position is not None else None,
+        "community_rated_objects": int(rated_objects),
         "verified_relyqo_score": None,
         "included_in_relyqo_score": False,
     }
@@ -1003,6 +1046,85 @@ def create_community_rating(
         "rating_id": rating.id,
         "status": "COMMUNITY_PUBLISHED",
         **community_summary(body.object_key, db),
+    }
+
+
+@app.get("/v1/public/rankings")
+def public_rankings(
+    response: Response,
+    scope: str = "world",
+    country_code: str | None = None,
+    city: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if scope not in {"world", "country", "city"}:
+        raise HTTPException(422, "Scope должен быть world, country или city")
+    normalized_country = country_code.strip().upper() if country_code else None
+    normalized_city = city.strip() if city else None
+    if normalized_country and len(normalized_country) != 2:
+        raise HTTPException(422, "Код страны должен содержать две буквы")
+    if scope == "country" and not normalized_country:
+        raise HTTPException(422, "Для рейтинга страны укажите country_code")
+    if scope == "city" and not normalized_city:
+        raise HTTPException(422, "Для рейтинга города укажите city")
+    rows = db.execute(
+        select(Organization, Branch)
+        .join(Branch, Branch.organization_id == Organization.id)
+        .where(Branch.active.is_(True))
+        .order_by(Organization.name, Branch.name)
+    ).all()
+    organizations: dict[str, dict] = {}
+    for organization, branch in rows:
+        branch_country = (branch.country_code or "").upper() or None
+        branch_city = branch.city or organization.city
+        if normalized_country and branch_country != normalized_country:
+            continue
+        if normalized_city and (branch_city or "").casefold() != normalized_city.casefold():
+            continue
+        if organization.id in organizations:
+            continue
+        organizations[organization.id] = {
+            "organization_id": organization.id,
+            "branch_id": branch.id,
+            "name": organization.name,
+            "branch": branch.name,
+            "address": branch.address or branch.name,
+            "city": branch_city,
+            "country_code": branch_country,
+            "verified_score": round(organization.score, 1),
+            "verified_rating_count": organization.rating_count,
+            "eligible": organization.rating_count >= 20,
+            "position": None,
+        }
+    items = list(organizations.values())
+    eligible = sorted(
+        (item for item in items if item["eligible"]),
+        key=lambda item: (
+            -item["verified_score"],
+            -item["verified_rating_count"],
+            item["name"].casefold(),
+        ),
+    )
+    for position, item in enumerate(eligible, start=1):
+        item["position"] = position
+    provisional = sorted(
+        (item for item in items if not item["eligible"]),
+        key=lambda item: (
+            -item["verified_rating_count"],
+            -item["verified_score"],
+            item["name"].casefold(),
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "scope": scope,
+        "country_code": normalized_country,
+        "city": normalized_city,
+        "minimum_verified_ratings": 20,
+        "ranked_count": len(eligible),
+        "provisional_count": len(provisional),
+        "items": eligible + provisional,
+        "calculation": "deterministic_verified_score_rank_v1",
     }
 
 

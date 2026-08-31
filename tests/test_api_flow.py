@@ -194,6 +194,8 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
     assert 'id="resultLimit"' in page.text
     assert "searchCenters" in page.text
     assert "до 100" in page.text
+    assert "placeProfileUrl" in page.text
+    assert 'href="/rankings"' in page.text
 
     monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
@@ -243,7 +245,77 @@ def test_community_rating_is_public_one_per_browser_and_separate_from_score():
     assert summary.status_code == 200
     assert summary.json()["community_score"] == 80.0
     assert summary.json()["rating_count"] == 1
+    assert summary.json()["community_global_position"] is not None
+    assert summary.json()["community_rated_objects"] >= 1
     assert client.get("/v1/business/fregat").json()["relyqo_score"] == before
+
+
+def test_place_profile_and_verified_rankings_are_public_and_separate():
+    Base.metadata.create_all(engine)
+    suffix = uuid.uuid4().hex[:8]
+    eligible_name = f"Ranked {suffix}"
+    provisional_name = f"Provisional {suffix}"
+    with SessionLocal() as db:
+        eligible = Organization(
+            name=eligible_name, city="Testopolis", score=99.9, rating_count=25
+        )
+        provisional = Organization(
+            name=provisional_name, city="Testopolis", score=100, rating_count=19
+        )
+        db.add_all([eligible, provisional])
+        db.flush()
+        db.add_all(
+            [
+                Branch(
+                    organization_id=eligible.id,
+                    name="Ranked branch",
+                    address="Verified street 1",
+                    city="Testopolis",
+                    country_code="UZ",
+                    active=True,
+                ),
+                Branch(
+                    organization_id=provisional.id,
+                    name="Provisional branch",
+                    address="Verified street 2",
+                    city="Testopolis",
+                    country_code="UZ",
+                    active=True,
+                ),
+            ]
+        )
+        db.commit()
+
+    client = TestClient(app)
+    place = client.get("/place")
+    assert place.status_code == 200
+    assert place.headers["cache-control"] == "no-store, max-age=0"
+    assert "VERIFIED RELYQO SCORE" in place.text
+    assert "COMMUNITY SCORE" in place.text
+    assert "GOOGLE RATING" in place.text
+    rankings_page = client.get("/rankings")
+    assert rankings_page.status_code == 200
+    assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
+    assert "Город. Страна. Мир." in rankings_page.text
+
+    response = client.get(
+        "/v1/public/rankings",
+        params={"scope": "city", "country_code": "uz", "city": "Testopolis"},
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store, max-age=0"
+    data = response.json()
+    assert data["minimum_verified_ratings"] == 20
+    assert data["calculation"] == "deterministic_verified_score_rank_v1"
+    eligible_item = next(item for item in data["items"] if item["name"] == eligible_name)
+    provisional_item = next(
+        item for item in data["items"] if item["name"] == provisional_name
+    )
+    assert eligible_item["eligible"] is True
+    assert eligible_item["position"] is not None
+    assert provisional_item["eligible"] is False
+    assert provisional_item["position"] is None
+    assert client.get("/v1/public/rankings", params={"scope": "invalid"}).status_code == 422
 
 
 def test_public_nearby_branches_only_returns_active_partners_in_radius():
