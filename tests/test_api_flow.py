@@ -178,6 +178,86 @@ def test_business_page_loads_data_inline_without_cache():
     assert "/static/business.js" not in response.text
 
 
+def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
+    page = TestClient(app).get("/nearby")
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store, max-age=0"
+    assert "RELYQO NEARBY" in page.text
+    assert "navigator.geolocation" in page.text
+    assert "не сохраняется RELYQO" in page.text
+
+    monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
+    config = TestClient(app).get("/v1/public/maps-config")
+    assert config.status_code == 200
+    assert config.headers["cache-control"] == "no-store, max-age=0"
+    assert config.json() == {
+        "configured": True,
+        "browser_key": "browser-key",
+        "search_radius_km": 15,
+        "google_result_limit_per_search": 20,
+        "location_storage": "none",
+    }
+
+
+def test_public_nearby_branches_only_returns_active_partners_in_radius():
+    Base.metadata.create_all(engine)
+    name = f"Nearby {uuid.uuid4()}"
+    with SessionLocal() as db:
+        organization = Organization(name=name, city="Tashkent", score=81.2)
+        db.add(organization)
+        db.flush()
+        db.add_all(
+            [
+                Branch(
+                    organization_id=organization.id,
+                    name="Nearby branch",
+                    address="Test address",
+                    city="Tashkent",
+                    country_code="UZ",
+                    latitude=41.3000,
+                    longitude=69.2500,
+                    active=True,
+                ),
+                Branch(
+                    organization_id=organization.id,
+                    name="Inactive branch",
+                    latitude=41.3001,
+                    longitude=69.2501,
+                    active=False,
+                ),
+                Branch(
+                    organization_id=organization.id,
+                    name="Far branch",
+                    latitude=42.3000,
+                    longitude=70.2500,
+                    active=True,
+                ),
+            ]
+        )
+        db.commit()
+
+    response = TestClient(app).post(
+        "/v1/public/branches/nearby",
+        json={"latitude": 41.3, "longitude": 69.25, "radius_km": 15},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    matching = [item for item in payload["items"] if item["organization"] == name]
+    assert len(matching) == 1
+    assert matching[0]["branch"] == "Nearby branch"
+    assert matching[0]["rating_requires_verified_visit"] is True
+    assert payload["location_stored"] is False
+    assert payload["rating_policy"] == "QR_VERIFIED_VISIT_ONLY"
+
+
+def test_public_nearby_branches_rejects_invalid_coordinates():
+    response = TestClient(app).post(
+        "/v1/public/branches/nearby",
+        json={"latitude": 91, "longitude": 69.25},
+    )
+    assert response.status_code == 422
+
+
 def test_contradictory_rating_requires_independent_review():
     Base.metadata.create_all(engine)
     settings.owner_password = OWNER_TEST_PASSWORD

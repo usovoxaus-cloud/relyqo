@@ -22,6 +22,7 @@ class Settings:
         self.review_password = os.getenv("REVIEW_PASSWORD") or None
         self.openai_api_key = os.getenv("OPENAI_API_KEY") or None
         self.openai_model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+        self.google_maps_browser_key = os.getenv("GOOGLE_MAPS_BROWSER_KEY") or None
         self.public_base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
         self.demo_mode = os.getenv("DEMO_MODE", "true").strip().lower() in {
             "1",

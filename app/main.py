@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import hmac
 import json
+import math
 from pathlib import Path
 import re
 import secrets
@@ -30,6 +31,7 @@ from .models import (
 from .schemas import (
     AccountRecovery,
     LoginRequest,
+    NearbySearch,
     OwnerTokenCreate,
     PasswordChange,
     RatingCreate,
@@ -73,10 +75,44 @@ def ensure_fregat(db: Session) -> tuple[Organization, Branch]:
         )
     )
     if not branch:
-        branch = Branch(organization_id=org.id, name="Shota Rustaveli 69")
+        branch = Branch(
+            organization_id=org.id,
+            name="Shota Rustaveli 69",
+            address="Shota Rustaveli 69",
+            city="Tashkent",
+            country_code="UZ",
+            latitude=41.272878,
+            longitude=69.240319,
+        )
         db.add(branch)
         db.flush()
+    else:
+        branch.address = branch.address or "Shota Rustaveli 69"
+        branch.city = branch.city or "Tashkent"
+        branch.country_code = branch.country_code or "UZ"
+        branch.latitude = branch.latitude or 41.272878
+        branch.longitude = branch.longitude or 69.240319
+        branch.active = True
+        db.add(branch)
     return org, branch
+
+
+def haversine_km(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
+    earth_radius_km = 6371.0088
+    lat_a = math.radians(latitude_a)
+    lat_b = math.radians(latitude_b)
+    lat_delta = math.radians(latitude_b - latitude_a)
+    lng_delta = math.radians(longitude_b - longitude_a)
+    value = (
+        math.sin(lat_delta / 2) ** 2
+        + math.cos(lat_a) * math.cos(lat_b) * math.sin(lng_delta / 2) ** 2
+    )
+    return earth_radius_km * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value))
 
 
 def issue_visit_token(
@@ -245,6 +281,14 @@ def owner_web():
 def business_web():
     return FileResponse(
         static / "business.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/nearby", include_in_schema=False)
+def nearby_web():
+    return FileResponse(
+        static / "nearby.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
 
@@ -762,6 +806,81 @@ def sw():
 def health(db: Session = Depends(get_db)):
     db.execute(select(1))
     return {"status": "ok", "version": "1.1.0"}
+
+
+@app.get("/v1/public/maps-config")
+def public_maps_config(response: Response):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "configured": bool(settings.google_maps_browser_key),
+        "browser_key": settings.google_maps_browser_key,
+        "search_radius_km": 15,
+        "google_result_limit_per_search": 20,
+        "location_storage": "none",
+    }
+
+
+@app.post("/v1/public/branches/nearby")
+def public_nearby_branches(
+    search: NearbySearch,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    latitude = search.latitude
+    longitude = search.longitude
+    radius_km = search.radius_km
+    limit = search.limit
+    lat_delta = radius_km / 110.574
+    longitude_scale = max(0.01, 111.320 * math.cos(math.radians(latitude)))
+    lng_delta = radius_km / longitude_scale
+    rows = db.execute(
+        select(Branch, Organization)
+        .join(Organization, Organization.id == Branch.organization_id)
+        .where(
+            Branch.active.is_(True),
+            Branch.latitude.is_not(None),
+            Branch.longitude.is_not(None),
+            Branch.latitude.between(latitude - lat_delta, latitude + lat_delta),
+            Branch.longitude.between(longitude - lng_delta, longitude + lng_delta),
+        )
+        .limit(limit * 3)
+    ).all()
+    items = []
+    for branch, organization in rows:
+        distance = haversine_km(
+            latitude,
+            longitude,
+            branch.latitude,
+            branch.longitude,
+        )
+        if distance > radius_km:
+            continue
+        items.append(
+            {
+                "organization_id": organization.id,
+                "branch_id": branch.id,
+                "organization": organization.name,
+                "branch": branch.name,
+                "address": branch.address or branch.name,
+                "city": branch.city or organization.city,
+                "country_code": branch.country_code,
+                "latitude": branch.latitude,
+                "longitude": branch.longitude,
+                "distance_km": round(distance, 2),
+                "relyqo_score": round(organization.score, 1),
+                "verified_rating_count": organization.rating_count,
+                "google_place_id": branch.google_place_id,
+                "rating_requires_verified_visit": True,
+            }
+        )
+    items.sort(key=lambda item: item["distance_km"])
+    return {
+        "items": items[:limit],
+        "radius_km": radius_km,
+        "location_stored": False,
+        "rating_policy": "QR_VERIFIED_VISIT_ONLY",
+    }
 
 
 @app.post("/v1/demo/visit")

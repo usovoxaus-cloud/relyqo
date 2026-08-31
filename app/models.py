@@ -36,6 +36,15 @@ class Branch(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"))
     name: Mapped[str] = mapped_column(String(160))
+    address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    google_place_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class VisitToken(Base):

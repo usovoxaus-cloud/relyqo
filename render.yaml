@@ -19,6 +19,8 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-5.6-luna
+      - key: GOOGLE_MAPS_BROWSER_KEY
+        sync: false
       - key: PUBLIC_BASE_URL
         value: https://relyqo.onrender.com
       - key: DEMO_MODE

@@ -15,6 +15,13 @@ class RatingCreate(BaseModel):
     value: int = Field(ge=1, le=10)
 
 
+class NearbySearch(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    radius_km: float = Field(default=15, gt=0, le=50)
+    limit: int = Field(default=200, ge=1, le=200)
+
+
 class OwnerTokenCreate(BaseModel):
     transaction_reference: str = Field(min_length=1, max_length=120)
 

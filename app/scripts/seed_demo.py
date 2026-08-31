@@ -11,7 +11,15 @@ def main():
         org = Organization(name="Saffron Table", city="Tashkent")
         db.add(org)
         db.flush()
-        branch = Branch(organization_id=org.id, name="Tashkent City")
+        branch = Branch(
+            organization_id=org.id,
+            name="Tashkent City",
+            address="Tashkent City",
+            city="Tashkent",
+            country_code="UZ",
+            latitude=41.311081,
+            longitude=69.240562,
+        )
         db.add(branch)
         db.flush()
         token, _ = create_token(branch.id)
