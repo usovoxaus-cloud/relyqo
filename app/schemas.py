@@ -126,6 +126,10 @@ class BusinessProfileUpdate(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class BusinessApplicationDecision(BaseModel):
+    decision: Literal["PUBLISH", "REJECT"]
+
+
 class StaffCreate(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)

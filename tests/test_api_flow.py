@@ -15,6 +15,7 @@ from app.ai import generate_business_insight
 
 OWNER_TEST_PASSWORD = "owner-test-password-123"
 REVIEW_TEST_PASSWORD = "review-test-password-123"
+ADMIN_TEST_PASSWORD = "admin-test-password-123"
 
 
 def register_consumer(client: TestClient) -> str:
@@ -908,3 +909,116 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert "fill(event.currentTarget" not in page.text
     assert "const form=event.currentTarget" in page.text
     assert TestClient(app).get("/v1/business-owner/profile").status_code == 401
+    admin_page = TestClient(app).get("/admin")
+    assert admin_page.status_code == 200
+    assert admin_page.headers["cache-control"] == "no-store, max-age=0"
+    assert "Заявки организаций" in admin_page.text
+
+
+def test_admin_publishes_business_profile_without_changing_score_or_ratings():
+    Base.metadata.create_all(engine)
+    settings.admin_password = ADMIN_TEST_PASSWORD
+    suffix = uuid.uuid4().hex[:10]
+    profile = {
+        "username": f"business-{suffix}",
+        "password": "business-password-123",
+        "organization_name": f"Service Studio {suffix}",
+        "category": "PROFESSIONAL_SERVICE",
+        "description": "Проверяемая организация для публичного каталога RELYQO.",
+        "address": "Amir Temur 10",
+        "city": "Tashkent",
+        "country_code": "UZ",
+        "phone": "+998901234567",
+        "website": "https://example.com",
+        "latitude": 41.31,
+        "longitude": 69.28,
+    }
+    business = TestClient(app)
+    registered = business.post("/v1/business-owner/register", json=profile)
+    assert registered.status_code == 200
+    organization_id = registered.json()["organization_id"]
+    assert registered.json()["profile_status"] == "SELF_REGISTERED"
+    assert business.get("/v1/admin/business-applications").status_code == 403
+
+    admin = TestClient(app)
+    logged_in = admin.post(
+        "/v1/auth/login",
+        json={"username": "relyqo-admin", "password": ADMIN_TEST_PASSWORD},
+    )
+    assert logged_in.status_code == 200
+    assert logged_in.json()["role"] == "RELYQO_ADMIN"
+    queue = admin.get("/v1/admin/business-applications")
+    assert queue.status_code == 200
+    assert any(
+        item["organization_id"] == organization_id for item in queue.json()["items"]
+    )
+    published = admin.post(
+        f"/v1/admin/business-applications/{organization_id}/decision",
+        json={"decision": "PUBLISH"},
+    )
+    assert published.status_code == 200
+    assert published.json()["profile_status"] == "PUBLISHED"
+    assert published.json()["score_changed"] is False
+    assert published.json()["ratings_changed"] is False
+    assert published.json()["verified_score"] == 0
+    assert published.json()["verified_rating_count"] == 0
+
+    nearby = TestClient(app).post(
+        "/v1/public/branches/nearby",
+        json={"latitude": 41.31, "longitude": 69.28, "radius_km": 1},
+    )
+    item = next(
+        row for row in nearby.json()["items"]
+        if row["organization_id"] == organization_id
+    )
+    assert item["profile_status"] == "PUBLISHED"
+    assert item["verified_partner"] is False
+    rankings = TestClient(app).get("/v1/public/rankings?scope=world")
+    assert not any(
+        row["organization_id"] == organization_id
+        for row in rankings.json()["items"]
+    )
+
+    update_body = {key: value for key, value in profile.items() if key not in {"username", "password"}}
+    update_body["description"] = "Обновлённые сведения требуют повторной проверки RELYQO."
+    updated = business.post("/v1/business-owner/profile", json=update_body)
+    assert updated.status_code == 200
+    assert updated.json()["profile_status"] == "SELF_REGISTERED"
+
+
+def test_admin_can_reject_business_profile_and_cannot_decide_twice():
+    Base.metadata.create_all(engine)
+    settings.admin_password = ADMIN_TEST_PASSWORD
+    suffix = uuid.uuid4().hex[:10]
+    business = TestClient(app)
+    registered = business.post(
+        "/v1/business-owner/register",
+        json={
+            "username": f"rejected-{suffix}",
+            "password": "business-password-123",
+            "organization_name": f"Rejected Studio {suffix}",
+            "category": "OTHER",
+            "description": "Профиль для проверки отклонения административной заявки.",
+            "address": "Test address 12",
+            "city": "Tashkent",
+            "country_code": "UZ",
+            "latitude": 41.32,
+            "longitude": 69.29,
+        },
+    )
+    organization_id = registered.json()["organization_id"]
+    admin = TestClient(app)
+    assert admin.post(
+        "/v1/auth/login",
+        json={"username": "relyqo-admin", "password": ADMIN_TEST_PASSWORD},
+    ).status_code == 200
+    rejected = admin.post(
+        f"/v1/admin/business-applications/{organization_id}/decision",
+        json={"decision": "REJECT"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["profile_status"] == "REJECTED"
+    assert admin.post(
+        f"/v1/admin/business-applications/{organization_id}/decision",
+        json={"decision": "PUBLISH"},
+    ).status_code == 409

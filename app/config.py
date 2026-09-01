@@ -20,6 +20,7 @@ class Settings:
         self.qr_secret = os.getenv("QR_SECRET", "development-secret-change-me-32chars")
         self.owner_password = os.getenv("OWNER_PASSWORD") or None
         self.review_password = os.getenv("REVIEW_PASSWORD") or None
+        self.admin_password = os.getenv("ADMIN_PASSWORD") or None
         self.openai_api_key = os.getenv("OPENAI_API_KEY") or None
         self.openai_model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
         self.google_maps_browser_key = os.getenv("GOOGLE_MAPS_BROWSER_KEY") or None

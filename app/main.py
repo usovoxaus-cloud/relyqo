@@ -39,6 +39,7 @@ from .models import (
 )
 from .schemas import (
     AccountRecovery,
+    BusinessApplicationDecision,
     BusinessOwnerRegister,
     BusinessProfileUpdate,
     CommunityRatingCreate,
@@ -171,6 +172,7 @@ STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
 CONSUMER_ROLE = "CONSUMER"
 BUSINESS_OWNER_ROLE = "BUSINESS_OWNER"
+ADMIN_ROLE = "RELYQO_ADMIN"
 _DUMMY_PASSWORD_HASH = password_hash("dummy-password-used-for-timing-only")
 AI_CACHE_MINUTES = 10
 AI_COOLDOWN_SECONDS = 60
@@ -205,7 +207,7 @@ def verified_community_rater(cookie_value: str | None) -> str | None:
 
 
 def bootstrap_user(username: str, password: str, db: Session) -> User | None:
-    """Create the two initial accounts from legacy Render secrets once."""
+    """Create initial protected accounts from Render secrets once."""
     if username == "fregat-owner":
         expected = settings.owner_password
         role = OWNER_ROLE
@@ -214,6 +216,10 @@ def bootstrap_user(username: str, password: str, db: Session) -> User | None:
     elif username == "relyqo-reviewer":
         expected = settings.review_password
         role = REVIEWER_ROLE
+        organization_id = None
+    elif username == "relyqo-admin":
+        expected = settings.admin_password
+        role = ADMIN_ROLE
         organization_id = None
     else:
         return None
@@ -495,6 +501,14 @@ def business_owner_web():
     )
 
 
+@app.get("/admin", include_in_schema=False)
+def admin_web():
+    return FileResponse(
+        static / "admin.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.post("/v1/auth/login")
 def login(
     body: LoginRequest,
@@ -713,6 +727,11 @@ def update_business_owner_profile(
     organization.description = profile["description"]
     organization.phone = profile["phone"]
     organization.website = profile["website"]
+    if (
+        user.role == BUSINESS_OWNER_ROLE
+        and organization.profile_status in {"PUBLISHED", "REJECTED"}
+    ):
+        organization.profile_status = "SELF_REGISTERED"
     branch.name = profile["address"]
     branch.address = profile["address"]
     branch.city = profile["city"]
@@ -734,6 +753,96 @@ def update_business_owner_profile(
     db.commit()
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return business_profile_payload(user, db)
+
+
+@app.get("/v1/admin/business-applications")
+def business_applications(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    session_user(relyqo_session, db, ADMIN_ROLE)
+    rows = db.execute(
+        select(Organization, Branch, User)
+        .join(Branch, Branch.organization_id == Organization.id)
+        .join(User, User.organization_id == Organization.id)
+        .where(
+            Organization.profile_status == "SELF_REGISTERED",
+            User.role == BUSINESS_OWNER_ROLE,
+        )
+        .order_by(Organization.created_at, Organization.id)
+    ).all()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "items": [
+            {
+                "organization_id": organization.id,
+                "username": user.username,
+                "organization_name": organization.name,
+                "category": organization.category,
+                "description": organization.description or "",
+                "phone": organization.phone,
+                "website": organization.website,
+                "address": branch.address or branch.name,
+                "city": branch.city or organization.city,
+                "country_code": branch.country_code,
+                "latitude": branch.latitude,
+                "longitude": branch.longitude,
+                "created_at": organization.created_at,
+                "profile_status": organization.profile_status,
+                "verified_score": round(organization.score, 1),
+                "verified_rating_count": organization.rating_count,
+            }
+            for organization, branch, user in rows
+        ],
+        "count": len(rows),
+        "permissions": {
+            "edit_profile": False,
+            "create_rating": False,
+            "edit_rating": False,
+            "edit_score": False,
+            "decide_rating_review": False,
+            "publish_profile": True,
+        },
+    }
+
+
+@app.post("/v1/admin/business-applications/{organization_id}/decision")
+def decide_business_application(
+    organization_id: str,
+    body: BusinessApplicationDecision,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+    organization = db.get(Organization, organization_id)
+    if not organization:
+        raise HTTPException(404, "Заявка организации не найдена")
+    if organization.profile_status != "SELF_REGISTERED":
+        raise HTTPException(409, "Решение по этой заявке уже принято")
+    organization.profile_status = (
+        "PUBLISHED" if body.decision == "PUBLISH" else "REJECTED"
+    )
+    db.add_all(
+        [
+            organization,
+            AuditLog(
+                actor_type=admin.role,
+                action=f"BUSINESS_PROFILE_{organization.profile_status}",
+                entity_type="ORGANIZATION",
+                entity_id=organization.id,
+            ),
+        ]
+    )
+    db.commit()
+    return {
+        "organization_id": organization.id,
+        "profile_status": organization.profile_status,
+        "verified_score": round(organization.score, 1),
+        "verified_rating_count": organization.rating_count,
+        "score_changed": False,
+        "ratings_changed": False,
+    }
 
 
 @app.get("/v1/consumer/dashboard")
@@ -1415,7 +1524,7 @@ def public_nearby_branches(
         .join(Organization, Organization.id == Branch.organization_id)
         .where(
             Branch.active.is_(True),
-            Organization.profile_status == "VERIFIED_PARTNER",
+            Organization.profile_status.in_({"PUBLISHED", "VERIFIED_PARTNER"}),
             Branch.latitude.is_not(None),
             Branch.longitude.is_not(None),
             Branch.latitude.between(latitude - lat_delta, latitude + lat_delta),
@@ -1441,6 +1550,7 @@ def public_nearby_branches(
                 "category": organization.category,
                 "description": organization.description,
                 "profile_status": organization.profile_status,
+                "verified_partner": organization.profile_status == "VERIFIED_PARTNER",
                 "branch": branch.name,
                 "address": branch.address or branch.name,
                 "city": branch.city or organization.city,
