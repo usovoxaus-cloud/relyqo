@@ -744,3 +744,70 @@ def test_openai_request_is_aggregate_only_and_not_stored(monkeypatch):
     assert captured["text"] == {"verbosity": "low"}
     assert "test-secret" not in captured["input"]
     assert "не изменяй RELYQO Score" in captured["instructions"]
+
+
+def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    username = f"consumer-{uuid.uuid4().hex[:8]}"
+    registered = client.post(
+        "/v1/consumer/register",
+        json={"username": username, "password": "consumer-password-123"},
+    )
+    assert registered.status_code == 200
+    assert registered.json()["role"] == "CONSUMER"
+    assert client.get("/v1/auth/me").json()["username"] == username
+
+    object_key = f"google:test-{uuid.uuid4().hex}"
+    saved = client.post(
+        "/v1/consumer/favorites",
+        json={"object_key": object_key, "source": "GOOGLE", "saved": True},
+    )
+    assert saved.status_code == 200
+    rated = client.post(
+        "/v1/community-ratings",
+        json={
+            "object_key": object_key,
+            "source": "GOOGLE",
+            "overall": 9,
+            "quality": 8,
+            "service": 9,
+            "cleanliness": 8,
+            "value": 8,
+        },
+    )
+    assert rated.status_code == 200
+    dashboard = client.get("/v1/consumer/dashboard")
+    assert dashboard.status_code == 200
+    assert dashboard.json()["favorites"][0]["object_key"] == object_key
+    assert dashboard.json()["ratings"][0]["object_key"] == object_key
+
+    main_module._consumer_ai_last_request.clear()
+    monkeypatch.setattr(
+        main_module,
+        "generate_consumer_assistance",
+        lambda context: f"Рекомендация по {len(context['favorites'])} избранным.",
+    )
+    assistant = client.post(
+        "/v1/consumer/assistant",
+        json={"question": "Какую организацию выбрать?"},
+    )
+    assert assistant.status_code == 200
+    assert assistant.json()["read_only"] is True
+    assert "Рекомендация" in assistant.json()["answer"]
+
+    removed = client.post(
+        "/v1/consumer/favorites",
+        json={"object_key": object_key, "source": "GOOGLE", "saved": False},
+    )
+    assert removed.status_code == 200
+    assert client.get("/v1/consumer/dashboard").json()["favorites"] == []
+
+
+def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
+    page = TestClient(app).get("/me")
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store, max-age=0"
+    assert "МОЙ RELYQO" in page.text
+    assert "AI-ПОМОЩНИК ПОТРЕБИТЕЛЯ" in page.text
+    assert TestClient(app).get("/v1/consumer/dashboard").status_code == 401

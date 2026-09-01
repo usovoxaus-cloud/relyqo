@@ -75,6 +75,21 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8, max_length=200)
 
 
+class ConsumerRegister(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=10, max_length=200)
+
+
+class ConsumerFavoriteChange(BaseModel):
+    object_key: str = Field(min_length=8, max_length=320)
+    source: Literal["GOOGLE", "RELYQO_PARTNER", "MANUAL"]
+    saved: bool = True
+
+
+class ConsumerAssistantRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+
+
 class StaffCreate(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)

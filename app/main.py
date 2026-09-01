@@ -14,13 +14,19 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
-from .ai import AIServiceError, AIUnavailableError, generate_business_insight
+from .ai import (
+    AIServiceError,
+    AIUnavailableError,
+    generate_business_insight,
+    generate_consumer_assistance,
+)
 from .db import get_db
 from .models import (
     AuditLog,
     AuthSession,
     Branch,
     CommunityRating,
+    ConsumerFavorite,
     GooglePlaceReference,
     ManualPlace,
     Organization,
@@ -34,6 +40,9 @@ from .models import (
 from .schemas import (
     AccountRecovery,
     CommunityRatingCreate,
+    ConsumerAssistantRequest,
+    ConsumerFavoriteChange,
+    ConsumerRegister,
     GooglePlaceIdsSync,
     LoginRequest,
     ManualPlaceCreate,
@@ -158,12 +167,14 @@ LOGIN_LOCK_MINUTES = 15
 OWNER_ROLE = "FREGAT_OWNER"
 STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
+CONSUMER_ROLE = "CONSUMER"
 _DUMMY_PASSWORD_HASH = password_hash("dummy-password-used-for-timing-only")
 AI_CACHE_MINUTES = 10
 AI_COOLDOWN_SECONDS = 60
 _ai_cache: dict[str, dict] = {}
 _ai_last_request: dict[str, datetime] = {}
 _ai_lock = Lock()
+_consumer_ai_last_request: dict[str, datetime] = {}
 
 
 def new_community_rater() -> tuple[str, str]:
@@ -295,6 +306,63 @@ def session_user(
     return user
 
 
+def optional_consumer_user(token: str | None, db: Session) -> User | None:
+    if not token:
+        return None
+    session = db.scalar(
+        select(AuthSession).where(
+            AuthSession.token_hash == token_hash(token),
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at >= datetime.utcnow(),
+        )
+    )
+    if not session:
+        return None
+    user = db.get(User, session.user_id)
+    if not user or not user.active or user.role != CONSUMER_ROLE:
+        return None
+    return user
+
+
+def validate_public_object(object_key: str, source: str) -> None:
+    expected_prefix = {
+        "GOOGLE": "google:",
+        "RELYQO_PARTNER": "relyqo:",
+        "MANUAL": "manual:",
+    }[source]
+    if not object_key.startswith(expected_prefix):
+        raise HTTPException(422, "Источник и идентификатор объекта не совпадают")
+
+
+def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
+    item = {
+        "object_key": object_key,
+        "source": source,
+        "name": "Объект Google Maps" if source == "GOOGLE" else "Организация",
+        "description": "Актуальные сведения загружаются при открытии карты.",
+        "href": "/nearby",
+    }
+    identifier = object_key.split(":", 1)[1]
+    if source == "MANUAL":
+        place = db.get(ManualPlace, identifier)
+        if place:
+            item.update(
+                name=place.name,
+                description=place.description,
+                href=f"/place?object_key={object_key}&source=MANUAL",
+            )
+    elif source == "RELYQO_PARTNER":
+        branch = db.get(Branch, identifier)
+        organization = db.get(Organization, branch.organization_id) if branch else None
+        if branch and organization:
+            item.update(
+                name=organization.name,
+                description=f"{branch.address or branch.name} · Verified RELYQO Score {organization.score:.1f}/100",
+                href=f"/place?object_key={object_key}&source=RELYQO_PARTNER",
+            )
+    return item
+
+
 @app.get("/", include_in_schema=False)
 def web():
     return FileResponse(static / "index.html")
@@ -372,6 +440,14 @@ def recover_web():
     )
 
 
+@app.get("/me", include_in_schema=False)
+def consumer_web():
+    return FileResponse(
+        static / "me.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.post("/v1/auth/login")
 def login(
     body: LoginRequest,
@@ -411,6 +487,206 @@ def login(
         path="/",
     )
     return {"username": user.username, "role": user.role}
+
+
+@app.post("/v1/consumer/register")
+def register_consumer(
+    body: ConsumerRegister,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    username = body.username.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
+        raise HTTPException(
+            422,
+            "Имя: латинские буквы, цифры, точка, дефис или подчёркивание",
+        )
+    if db.scalar(select(User).where(User.username == username)):
+        raise HTTPException(409, "Это имя пользователя уже занято")
+    user = User(
+        username=username,
+        password_hash=password_hash(body.password),
+        role=CONSUMER_ROLE,
+    )
+    db.add(user)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Это имя пользователя уже занято")
+    raw_token = secrets.token_urlsafe(32)
+    db.add_all(
+        [
+            AuthSession(
+                user_id=user.id,
+                token_hash=token_hash(raw_token),
+                expires_at=datetime.utcnow() + timedelta(hours=SESSION_HOURS),
+            ),
+            AuditLog(
+                actor_type=CONSUMER_ROLE,
+                action="CONSUMER_REGISTERED",
+                entity_type="USER",
+                entity_id=user.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.set_cookie(
+        SESSION_COOKIE,
+        raw_token,
+        max_age=SESSION_HOURS * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return {"username": user.username, "role": user.role}
+
+
+@app.get("/v1/consumer/dashboard")
+def consumer_dashboard(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, CONSUMER_ROLE)
+    favorites = db.scalars(
+        select(ConsumerFavorite)
+        .where(ConsumerFavorite.user_id == user.id)
+        .order_by(ConsumerFavorite.created_at.desc())
+    ).all()
+    ratings = db.scalars(
+        select(CommunityRating)
+        .where(CommunityRating.consumer_user_id == user.id)
+        .order_by(CommunityRating.created_at.desc())
+        .limit(100)
+    ).all()
+    favorite_items = []
+    for favorite in favorites:
+        item = consumer_object_info(favorite.object_key, favorite.source, db)
+        item["saved_at"] = favorite.created_at
+        favorite_items.append(item)
+    rating_items = []
+    for rating in ratings:
+        item = consumer_object_info(rating.object_key, rating.source, db)
+        item.update(
+            rating_id=rating.id,
+            community_score=round(rating.community_score, 1),
+            rated_at=rating.created_at,
+        )
+        rating_items.append(item)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "username": user.username,
+        "role": user.role,
+        "favorites": favorite_items,
+        "ratings": rating_items,
+        "principles": {
+            "verified_score_is_deterministic": True,
+            "community_score_is_separate": True,
+            "google_rating_is_separate": True,
+        },
+    }
+
+
+@app.post("/v1/consumer/assistant")
+def consumer_assistant(
+    body: ConsumerAssistantRequest,
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, CONSUMER_ROLE)
+    now = datetime.utcnow()
+    with _ai_lock:
+        last_request = _consumer_ai_last_request.get(user.id)
+        if last_request and (now - last_request).total_seconds() < AI_COOLDOWN_SECONDS:
+            raise HTTPException(429, "Подождите минуту перед следующим вопросом")
+        _consumer_ai_last_request[user.id] = now
+    favorites = db.scalars(
+        select(ConsumerFavorite)
+        .where(ConsumerFavorite.user_id == user.id)
+        .order_by(ConsumerFavorite.created_at.desc())
+        .limit(30)
+    ).all()
+    ratings = db.scalars(
+        select(CommunityRating)
+        .where(CommunityRating.consumer_user_id == user.id)
+        .order_by(CommunityRating.created_at.desc())
+        .limit(30)
+    ).all()
+    context = {
+        "question": body.question.strip(),
+        "favorites": [
+            consumer_object_info(item.object_key, item.source, db)
+            for item in favorites
+        ],
+        "own_community_ratings": [
+            {
+                **consumer_object_info(item.object_key, item.source, db),
+                "community_score_given": round(item.community_score, 1),
+            }
+            for item in ratings
+        ],
+        "score_policy": {
+            "verified": "deterministic QR-confirmed score",
+            "community": "separate user opinion score",
+            "external": "separate current map-provider rating",
+            "advertising_changes_scores": False,
+        },
+    }
+    try:
+        answer = generate_consumer_assistance(context)
+    except AIUnavailableError as exc:
+        raise HTTPException(503, "AI-помощник ещё не подключён") from exc
+    except AIServiceError as exc:
+        raise HTTPException(502, "AI-помощник временно недоступен") from exc
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "answer": answer,
+        "model": settings.openai_model,
+        "read_only": True,
+        "disclaimer": "AI объясняет данные, но не меняет Score и решения Review.",
+    }
+
+
+@app.post("/v1/consumer/favorites")
+def change_consumer_favorite(
+    body: ConsumerFavoriteChange,
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, CONSUMER_ROLE)
+    validate_public_object(body.object_key, body.source)
+    favorite = db.scalar(
+        select(ConsumerFavorite).where(
+            ConsumerFavorite.user_id == user.id,
+            ConsumerFavorite.object_key == body.object_key,
+        )
+    )
+    if body.saved and not favorite:
+        favorite = ConsumerFavorite(
+            user_id=user.id,
+            object_key=body.object_key,
+            source=body.source,
+        )
+        db.add(favorite)
+    elif not body.saved and favorite:
+        db.delete(favorite)
+    db.add(
+        AuditLog(
+            actor_type=CONSUMER_ROLE,
+            action="FAVORITE_SAVED" if body.saved else "FAVORITE_REMOVED",
+            entity_type="PUBLIC_OBJECT",
+            entity_id=body.object_key[:36],
+        )
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {"object_key": body.object_key, "saved": body.saved}
 
 
 @app.get("/v1/auth/me")
@@ -1184,15 +1460,10 @@ def create_community_rating(
     request: Request,
     response: Response,
     rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
+    relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    expected_prefix = {
-        "GOOGLE": "google:",
-        "RELYQO_PARTNER": "relyqo:",
-        "MANUAL": "manual:",
-    }[body.source]
-    if not body.object_key.startswith(expected_prefix):
-        raise HTTPException(422, "Источник и идентификатор объекта не совпадают")
+    validate_public_object(body.object_key, body.source)
     raw_rater = verified_community_rater(rater_cookie)
     cookie_value = rater_cookie
     if raw_rater is None:
@@ -1208,6 +1479,11 @@ def create_community_rating(
     rating = CommunityRating(
         **body.model_dump(),
         rater_hash=rater_hash,
+        consumer_user_id=(
+            consumer.id
+            if (consumer := optional_consumer_user(relyqo_session, db))
+            else None
+        ),
         community_score=score,
     )
     db.add(rating)
