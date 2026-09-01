@@ -22,9 +22,39 @@ class NearbySearch(BaseModel):
     limit: int = Field(default=200, ge=1, le=200)
 
 
+class ManualPlaceCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    category: Literal[
+        "RESTAURANT",
+        "CAFE",
+        "COFFEE_SHOP",
+        "BAKERY",
+        "BAR",
+        "FOOD_COURT",
+        "HOTEL",
+        "BEAUTY",
+        "HEALTH",
+        "ENTERTAINMENT",
+        "RETAIL",
+        "AUTO_SERVICE",
+        "PROFESSIONAL_SERVICE",
+        "OTHER",
+    ]
+    description: str = Field(min_length=10, max_length=500)
+    address: str = Field(min_length=3, max_length=255)
+    city: str = Field(min_length=2, max_length=80)
+    country_code: str = Field(min_length=2, max_length=2)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class GooglePlaceIdsSync(BaseModel):
+    place_ids: list[str] = Field(min_length=1, max_length=100)
+
+
 class CommunityRatingCreate(BaseModel):
     object_key: str = Field(min_length=8, max_length=320)
-    source: Literal["GOOGLE", "RELYQO_PARTNER"]
+    source: Literal["GOOGLE", "RELYQO_PARTNER", "MANUAL"]
     overall: int = Field(ge=1, le=10)
     quality: int = Field(ge=1, le=10)
     service: int = Field(ge=1, le=10)

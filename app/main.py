@@ -21,6 +21,8 @@ from .models import (
     AuthSession,
     Branch,
     CommunityRating,
+    GooglePlaceReference,
+    ManualPlace,
     Organization,
     OwnerReview,
     Rating,
@@ -32,7 +34,9 @@ from .models import (
 from .schemas import (
     AccountRecovery,
     CommunityRatingCreate,
+    GooglePlaceIdsSync,
     LoginRequest,
+    ManualPlaceCreate,
     NearbySearch,
     OwnerTokenCreate,
     PasswordChange,
@@ -868,6 +872,60 @@ def public_maps_config(response: Response):
         "search_radius_km": 15,
         "google_result_limit_per_search": 20,
         "location_storage": "none",
+        "google_catalog_storage": "place_ids_only",
+    }
+
+
+@app.post("/v1/public/google-place-ids/sync")
+def sync_google_place_ids(
+    body: GooglePlaceIdsSync,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    unique_ids = list(dict.fromkeys(body.place_ids))
+    if any(
+        not re.fullmatch(r"[A-Za-z0-9_-]{5,255}", place_id)
+        for place_id in unique_ids
+    ):
+        raise HTTPException(422, "Некорректный Google place_id")
+    now = datetime.utcnow()
+    created = 0
+    for place_id in unique_ids:
+        reference = db.get(GooglePlaceReference, place_id)
+        if reference:
+            reference.last_seen_at = now
+        else:
+            db.add(
+                GooglePlaceReference(
+                    place_id=place_id,
+                    first_seen_at=now,
+                    last_seen_at=now,
+                )
+            )
+            created += 1
+    db.commit()
+    total = db.scalar(select(func.count()).select_from(GooglePlaceReference)) or 0
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "status": "CATALOG_UPDATED",
+        "received": len(unique_ids),
+        "created": created,
+        "catalog_place_ids": int(total),
+        "stored_google_fields": ["place_id"],
+    }
+
+
+@app.get("/v1/public/catalog/stats")
+def public_catalog_stats(response: Response, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "partners": db.scalar(select(func.count()).select_from(Branch)) or 0,
+        "manual_places": db.scalar(select(func.count()).select_from(ManualPlace)) or 0,
+        "google_place_ids": db.scalar(
+            select(func.count()).select_from(GooglePlaceReference)
+        )
+        or 0,
+        "google_storage_policy": "place_ids_only",
     }
 
 
@@ -934,6 +992,137 @@ def public_nearby_branches(
     }
 
 
+def manual_place_item(place: ManualPlace, distance_km: float | None = None) -> dict:
+    return {
+        "id": place.id,
+        "object_key": f"manual:{place.id}",
+        "name": place.name,
+        "category": place.category,
+        "description": place.description,
+        "address": place.address,
+        "city": place.city,
+        "country_code": place.country_code,
+        "latitude": place.latitude,
+        "longitude": place.longitude,
+        "distance_km": round(distance_km, 2) if distance_km is not None else None,
+        "source": "MANUAL",
+        "verified": False,
+    }
+
+
+@app.post("/v1/public/manual-places")
+def create_manual_place(
+    body: ManualPlaceCreate,
+    request: Request,
+    response: Response,
+    rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
+    db: Session = Depends(get_db),
+):
+    name = " ".join(body.name.split())
+    address = " ".join(body.address.split())
+    city = " ".join(body.city.split())
+    description = " ".join(body.description.split())
+    country_code = body.country_code.strip().upper()
+    if len(name) < 2 or len(address) < 3 or len(city) < 2 or len(description) < 10:
+        raise HTTPException(422, "Заполните название, описание, адрес и город")
+    raw_rater = verified_community_rater(rater_cookie)
+    cookie_value = rater_cookie
+    if raw_rater is None:
+        raw_rater, cookie_value = new_community_rater()
+    identity = "|".join(
+        (
+            name.casefold(),
+            address.casefold(),
+            city.casefold(),
+            country_code,
+            f"{body.latitude:.4f}",
+            f"{body.longitude:.4f}",
+        )
+    )
+    place = ManualPlace(
+        identity_hash=token_hash(identity),
+        name=name,
+        category=body.category,
+        description=description,
+        address=address,
+        city=city,
+        country_code=country_code,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        created_by_hash=token_hash(raw_rater),
+    )
+    db.add(place)
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Это место уже добавлено")
+    db.add(
+        AuditLog(
+            actor_type="COMMUNITY",
+            action="MANUAL_PLACE_CREATED",
+            entity_type="MANUAL_PLACE",
+            entity_id=place.id,
+        )
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.set_cookie(
+        COMMUNITY_COOKIE,
+        cookie_value,
+        max_age=365 * 24 * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return {"status": "COMMUNITY_PLACE_CREATED", "item": manual_place_item(place)}
+
+
+@app.post("/v1/public/manual-places/nearby")
+def public_manual_places_nearby(
+    search: NearbySearch,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    lat_delta = search.radius_km / 110.574
+    longitude_scale = max(
+        0.01, 111.320 * math.cos(math.radians(search.latitude))
+    )
+    lng_delta = search.radius_km / longitude_scale
+    rows = db.scalars(
+        select(ManualPlace)
+        .where(
+            ManualPlace.active.is_(True),
+            ManualPlace.latitude.between(
+                search.latitude - lat_delta, search.latitude + lat_delta
+            ),
+            ManualPlace.longitude.between(
+                search.longitude - lng_delta, search.longitude + lng_delta
+            ),
+        )
+        .limit(search.limit * 3)
+    ).all()
+    items = []
+    for place in rows:
+        distance = haversine_km(
+            search.latitude,
+            search.longitude,
+            place.latitude,
+            place.longitude,
+        )
+        if distance <= search.radius_km:
+            items.append(manual_place_item(place, distance))
+    items.sort(key=lambda item: item["distance_km"])
+    return {
+        "items": items[: search.limit],
+        "radius_km": search.radius_km,
+        "location_stored": False,
+        "place_coordinates_user_submitted": True,
+    }
+
+
 def community_summary(object_key: str, db: Session) -> dict:
     score, count = db.execute(
         select(
@@ -997,7 +1186,11 @@ def create_community_rating(
     rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
     db: Session = Depends(get_db),
 ):
-    expected_prefix = "google:" if body.source == "GOOGLE" else "relyqo:"
+    expected_prefix = {
+        "GOOGLE": "google:",
+        "RELYQO_PARTNER": "relyqo:",
+        "MANUAL": "manual:",
+    }[body.source]
     if not body.object_key.startswith(expected_prefix):
         raise HTTPException(422, "Источник и идентификатор объекта не совпадают")
     raw_rater = verified_community_rater(rater_cookie)

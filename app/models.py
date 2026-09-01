@@ -47,6 +47,30 @@ class Branch(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class ManualPlace(Base):
+    __tablename__ = "manual_places"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    identity_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(40))
+    description: Mapped[str] = mapped_column(Text)
+    address: Mapped[str] = mapped_column(String(255))
+    city: Mapped[str] = mapped_column(String(80))
+    country_code: Mapped[str] = mapped_column(String(2))
+    latitude: Mapped[float] = mapped_column(Float, index=True)
+    longitude: Mapped[float] = mapped_column(Float, index=True)
+    created_by_hash: Mapped[str] = mapped_column(String(64), index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class GooglePlaceReference(Base):
+    __tablename__ = "google_place_references"
+    place_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class VisitToken(Base):
     __tablename__ = "visit_tokens"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

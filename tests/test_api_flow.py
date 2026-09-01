@@ -196,6 +196,9 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
     assert "до 100" in page.text
     assert "placeProfileUrl" in page.text
     assert 'href="/rankings"' in page.text
+    assert "Добавить место вручную" in page.text
+    assert "manual-places/nearby" in page.text
+    assert "Сохранить в RELYQO" in page.text
 
     monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
@@ -207,6 +210,7 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
         "search_radius_km": 15,
         "google_result_limit_per_search": 20,
         "location_storage": "none",
+        "google_catalog_storage": "place_ids_only",
     }
 
 
@@ -297,6 +301,8 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert rankings_page.status_code == 200
     assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Город. Страна. Мир." in rankings_page.text
+    assert 'data-scope="country"' in rankings_page.text
+    assert "Все организации рядом" in rankings_page.text
 
     response = client.get(
         "/v1/public/rankings",
@@ -375,6 +381,67 @@ def test_public_nearby_branches_rejects_invalid_coordinates():
         json={"latitude": 91, "longitude": 69.25},
     )
     assert response.status_code == 422
+
+
+def test_manual_place_is_saved_listed_and_community_rateable():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    suffix = uuid.uuid4().hex[:8]
+    created = client.post(
+        "/v1/public/manual-places",
+        json={
+            "name": f"Community Cafe {suffix}",
+            "category": "CAFE",
+            "description": "Небольшое пользовательское кафе с кофе и выпечкой.",
+            "address": "Community street 7",
+            "city": "Tashkent",
+            "country_code": "uz",
+            "latitude": 41.31,
+            "longitude": 69.28,
+        },
+    )
+    assert created.status_code == 200
+    item = created.json()["item"]
+    assert item["source"] == "MANUAL"
+    assert item["verified"] is False
+    assert item["category"] == "CAFE"
+    assert item["description"].startswith("Небольшое")
+    nearby = client.post(
+        "/v1/public/manual-places/nearby",
+        json={"latitude": 41.31, "longitude": 69.28, "radius_km": 2},
+    )
+    assert nearby.status_code == 200
+    assert any(place["id"] == item["id"] for place in nearby.json()["items"])
+    rated = client.post(
+        "/v1/community-ratings",
+        json={
+            "object_key": item["object_key"],
+            "source": "MANUAL",
+            "overall": 9,
+            "quality": 8,
+            "service": 8,
+            "cleanliness": 8,
+            "value": 8,
+        },
+    )
+    assert rated.status_code == 200
+    assert rated.json()["included_in_relyqo_score"] is False
+
+
+def test_google_catalog_persists_only_place_ids():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    place_id = f"ChIJ{uuid.uuid4().hex}"
+    synced = client.post(
+        "/v1/public/google-place-ids/sync", json={"place_ids": [place_id, place_id]}
+    )
+    assert synced.status_code == 200
+    assert synced.json()["received"] == 1
+    assert synced.json()["stored_google_fields"] == ["place_id"]
+    stats = client.get("/v1/public/catalog/stats")
+    assert stats.status_code == 200
+    assert stats.json()["google_place_ids"] >= 1
+    assert stats.json()["google_storage_policy"] == "place_ids_only"
 
 
 def test_contradictory_rating_requires_independent_review():
