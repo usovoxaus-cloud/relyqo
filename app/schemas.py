@@ -13,6 +13,7 @@ class RatingCreate(BaseModel):
     service: int = Field(ge=1, le=10)
     cleanliness: int = Field(ge=1, le=10)
     value: int = Field(ge=1, le=10)
+    photo_data_url: str | None = Field(default=None, max_length=8_000_000)
 
 
 class NearbySearch(BaseModel):
@@ -60,6 +61,7 @@ class CommunityRatingCreate(BaseModel):
     service: int = Field(ge=1, le=10)
     cleanliness: int = Field(ge=1, le=10)
     value: int = Field(ge=1, le=10)
+    photo_data_url: str | None = Field(default=None, max_length=8_000_000)
 
 
 class OwnerTokenCreate(BaseModel):
@@ -127,7 +129,7 @@ class BusinessProfileUpdate(BaseModel):
 
 
 class BusinessApplicationDecision(BaseModel):
-    decision: Literal["PUBLISH", "REJECT"]
+    decision: Literal["PUBLISH", "REJECT", "ENABLE_QR"]
 
 
 class StaffCreate(BaseModel):

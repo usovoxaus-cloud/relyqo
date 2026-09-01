@@ -104,3 +104,64 @@ def generate_consumer_assistance(context: dict) -> str:
     if not answer:
         raise AIServiceError("OpenAI returned an empty response")
     return answer
+
+
+PHOTO_ANALYSIS_INSTRUCTIONS = """
+Ты — визуальный аналитик RELYQO. Анализируй только то, что действительно видно
+на фотографии потребителя. Отвечай по-русски, максимум 5 коротких предложений.
+
+Обязательные правила:
+- не выставляй балл, рейтинг или RELYQO Score;
+- не подтверждай факт посещения и не определяй личность людей;
+- не делай медицинских, санитарных или юридических заключений;
+- не утверждай качество вкуса, лечения, ремонта или другой невидимой услуги;
+- называй фото дополнительным материалом, а не доказательством само по себе;
+- если изображение неинформативно или не похоже на объект услуги, скажи это;
+- опиши только видимые признаки состояния, порядка, комплектации или результата;
+- укажи, что окончательную оценку дал потребитель, а спор решает RELYQO Review.
+""".strip()
+
+
+def analyze_service_photo(image_data_url: str, context: dict) -> str:
+    if not settings.openai_api_key:
+        raise AIUnavailableError("OPENAI_API_KEY is not configured")
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=30.0,
+            max_retries=1,
+        )
+        response = client.responses.create(
+            model=settings.openai_model,
+            instructions=PHOTO_ANALYSIS_INSTRUCTIONS,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": json.dumps(
+                                context, ensure_ascii=False, sort_keys=True
+                            ),
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": image_data_url,
+                            "detail": "low",
+                        },
+                    ],
+                }
+            ],
+            max_output_tokens=350,
+            reasoning={"effort": "low"},
+            store=False,
+            text={"verbosity": "low"},
+        )
+    except Exception as exc:
+        raise AIServiceError("OpenAI photo analysis failed") from exc
+    answer = (response.output_text or "").strip()
+    if not answer:
+        raise AIServiceError("OpenAI returned an empty photo analysis")
+    return answer

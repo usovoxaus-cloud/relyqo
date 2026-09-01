@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Branch, Organization, User, VisitToken
+from app.models import Branch, Organization, RatingPhoto, User, VisitToken
 from app.security import create_token, password_hash, token_hash, verify_password
 from app.config import settings
 import uuid
@@ -16,6 +16,11 @@ from app.ai import generate_business_insight
 OWNER_TEST_PASSWORD = "owner-test-password-123"
 REVIEW_TEST_PASSWORD = "review-test-password-123"
 ADMIN_TEST_PASSWORD = "admin-test-password-123"
+TEST_PHOTO_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/"
+    "x8AAusB9Y9ZzWQAAAAASUVORK5CYII="
+)
 
 
 def register_consumer(client: TestClient) -> str:
@@ -244,6 +249,7 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
         "service": 8,
         "cleanliness": 8,
         "value": 8,
+        "photo_data_url": TEST_PHOTO_DATA_URL,
     }
     assert client.post("/v1/community-ratings", json=body).status_code == 401
     register_consumer(client)
@@ -253,6 +259,7 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
     assert created.json()["community_score"] == 80.0
     assert created.json()["rating_count"] == 1
     assert created.json()["included_in_relyqo_score"] is False
+    assert created.json()["photo_attached"] is True
     assert "httponly" in created.headers["set-cookie"].lower()
     assert client.post("/v1/community-ratings", json=body).status_code == 409
 
@@ -264,6 +271,21 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
     assert summary.json()["rating_count"] == 1
     assert summary.json()["community_global_position"] is not None
     assert summary.json()["community_rated_objects"] >= 1
+    assert summary.json()["metrics"] == {
+        "overall": 80.0,
+        "quality": 80.0,
+        "service": 80.0,
+        "cleanliness": 80.0,
+        "value": 80.0,
+    }
+    with SessionLocal() as db:
+        photo = db.scalar(
+            select(RatingPhoto).where(
+                RatingPhoto.community_rating_id == created.json()["rating_id"]
+            )
+        )
+        assert photo is not None
+        assert photo.content_type == "image/png"
     assert client.get("/v1/business/fregat").json()["relyqo_score"] == before
 
 
@@ -476,6 +498,7 @@ def test_contradictory_rating_requires_independent_review():
             "service": 1,
             "cleanliness": 1,
             "value": 1,
+            "photo_data_url": TEST_PHOTO_DATA_URL,
         },
     )
     assert submitted.status_code == 200
@@ -502,6 +525,13 @@ def test_contradictory_rating_requires_independent_review():
         for item in queue["items"]
         if item["rating_id"] == submitted.json()["rating_id"]
     )
+    assert item["photo"]["id"]
+    assert item["photo"]["analysis_status"] == "SAVED_NO_AI"
+    photo_url = f"/v1/review/rating-photos/{item['photo']['id']}"
+    assert TestClient(app).get(photo_url).status_code == 401
+    evidence = client.get(photo_url)
+    assert evidence.status_code == 200
+    assert evidence.headers["content-type"] == "image/png"
     decision = client.post(
         f"/v1/review/ratings/{item['review_id']}/decision",
         json={"decision": "APPROVE"},
@@ -963,6 +993,53 @@ def test_admin_publishes_business_profile_without_changing_score_or_ratings():
     assert published.json()["verified_score"] == 0
     assert published.json()["verified_rating_count"] == 0
 
+    unavailable_qr = business.post(
+        "/v1/business-owner/visit-token",
+        json={"transaction_reference": f"BEFORE-{uuid.uuid4().hex}"},
+    )
+    assert unavailable_qr.status_code == 403
+    queue_after_publish = admin.get("/v1/admin/business-applications")
+    assert any(
+        item["organization_id"] == organization_id
+        and item["profile_status"] == "PUBLISHED"
+        for item in queue_after_publish.json()["items"]
+    )
+    enabled = admin.post(
+        f"/v1/admin/business-applications/{organization_id}/decision",
+        json={"decision": "ENABLE_QR"},
+    )
+    assert enabled.status_code == 200
+    assert enabled.json()["profile_status"] == "VERIFIED_PARTNER"
+    receipt = f"AUTO-{uuid.uuid4().hex}"
+    issued = business.post(
+        "/v1/business-owner/visit-token",
+        json={"transaction_reference": receipt},
+    )
+    assert issued.status_code == 200
+    assert issued.json()["visit_url"].startswith("http://testserver/?token=")
+    token = parse_qs(urlsplit(issued.json()["visit_url"]).query)["token"][0]
+    visit = business.post("/v1/visits/verify-token", json={"token": token})
+    assert visit.status_code == 200
+    assert visit.json()["organization"]["category"] == "PROFESSIONAL_SERVICE"
+    rated = business.post(
+        "/v1/ratings",
+        json={
+            "visit_id": visit.json()["visit_id"],
+            "overall": 8,
+            "food": 8,
+            "service": 8,
+            "cleanliness": 8,
+            "value": 8,
+        },
+    )
+    assert rated.status_code == 200
+    assert rated.json()["relyqo_score"] == 80.0
+    duplicate = business.post(
+        "/v1/business-owner/visit-token",
+        json={"transaction_reference": receipt},
+    )
+    assert duplicate.status_code == 409
+
     nearby = TestClient(app).post(
         "/v1/public/branches/nearby",
         json={"latitude": 41.31, "longitude": 69.28, "radius_km": 1},
@@ -971,10 +1048,17 @@ def test_admin_publishes_business_profile_without_changing_score_or_ratings():
         row for row in nearby.json()["items"]
         if row["organization_id"] == organization_id
     )
-    assert item["profile_status"] == "PUBLISHED"
-    assert item["verified_partner"] is False
+    assert item["profile_status"] == "VERIFIED_PARTNER"
+    assert item["verified_partner"] is True
+    assert item["verified_metrics"] == {
+        "overall": 80.0,
+        "quality": 80.0,
+        "service": 80.0,
+        "cleanliness": 80.0,
+        "value": 80.0,
+    }
     rankings = TestClient(app).get("/v1/public/rankings?scope=world")
-    assert not any(
+    assert any(
         row["organization_id"] == organization_id
         for row in rankings.json()["items"]
     )

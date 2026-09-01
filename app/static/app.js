@@ -1,15 +1,49 @@
 const $ = (selector) => document.querySelector(selector);
 let visitId;
-const metrics = [
-  ["overall", "Общее впечатление"],
-  ["food", "Еда / продукт"],
-  ["service", "Сервис"],
-  ["cleanliness", "Чистота"],
-  ["value", "Цена и ценность"],
-];
+let photoDataUrl = null;
+let metrics = [];
+const metricSets = {
+  FOOD: ["Общее впечатление", "Качество еды / продукта", "Обслуживание", "Чистота", "Цена и ценность"],
+  HOTEL: ["Общее впечатление", "Комфорт и состояние номера", "Обслуживание", "Чистота", "Цена и ценность"],
+  BEAUTY: ["Результат", "Качество процедуры", "Мастер и обслуживание", "Гигиена", "Цена и ценность"],
+  HEALTH: ["Общее впечатление", "Качество помощи", "Внимание персонала", "Гигиена и безопасность", "Цена и прозрачность"],
+  ENTERTAINMENT: ["Впечатление", "Качество программы / развлечения", "Обслуживание", "Состояние места", "Цена и ценность"],
+  RETAIL: ["Общее впечатление", "Ассортимент и качество товаров", "Обслуживание", "Порядок и удобство", "Цена и ценность"],
+  AUTO_SERVICE: ["Общее впечатление", "Качество работы", "Сроки и обслуживание", "Аккуратность", "Цена и прозрачность"],
+  PROFESSIONAL_SERVICE: ["Общее впечатление", "Качество результата", "Коммуникация и сервис", "Надёжность и порядок", "Цена и ценность"],
+  OTHER: ["Общее впечатление", "Качество результата", "Удобство и сервис", "Состояние и порядок", "Цена и ценность"],
+};
+const foodCategories = new Set(["FOOD", "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT"]);
+const renderMetrics = (category = "OTHER") => {
+  const group = foodCategories.has(category) ? "FOOD" : category;
+  const labels = metricSets[group] || metricSets.OTHER;
+  metrics = ["overall", "food", "service", "cleanliness", "value"].map((id, index) => [id, labels[index]]);
+  $("#sliders").innerHTML = metrics.map(([id, label]) => `<div class="metric"><div class="metricTop"><label for="${id}">${label}</label><output id="${id}Out">8</output></div><input id="${id}" type="range" min="1" max="10" value="8" aria-label="${label}"></div>`).join("");
+  metrics.forEach(([id]) => { $("#" + id).oninput = (event) => { $("#" + id + "Out").value = event.target.value; }; });
+};
+renderMetrics();
 
-$("#sliders").innerHTML = metrics.map(([id, label]) => `<div class="metric"><div class="metricTop"><label for="${id}">${label}</label><output id="${id}Out">8</output></div><input id="${id}" type="range" min="1" max="10" value="8" aria-label="${label}"></div>`).join("");
-metrics.forEach(([id]) => { $("#" + id).oninput = (event) => { $("#" + id + "Out").value = event.target.value; }; });
+$("#photo").addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  $("#rateError").textContent = "";
+  if (!file) {
+    photoDataUrl = null;
+    $("#photoPreview").classList.add("hidden");
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    event.target.value = "";
+    $("#rateError").textContent = "Фото должно быть не больше 5 МБ";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    photoDataUrl = reader.result;
+    $("#photoPreview").src = photoDataUrl;
+    $("#photoPreview").classList.remove("hidden");
+  };
+  reader.readAsDataURL(file);
+});
 
 const api = async (url, body) => {
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -25,6 +59,7 @@ $("#verify").onclick = async () => {
     visitId = result.visit_id;
     $("#place").textContent = result.organization.name;
     $("#branch").textContent = result.branch.name;
+    renderMetrics(result.organization.category || "OTHER");
     $("#scan").classList.add("hidden");
     $("#rating").classList.remove("hidden");
   } catch (error) { $("#scanError").textContent = error.message; }
@@ -41,7 +76,7 @@ $("#demo").onclick = async () => {
 $("#submit").onclick = async () => {
   try {
     $("#rateError").textContent = "";
-    const body = { visit_id: visitId };
+    const body = { visit_id: visitId, photo_data_url: photoDataUrl };
     metrics.forEach(([id]) => { body[id] = Number($("#" + id).value); });
     const result = await api("/v1/ratings", body);
     $("#score").textContent = result.relyqo_score.toFixed(1);
@@ -50,6 +85,13 @@ $("#submit").onclick = async () => {
     $("#summary").textContent = result.status === "PENDING_REVIEW"
       ? "Оценка получена и направлена в RELYQO Owner Review. До решения она не влияет на Score."
       : `Ваша оценка ${result.ces_score.toFixed(1)} учтена. Всего подтверждённых оценок: ${result.rating_count}.`;
+    if (result.photo_analysis) {
+      $("#photoAnalysis").textContent = `AI-наблюдение по фото: ${result.photo_analysis}`;
+      $("#photoAnalysis").classList.remove("hidden");
+    } else if (result.photo_attached) {
+      $("#photoAnalysis").textContent = "Фото сохранено как дополнительный материал оценки. AI-анализ временно недоступен.";
+      $("#photoAnalysis").classList.remove("hidden");
+    }
     $("#rating").classList.add("hidden");
     $("#done").classList.remove("hidden");
   } catch (error) { $("#rateError").textContent = error.message; }

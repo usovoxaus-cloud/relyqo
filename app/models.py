@@ -6,6 +6,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -81,11 +82,18 @@ class GooglePlaceReference(Base):
 
 class VisitToken(Base):
     __tablename__ = "visit_tokens"
+    __table_args__ = (
+        UniqueConstraint(
+            "branch_id",
+            "transaction_reference",
+            name="uq_visit_tokens_branch_transaction_reference",
+        ),
+    )
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"))
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     transaction_reference: Mapped[str | None] = mapped_column(
-        String(120), unique=True, nullable=True
+        String(120), nullable=True
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -144,6 +152,27 @@ class CommunityRating(Base):
     cleanliness: Mapped[int] = mapped_column(Integer)
     value: Mapped[int] = mapped_column(Integer)
     community_score: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class RatingPhoto(Base):
+    __tablename__ = "rating_photos"
+    __table_args__ = (
+        UniqueConstraint("rating_id"),
+        UniqueConstraint("community_rating_id"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    rating_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ratings.id"), nullable=True, index=True
+    )
+    community_rating_id: Mapped[str | None] = mapped_column(
+        ForeignKey("community_ratings.id"), nullable=True, index=True
+    )
+    object_key: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    content_type: Mapped[str] = mapped_column(String(40), default="image/jpeg")
+    image_data: Mapped[bytes] = mapped_column(LargeBinary)
+    ai_analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    analysis_status: Mapped[str] = mapped_column(String(30), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 

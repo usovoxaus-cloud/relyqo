@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import base64
+import binascii
 import hmac
 import json
 import math
@@ -17,6 +19,7 @@ from .config import settings
 from .ai import (
     AIServiceError,
     AIUnavailableError,
+    analyze_service_photo,
     generate_business_insight,
     generate_consumer_assistance,
 )
@@ -32,6 +35,7 @@ from .models import (
     Organization,
     OwnerReview,
     Rating,
+    RatingPhoto,
     ScoreHistory,
     Visit,
     VisitToken,
@@ -78,6 +82,58 @@ app.add_middleware(
 )
 static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static), name="static")
+
+
+def normalize_rating_photo(data_url: str | None) -> tuple[bytes, str, str] | None:
+    if not data_url:
+        return None
+    match = re.fullmatch(
+        r"data:image/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)",
+        data_url,
+    )
+    if not match:
+        raise HTTPException(422, "Фото должно быть JPEG, PNG или WebP")
+    try:
+        raw = base64.b64decode(match.group(2), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(422, "Файл фотографии повреждён") from exc
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(413, "Фото должно быть не больше 5 МБ")
+    requested = "jpeg" if match.group(1) in {"jpeg", "jpg"} else match.group(1)
+    valid_magic = (
+        requested == "jpeg" and raw.startswith(b"\xff\xd8\xff")
+        or requested == "png" and raw.startswith(b"\x89PNG\r\n\x1a\n")
+        or requested == "webp"
+        and raw.startswith(b"RIFF")
+        and raw[8:12] == b"WEBP"
+    )
+    if not valid_magic:
+        raise HTTPException(422, "Содержимое файла не соответствует формату фото")
+    encoded = base64.b64encode(raw).decode("ascii")
+    content_type = f"image/{requested}"
+    return raw, f"data:{content_type};base64,{encoded}", content_type
+
+
+def analyze_rating_photo(
+    photo: RatingPhoto,
+    image_data_url: str,
+    context: dict,
+    db: Session,
+) -> str | None:
+    try:
+        analysis = analyze_service_photo(image_data_url, context)
+        photo.ai_analysis = analysis
+        photo.analysis_status = "COMPLETED"
+        db.add(photo)
+        db.commit()
+        return analysis
+    except AIUnavailableError:
+        photo.analysis_status = "SAVED_NO_AI"
+    except AIServiceError:
+        photo.analysis_status = "AI_TEMPORARILY_UNAVAILABLE"
+    db.add(photo)
+    db.commit()
+    return None
 
 
 def ensure_fregat(db: Session) -> tuple[Organization, Branch]:
@@ -383,6 +439,7 @@ def business_profile_payload(user: User, db: Session) -> dict:
         raise HTTPException(404, "Профиль организации не найден")
     return {
         "username": user.username,
+        "role": user.role,
         "organization_id": organization.id,
         "branch_id": branch.id,
         "organization_name": organization.name,
@@ -729,7 +786,8 @@ def update_business_owner_profile(
     organization.website = profile["website"]
     if (
         user.role == BUSINESS_OWNER_ROLE
-        and organization.profile_status in {"PUBLISHED", "REJECTED"}
+        and organization.profile_status
+        in {"PUBLISHED", "VERIFIED_PARTNER", "REJECTED"}
     ):
         organization.profile_status = "SELF_REGISTERED"
     branch.name = profile["address"]
@@ -767,7 +825,7 @@ def business_applications(
         .join(Branch, Branch.organization_id == Organization.id)
         .join(User, User.organization_id == Organization.id)
         .where(
-            Organization.profile_status == "SELF_REGISTERED",
+            Organization.profile_status.in_({"SELF_REGISTERED", "PUBLISHED"}),
             User.role == BUSINESS_OWNER_ROLE,
         )
         .order_by(Organization.created_at, Organization.id)
@@ -818,11 +876,18 @@ def decide_business_application(
     organization = db.get(Organization, organization_id)
     if not organization:
         raise HTTPException(404, "Заявка организации не найдена")
-    if organization.profile_status != "SELF_REGISTERED":
+    if organization.profile_status == "SELF_REGISTERED":
+        if body.decision not in {"PUBLISH", "REJECT"}:
+            raise HTTPException(409, "Сначала опубликуйте профиль организации")
+        organization.profile_status = (
+            "PUBLISHED" if body.decision == "PUBLISH" else "REJECTED"
+        )
+    elif organization.profile_status == "PUBLISHED":
+        if body.decision != "ENABLE_QR":
+            raise HTTPException(409, "Профиль уже опубликован")
+        organization.profile_status = "VERIFIED_PARTNER"
+    else:
         raise HTTPException(409, "Решение по этой заявке уже принято")
-    organization.profile_status = (
-        "PUBLISHED" if body.decision == "PUBLISH" else "REJECTED"
-    )
     db.add_all(
         [
             organization,
@@ -842,6 +907,63 @@ def decide_business_application(
         "verified_rating_count": organization.rating_count,
         "score_changed": False,
         "ratings_changed": False,
+    }
+
+
+@app.post("/v1/business-owner/visit-token")
+def business_owner_visit_token(
+    body: OwnerTokenCreate,
+    request: Request,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(
+        relyqo_session,
+        db,
+        {BUSINESS_OWNER_ROLE, OWNER_ROLE},
+    )
+    organization = db.get(Organization, user.organization_id)
+    if not organization or organization.profile_status != "VERIFIED_PARTNER":
+        raise HTTPException(403, "Выдача QR ещё не подключена администратором RELYQO")
+    branch = db.scalar(
+        select(Branch)
+        .where(
+            Branch.organization_id == organization.id,
+            Branch.active.is_(True),
+        )
+        .order_by(Branch.id)
+    )
+    if not branch:
+        raise HTTPException(404, "Активный филиал не найден")
+    existing = db.scalar(
+        select(VisitToken).where(
+            VisitToken.branch_id == branch.id,
+            VisitToken.transaction_reference == body.transaction_reference,
+        )
+    )
+    if existing:
+        raise HTTPException(409, "Для этого чека QR уже выпускался")
+    token = issue_visit_token(branch, db, user.id)
+    record = db.scalar(
+        select(VisitToken).where(VisitToken.token_hash == token_hash(token))
+    )
+    record.transaction_reference = body.transaction_reference
+    db.add(
+        AuditLog(
+            actor_type=user.role,
+            action="VISIT_TOKEN_ISSUED",
+            entity_type="VISIT_TOKEN",
+            entity_id=record.id,
+        )
+    )
+    db.commit()
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "organization_id": organization.id,
+        "branch_id": branch.id,
+        "expires_in": 10800,
+        "visit_url": f"{base_url}/?token={token}",
+        "qr_url": f"{base_url}/v1/qr.png?token={token}",
     }
 
 
@@ -1363,14 +1485,15 @@ def owner_visit_token(
     db: Session = Depends(get_db),
 ):
     user = session_user(relyqo_session, db, {OWNER_ROLE, STAFF_ROLE})
+    _, branch = ensure_fregat(db)
     existing = db.scalar(
         select(VisitToken).where(
+            VisitToken.branch_id == branch.id,
             VisitToken.transaction_reference == body.transaction_reference
         )
     )
     if existing:
         raise HTTPException(409, "Для этого чека QR уже выпускался")
-    _, branch = ensure_fregat(db)
     if user.organization_id != branch.organization_id:
         raise HTTPException(403, "Нет доступа к этому ресторану")
     token = issue_visit_token(branch, db, user.id)
@@ -1532,6 +1655,37 @@ def public_nearby_branches(
         )
         .limit(limit * 3)
     ).all()
+    organization_ids = [organization.id for _, organization in rows]
+    metric_rows = (
+        db.execute(
+            select(
+                Rating.organization_id,
+                func.avg(Rating.overall),
+                func.avg(Rating.food),
+                func.avg(Rating.service),
+                func.avg(Rating.cleanliness),
+                func.avg(Rating.value),
+            )
+            .where(
+                Rating.organization_id.in_(organization_ids),
+                Rating.included.is_(True),
+            )
+            .group_by(Rating.organization_id)
+        ).all()
+        if organization_ids
+        else []
+    )
+    verified_metrics = {
+        row[0]: {
+            "overall": round(float(row[1]) * 10, 1),
+            "quality": round(float(row[2]) * 10, 1),
+            "service": round(float(row[3]) * 10, 1),
+            "cleanliness": round(float(row[4]) * 10, 1),
+            "value": round(float(row[5]) * 10, 1),
+        }
+        for row in metric_rows
+        if all(value is not None for value in row[1:])
+    }
     items = []
     for branch, organization in rows:
         distance = haversine_km(
@@ -1560,6 +1714,7 @@ def public_nearby_branches(
                 "distance_km": round(distance, 2),
                 "relyqo_score": round(organization.score, 1),
                 "verified_rating_count": organization.rating_count,
+                "verified_metrics": verified_metrics.get(organization.id),
                 "google_place_id": branch.google_place_id,
                 "rating_requires_verified_visit": True,
             }
@@ -1705,10 +1860,15 @@ def public_manual_places_nearby(
 
 
 def community_summary(object_key: str, db: Session) -> dict:
-    score, count = db.execute(
+    score, count, overall, quality, service, cleanliness, value = db.execute(
         select(
             func.avg(CommunityRating.community_score),
             func.count(CommunityRating.id),
+            func.avg(CommunityRating.overall),
+            func.avg(CommunityRating.quality),
+            func.avg(CommunityRating.service),
+            func.avg(CommunityRating.cleanliness),
+            func.avg(CommunityRating.value),
         ).where(CommunityRating.object_key == object_key)
     ).one()
     aggregated = (
@@ -1742,6 +1902,15 @@ def community_summary(object_key: str, db: Session) -> dict:
         "rating_count": int(count),
         "community_global_position": int(position) if position is not None else None,
         "community_rated_objects": int(rated_objects),
+        "metrics": {
+            "overall": round(float(overall) * 10, 1) if overall is not None else 0.0,
+            "quality": round(float(quality) * 10, 1) if quality is not None else 0.0,
+            "service": round(float(service) * 10, 1) if service is not None else 0.0,
+            "cleanliness": round(float(cleanliness) * 10, 1)
+            if cleanliness is not None
+            else 0.0,
+            "value": round(float(value) * 10, 1) if value is not None else 0.0,
+        },
         "verified_relyqo_score": None,
         "included_in_relyqo_score": False,
     }
@@ -1770,6 +1939,7 @@ def create_community_rating(
 ):
     consumer = session_user(relyqo_session, db, CONSUMER_ROLE)
     validate_public_object(body.object_key, body.source)
+    normalized_photo = normalize_rating_photo(body.photo_data_url)
     raw_rater = verified_community_rater(rater_cookie)
     cookie_value = rater_cookie
     if raw_rater is None:
@@ -1783,7 +1953,7 @@ def create_community_rating(
         body.value,
     )
     rating = CommunityRating(
-        **body.model_dump(),
+        **body.model_dump(exclude={"photo_data_url"}),
         rater_hash=rater_hash,
         consumer_user_id=consumer.id,
         community_score=score,
@@ -1794,6 +1964,15 @@ def create_community_rating(
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Вы уже оценили этот объект")
+    photo = None
+    if normalized_photo:
+        photo = RatingPhoto(
+            community_rating_id=rating.id,
+            object_key=body.object_key,
+            content_type=normalized_photo[2],
+            image_data=normalized_photo[0],
+        )
+        db.add(photo)
     db.add(
         AuditLog(
             actor_type="COMMUNITY",
@@ -1803,6 +1982,24 @@ def create_community_rating(
         )
     )
     db.commit()
+    photo_analysis = None
+    if photo and normalized_photo:
+        photo_analysis = analyze_rating_photo(
+            photo,
+            normalized_photo[1],
+            {
+                "source": body.source,
+                "consumer_scores": {
+                    "overall": body.overall,
+                    "quality": body.quality,
+                    "service": body.service,
+                    "cleanliness": body.cleanliness,
+                    "value": body.value,
+                },
+                "policy": "AI describes visible evidence only and never changes scores",
+            },
+            db,
+        )
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.set_cookie(
         COMMUNITY_COOKIE,
@@ -1816,6 +2013,8 @@ def create_community_rating(
     return {
         "rating_id": rating.id,
         "status": "COMMUNITY_PUBLISHED",
+        "photo_attached": photo is not None,
+        "photo_analysis": photo_analysis,
         **community_summary(body.object_key, db),
     }
 
@@ -1969,7 +2168,7 @@ def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
     return {
         "status": "VERIFIED",
         "visit_id": visit.id,
-        "organization": {"id": org.id, "name": org.name},
+        "organization": {"id": org.id, "name": org.name, "category": org.category},
         "branch": {"id": branch.id, "name": branch.name},
         "verification_score": visit.verification_score,
     }
@@ -1977,6 +2176,7 @@ def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
 
 @app.post("/v1/ratings")
 def rate(body: RatingCreate, db: Session = Depends(get_db)):
+    normalized_photo = normalize_rating_photo(body.photo_data_url)
     visit = db.get(Visit, body.visit_id)
     if not visit:
         raise HTTPException(404, "Посещение не найдено")
@@ -1989,7 +2189,7 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
         body.overall, body.food, body.service, body.cleanliness, body.value
     )
     rating = Rating(
-        **body.model_dump(),
+        **body.model_dump(exclude={"photo_data_url"}),
         organization_id=org.id,
         ces=ces,
         trust_weight=visit.verification_score,
@@ -2002,6 +2202,14 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Для этого посещения оценка уже поставлена")
+    photo = None
+    if normalized_photo:
+        photo = RatingPhoto(
+            rating_id=rating.id,
+            content_type=normalized_photo[2],
+            image_data=normalized_photo[0],
+        )
+        db.add(photo)
     if pending_reason:
         db.add_all(
             [
@@ -2029,6 +2237,25 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
             )
         )
     db.commit()
+    photo_analysis = None
+    if photo and normalized_photo:
+        photo_analysis = analyze_rating_photo(
+            photo,
+            normalized_photo[1],
+            {
+                "organization_category": org.category,
+                "consumer_scores": {
+                    "overall": body.overall,
+                    "quality": body.food,
+                    "service": body.service,
+                    "cleanliness": body.cleanliness,
+                    "value": body.value,
+                },
+                "verified_visit": True,
+                "policy": "AI describes visible evidence only and never changes scores",
+            },
+            db,
+        )
     return {
         "rating_id": rating.id,
         "status": rating.status,
@@ -2036,6 +2263,8 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
         "included_in_rating": rating.included,
         "relyqo_score": org.score,
         "rating_count": org.rating_count,
+        "photo_attached": photo is not None,
+        "photo_analysis": photo_analysis,
     }
 
 
@@ -2084,6 +2313,9 @@ def pending_rating_reviews(
         if not rating:
             continue
         org = db.get(Organization, rating.organization_id)
+        photo = db.scalar(
+            select(RatingPhoto).where(RatingPhoto.rating_id == rating.id)
+        )
         result.append(
             {
                 "review_id": review.id,
@@ -2092,6 +2324,15 @@ def pending_rating_reviews(
                 "reason": review.reason,
                 "status": review.status,
                 "created_at": rating.created_at,
+                "photo": (
+                    {
+                        "id": photo.id,
+                        "analysis_status": photo.analysis_status,
+                        "ai_analysis": photo.ai_analysis,
+                    }
+                    if photo
+                    else None
+                ),
                 "scores": {
                     "overall": rating.overall,
                     "food": rating.food,
@@ -2103,6 +2344,23 @@ def pending_rating_reviews(
             }
         )
     return {"items": result, "count": len(result)}
+
+
+@app.get("/v1/review/rating-photos/{photo_id}", include_in_schema=False)
+def review_rating_photo(
+    photo_id: str,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    session_user(relyqo_session, db, REVIEWER_ROLE)
+    photo = db.get(RatingPhoto, photo_id)
+    if not photo:
+        raise HTTPException(404, "Фото оценки не найдено")
+    return Response(
+        content=photo.image_data,
+        media_type=photo.content_type,
+        headers={"Cache-Control": "private, no-store, max-age=0"},
+    )
 
 
 @app.post("/v1/review/ratings/{review_id}/decision")
