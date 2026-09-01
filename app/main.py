@@ -39,6 +39,8 @@ from .models import (
 )
 from .schemas import (
     AccountRecovery,
+    BusinessOwnerRegister,
+    BusinessProfileUpdate,
     CommunityRatingCreate,
     ConsumerAssistantRequest,
     ConsumerFavoriteChange,
@@ -168,6 +170,7 @@ OWNER_ROLE = "FREGAT_OWNER"
 STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
 CONSUMER_ROLE = "CONSUMER"
+BUSINESS_OWNER_ROLE = "BUSINESS_OWNER"
 _DUMMY_PASSWORD_HASH = password_hash("dummy-password-used-for-timing-only")
 AI_CACHE_MINUTES = 10
 AI_COOLDOWN_SECONDS = 60
@@ -306,24 +309,6 @@ def session_user(
     return user
 
 
-def optional_consumer_user(token: str | None, db: Session) -> User | None:
-    if not token:
-        return None
-    session = db.scalar(
-        select(AuthSession).where(
-            AuthSession.token_hash == token_hash(token),
-            AuthSession.revoked_at.is_(None),
-            AuthSession.expires_at >= datetime.utcnow(),
-        )
-    )
-    if not session:
-        return None
-    user = db.get(User, session.user_id)
-    if not user or not user.active or user.role != CONSUMER_ROLE:
-        return None
-    return user
-
-
 def validate_public_object(object_key: str, source: str) -> None:
     expected_prefix = {
         "GOOGLE": "google:",
@@ -361,6 +346,60 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
                 href=f"/place?object_key={object_key}&source=RELYQO_PARTNER",
             )
     return item
+
+
+def normalize_business_profile(body: BusinessOwnerRegister | BusinessProfileUpdate) -> dict:
+    website = (body.website or "").strip() or None
+    if website and not re.match(r"^https?://", website, flags=re.IGNORECASE):
+        raise HTTPException(422, "Сайт должен начинаться с http:// или https://")
+    return {
+        "organization_name": " ".join(body.organization_name.split()),
+        "category": body.category,
+        "description": " ".join(body.description.split()),
+        "address": " ".join(body.address.split()),
+        "city": " ".join(body.city.split()),
+        "country_code": body.country_code.strip().upper(),
+        "phone": " ".join((body.phone or "").split()) or None,
+        "website": website,
+        "latitude": body.latitude,
+        "longitude": body.longitude,
+    }
+
+
+def business_profile_payload(user: User, db: Session) -> dict:
+    organization = db.get(Organization, user.organization_id)
+    branch = db.scalar(
+        select(Branch)
+        .where(Branch.organization_id == user.organization_id)
+        .order_by(Branch.id)
+    )
+    if not organization or not branch:
+        raise HTTPException(404, "Профиль организации не найден")
+    return {
+        "username": user.username,
+        "organization_id": organization.id,
+        "branch_id": branch.id,
+        "organization_name": organization.name,
+        "category": organization.category,
+        "description": organization.description or "",
+        "phone": organization.phone,
+        "website": organization.website,
+        "profile_status": organization.profile_status,
+        "address": branch.address or branch.name,
+        "city": branch.city or organization.city,
+        "country_code": branch.country_code,
+        "latitude": branch.latitude,
+        "longitude": branch.longitude,
+        "verified_score": round(organization.score, 1),
+        "verified_rating_count": organization.rating_count,
+        "permissions": {
+            "edit_profile": True,
+            "create_rating": False,
+            "edit_rating": False,
+            "edit_score": False,
+            "decide_review": False,
+        },
+    }
 
 
 @app.get("/", include_in_schema=False)
@@ -444,6 +483,14 @@ def recover_web():
 def consumer_web():
     return FileResponse(
         static / "me.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
+@app.get("/business-owner", include_in_schema=False)
+def business_owner_web():
+    return FileResponse(
+        static / "business-owner.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
 
@@ -543,6 +590,150 @@ def register_consumer(
         path="/",
     )
     return {"username": user.username, "role": user.role}
+
+
+@app.post("/v1/business-owner/register")
+def register_business_owner(
+    body: BusinessOwnerRegister,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    username = body.username.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
+        raise HTTPException(
+            422,
+            "Имя: латинские буквы, цифры, точка, дефис или подчёркивание",
+        )
+    if db.scalar(select(User).where(User.username == username)):
+        raise HTTPException(409, "Это имя пользователя уже занято")
+    profile = normalize_business_profile(body)
+    organization = Organization(
+        name=profile["organization_name"],
+        city=profile["city"],
+        category=profile["category"],
+        description=profile["description"],
+        phone=profile["phone"],
+        website=profile["website"],
+        profile_status="SELF_REGISTERED",
+    )
+    db.add(organization)
+    db.flush()
+    branch = Branch(
+        organization_id=organization.id,
+        name=profile["address"],
+        address=profile["address"],
+        city=profile["city"],
+        country_code=profile["country_code"],
+        latitude=profile["latitude"],
+        longitude=profile["longitude"],
+        active=True,
+    )
+    user = User(
+        username=username,
+        password_hash=password_hash(body.password),
+        role=BUSINESS_OWNER_ROLE,
+        organization_id=organization.id,
+    )
+    db.add_all([branch, user])
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Не удалось создать аккаунт с этими данными")
+    raw_token = secrets.token_urlsafe(32)
+    db.add_all(
+        [
+            AuthSession(
+                user_id=user.id,
+                token_hash=token_hash(raw_token),
+                expires_at=datetime.utcnow() + timedelta(hours=SESSION_HOURS),
+            ),
+            AuditLog(
+                actor_type=BUSINESS_OWNER_ROLE,
+                action="BUSINESS_SELF_REGISTERED",
+                entity_type="ORGANIZATION",
+                entity_id=organization.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.set_cookie(
+        SESSION_COOKIE,
+        raw_token,
+        max_age=SESSION_HOURS * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return business_profile_payload(user, db)
+
+
+@app.get("/v1/business-owner/profile")
+def get_business_owner_profile(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(
+        relyqo_session,
+        db,
+        {BUSINESS_OWNER_ROLE, OWNER_ROLE},
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return business_profile_payload(user, db)
+
+
+@app.post("/v1/business-owner/profile")
+def update_business_owner_profile(
+    body: BusinessProfileUpdate,
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(
+        relyqo_session,
+        db,
+        {BUSINESS_OWNER_ROLE, OWNER_ROLE},
+    )
+    organization = db.get(Organization, user.organization_id)
+    branch = db.scalar(
+        select(Branch)
+        .where(Branch.organization_id == user.organization_id)
+        .order_by(Branch.id)
+    )
+    if not organization or not branch:
+        raise HTTPException(404, "Профиль организации не найден")
+    profile = normalize_business_profile(body)
+    organization.name = profile["organization_name"]
+    organization.city = profile["city"]
+    organization.category = profile["category"]
+    organization.description = profile["description"]
+    organization.phone = profile["phone"]
+    organization.website = profile["website"]
+    branch.name = profile["address"]
+    branch.address = profile["address"]
+    branch.city = profile["city"]
+    branch.country_code = profile["country_code"]
+    branch.latitude = profile["latitude"]
+    branch.longitude = profile["longitude"]
+    db.add_all(
+        [
+            organization,
+            branch,
+            AuditLog(
+                actor_type=user.role,
+                action="BUSINESS_PROFILE_UPDATED",
+                entity_type="ORGANIZATION",
+                entity_id=organization.id,
+            ),
+        ]
+    )
+    db.commit()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return business_profile_payload(user, db)
 
 
 @app.get("/v1/consumer/dashboard")
@@ -1224,6 +1415,7 @@ def public_nearby_branches(
         .join(Organization, Organization.id == Branch.organization_id)
         .where(
             Branch.active.is_(True),
+            Organization.profile_status == "VERIFIED_PARTNER",
             Branch.latitude.is_not(None),
             Branch.longitude.is_not(None),
             Branch.latitude.between(latitude - lat_delta, latitude + lat_delta),
@@ -1246,6 +1438,9 @@ def public_nearby_branches(
                 "organization_id": organization.id,
                 "branch_id": branch.id,
                 "organization": organization.name,
+                "category": organization.category,
+                "description": organization.description,
+                "profile_status": organization.profile_status,
                 "branch": branch.name,
                 "address": branch.address or branch.name,
                 "city": branch.city or organization.city,
@@ -1463,6 +1658,7 @@ def create_community_rating(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
+    consumer = session_user(relyqo_session, db, CONSUMER_ROLE)
     validate_public_object(body.object_key, body.source)
     raw_rater = verified_community_rater(rater_cookie)
     cookie_value = rater_cookie
@@ -1479,11 +1675,7 @@ def create_community_rating(
     rating = CommunityRating(
         **body.model_dump(),
         rater_hash=rater_hash,
-        consumer_user_id=(
-            consumer.id
-            if (consumer := optional_consumer_user(relyqo_session, db))
-            else None
-        ),
+        consumer_user_id=consumer.id,
         community_score=score,
     )
     db.add(rating)
@@ -1539,7 +1731,10 @@ def public_rankings(
     rows = db.execute(
         select(Organization, Branch)
         .join(Branch, Branch.organization_id == Organization.id)
-        .where(Branch.active.is_(True))
+        .where(
+            Branch.active.is_(True),
+            Organization.profile_status == "VERIFIED_PARTNER",
+        )
         .order_by(Organization.name, Branch.name)
     ).all()
     organizations: dict[str, dict] = {}

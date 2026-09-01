@@ -17,6 +17,16 @@ OWNER_TEST_PASSWORD = "owner-test-password-123"
 REVIEW_TEST_PASSWORD = "review-test-password-123"
 
 
+def register_consumer(client: TestClient) -> str:
+    username = f"consumer-{uuid.uuid4().hex[:10]}"
+    response = client.post(
+        "/v1/consumer/register",
+        json={"username": username, "password": "consumer-password-123"},
+    )
+    assert response.status_code == 200
+    return username
+
+
 def test_qr_rating_score_flow():
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
@@ -214,7 +224,7 @@ def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
     }
 
 
-def test_community_rating_is_public_one_per_browser_and_separate_from_score():
+def test_community_rating_requires_consumer_and_stays_separate_from_score():
     Base.metadata.create_all(engine)
     client = TestClient(app)
     rating_page = client.get("/community-rate")
@@ -234,6 +244,8 @@ def test_community_rating_is_public_one_per_browser_and_separate_from_score():
         "cleanliness": 8,
         "value": 8,
     }
+    assert client.post("/v1/community-ratings", json=body).status_code == 401
+    register_consumer(client)
     created = client.post("/v1/community-ratings", json=body)
     assert created.status_code == 200
     assert created.json()["status"] == "COMMUNITY_PUBLISHED"
@@ -412,6 +424,7 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     )
     assert nearby.status_code == 200
     assert any(place["id"] == item["id"] for place in nearby.json()["items"])
+    register_consumer(client)
     rated = client.post(
         "/v1/community-ratings",
         json={
@@ -811,3 +824,85 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     assert "МОЙ RELYQO" in page.text
     assert "AI-ПОМОЩНИК ПОТРЕБИТЕЛЯ" in page.text
     assert TestClient(app).get("/v1/consumer/dashboard").status_code == 401
+
+
+def test_business_owner_self_registration_and_profile_are_score_read_only():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    suffix = uuid.uuid4().hex[:8]
+    username = f"owner-{suffix}"
+    registered = client.post(
+        "/v1/business-owner/register",
+        json={
+            "username": username,
+            "password": "business-password-123",
+            "organization_name": f"Service {suffix}",
+            "category": "AUTO_SERVICE",
+            "description": "Диагностика и обслуживание автомобилей по предварительной записи.",
+            "address": "Test street 15",
+            "city": "Tashkent",
+            "country_code": "uz",
+            "phone": "+998 90 123 45 67",
+            "website": "https://example.com",
+            "latitude": 41.3,
+            "longitude": 69.25,
+        },
+    )
+    assert registered.status_code == 200
+    profile = registered.json()
+    assert profile["profile_status"] == "SELF_REGISTERED"
+    assert profile["category"] == "AUTO_SERVICE"
+    assert profile["verified_score"] == 0
+    assert profile["permissions"]["edit_profile"] is True
+    assert profile["permissions"]["edit_score"] is False
+    assert client.get("/v1/auth/me").json()["role"] == "BUSINESS_OWNER"
+
+    updated = client.post(
+        "/v1/business-owner/profile",
+        json={
+            "organization_name": f"Service Plus {suffix}",
+            "category": "PROFESSIONAL_SERVICE",
+            "description": "Обновлённое описание услуг организации для потребителей RELYQO.",
+            "address": "New street 17",
+            "city": "Tashkent",
+            "country_code": "UZ",
+            "phone": "+998 90 765 43 21",
+            "website": "https://example.org",
+            "latitude": 41.301,
+            "longitude": 69.251,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["organization_name"] == f"Service Plus {suffix}"
+    assert updated.json()["verified_score"] == 0
+    assert updated.json()["verified_rating_count"] == 0
+
+    forbidden_rating = client.post(
+        "/v1/community-ratings",
+        json={
+            "object_key": f"google:test-{suffix}",
+            "source": "GOOGLE",
+            "overall": 10,
+            "quality": 10,
+            "service": 10,
+            "cleanliness": 10,
+            "value": 10,
+        },
+    )
+    assert forbidden_rating.status_code == 403
+    nearby = TestClient(app).post(
+        "/v1/public/branches/nearby",
+        json={"latitude": 41.301, "longitude": 69.251, "radius_km": 1},
+    )
+    assert not any(
+        row["organization"] == f"Service Plus {suffix}"
+        for row in nearby.json()["items"]
+    )
+
+
+def test_business_owner_page_is_public_but_profile_requires_owner_login():
+    page = TestClient(app).get("/business-owner")
+    assert page.status_code == 200
+    assert page.headers["cache-control"] == "no-store, max-age=0"
+    assert "Добавьте свою организацию" in page.text
+    assert TestClient(app).get("/v1/business-owner/profile").status_code == 401

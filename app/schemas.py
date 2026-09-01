@@ -90,6 +90,42 @@ class ConsumerAssistantRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
 
 
+class BusinessOwnerRegister(BaseModel):
+    username: str = Field(min_length=3, max_length=80)
+    password: str = Field(min_length=10, max_length=200)
+    organization_name: str = Field(min_length=2, max_length=160)
+    category: Literal[
+        "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT",
+        "HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE",
+        "PROFESSIONAL_SERVICE", "OTHER",
+    ]
+    description: str = Field(min_length=10, max_length=1000)
+    address: str = Field(min_length=3, max_length=255)
+    city: str = Field(min_length=2, max_length=80)
+    country_code: str = Field(min_length=2, max_length=2)
+    phone: str | None = Field(default=None, max_length=40)
+    website: str | None = Field(default=None, max_length=255)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
+class BusinessProfileUpdate(BaseModel):
+    organization_name: str = Field(min_length=2, max_length=160)
+    category: Literal[
+        "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT",
+        "HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE",
+        "PROFESSIONAL_SERVICE", "OTHER",
+    ]
+    description: str = Field(min_length=10, max_length=1000)
+    address: str = Field(min_length=3, max_length=255)
+    city: str = Field(min_length=2, max_length=80)
+    country_code: str = Field(min_length=2, max_length=2)
+    phone: str | None = Field(default=None, max_length=40)
+    website: str | None = Field(default=None, max_length=255)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 class StaffCreate(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)

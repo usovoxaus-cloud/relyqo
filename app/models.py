@@ -27,8 +27,16 @@ class Organization(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     name: Mapped[str] = mapped_column(String(160))
     city: Mapped[str] = mapped_column(String(80), default="Tashkent")
+    category: Mapped[str] = mapped_column(String(40), default="RESTAURANT", index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    profile_status: Mapped[str] = mapped_column(
+        String(30), default="VERIFIED_PARTNER", index=True
+    )
     score: Mapped[float] = mapped_column(Float, default=0)
     rating_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
 class Branch(Base):
