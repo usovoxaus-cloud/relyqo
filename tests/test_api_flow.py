@@ -905,4 +905,6 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert "Добавьте свою организацию" in page.text
+    assert "fill(event.currentTarget" not in page.text
+    assert "const form=event.currentTarget" in page.text
     assert TestClient(app).get("/v1/business-owner/profile").status_code == 401
