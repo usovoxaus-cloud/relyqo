@@ -121,6 +121,9 @@ class Rating(Base):
     organization_id: Mapped[str] = mapped_column(
         ForeignKey("organizations.id"), index=True
     )
+    consumer_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     overall: Mapped[int] = mapped_column(Integer)
     food: Mapped[int] = mapped_column(Integer)
     service: Mapped[int] = mapped_column(Integer)

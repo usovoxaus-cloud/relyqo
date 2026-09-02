@@ -68,11 +68,81 @@ def test_qr_rating_score_flow():
     )
     assert rated.status_code == 200
     assert rated.json()["relyqo_score"] == 88.0
+    assert rated.json()["saved_to_consumer_history"] is False
     assert (
         client.post("/v1/visits/verify-token", json={"token": token}).status_code == 409
     )
     public = client.get(f"/v1/organizations/{org_id}/score")
     assert public.json()["calculation"] == "deterministic_weighted_ces_v1"
+
+
+def test_verified_qr_rating_is_saved_to_consumer_history():
+    Base.metadata.create_all(engine)
+    with SessionLocal() as db:
+        org = Organization(name=f"Verified History {uuid.uuid4().hex[:8]}")
+        db.add(org)
+        db.flush()
+        branch = Branch(organization_id=org.id, name="Verified branch")
+        db.add(branch)
+        db.flush()
+        token, _ = create_token(branch.id)
+        db.add(
+            VisitToken(
+                branch_id=branch.id,
+                token_hash=token_hash(token),
+                expires_at=datetime.utcnow() + timedelta(hours=1),
+            )
+        )
+        db.commit()
+
+    client = TestClient(app)
+    register_consumer(client)
+    verified = client.post("/v1/visits/verify-token", json={"token": token})
+    assert verified.status_code == 200
+    rated = client.post(
+        "/v1/ratings",
+        json={
+            "visit_id": verified.json()["visit_id"],
+            "overall": 9,
+            "food": 8,
+            "service": 7,
+            "cleanliness": 9,
+            "value": 8,
+            "photo_data_url": TEST_PHOTO_DATA_URL,
+        },
+    )
+    assert rated.status_code == 200
+    assert rated.json()["saved_to_consumer_history"] is True
+
+    dashboard = client.get("/v1/consumer/dashboard")
+    assert dashboard.status_code == 200
+    history_item = next(
+        item
+        for item in dashboard.json()["ratings"]
+        if item["rating_id"] == rated.json()["rating_id"]
+    )
+    assert history_item["rating_type"] == "VERIFIED"
+    assert history_item["display_score"] == rated.json()["ces_score"]
+    assert history_item["included_in_verified_relyqo_score"] is True
+
+    detail_url = f"/v1/consumer/ratings/{rated.json()['rating_id']}"
+    detail = client.get(detail_url)
+    assert detail.status_code == 200
+    assert detail.json()["rating_type"] == "VERIFIED"
+    assert detail.json()["display_score"] == rated.json()["ces_score"]
+    assert detail.json()["metrics"] == {
+        "overall": 9,
+        "quality": 8,
+        "service": 7,
+        "cleanliness": 9,
+        "value": 8,
+    }
+    photo_url = detail.json()["photo"]["url"]
+    assert client.get(photo_url).status_code == 200
+    other_consumer = TestClient(app)
+    register_consumer(other_consumer)
+    assert other_consumer.get(detail_url).status_code == 404
+    assert other_consumer.get(photo_url).status_code == 404
 
 
 def test_demo_visit_url():
@@ -890,7 +960,8 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     detail_page = TestClient(app).get("/me/rating")
     assert detail_page.status_code == 200
     assert "Подробная оценка" in detail_page.text
-    assert "Community Score" in detail_page.text
+    assert 'id="scoreLabel"' in detail_page.text
+    assert "Статус этой записи: Verified" in detail_page.text
 
 
 def test_business_owner_self_registration_and_profile_are_score_read_only():

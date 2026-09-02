@@ -85,6 +85,9 @@ $("#submit").onclick = async () => {
     $("#summary").textContent = result.status === "PENDING_REVIEW"
       ? "Оценка получена и направлена в RELYQO Owner Review. До решения она не влияет на Score."
       : `Ваша оценка ${result.ces_score.toFixed(1)} учтена. Всего подтверждённых оценок: ${result.rating_count}.`;
+    $("#summary").textContent += result.saved_to_consumer_history
+      ? " Verified-оценка сохранена в личной истории."
+      : " Войдите в Мой RELYQO перед следующей QR-оценкой, чтобы сохранить её в личной истории.";
     if (result.photo_analysis) {
       $("#photoAnalysis").textContent = `AI-наблюдение по фото: ${result.photo_analysis}`;
       $("#photoAnalysis").classList.remove("hidden");

@@ -114,6 +114,18 @@ def normalize_rating_photo(data_url: str | None) -> tuple[bytes, str, str] | Non
     return raw, f"data:{content_type};base64,{encoded}", content_type
 
 
+def rating_photo_payload(photo: RatingPhoto | None) -> dict | None:
+    if not photo:
+        return None
+    return {
+        "id": photo.id,
+        "url": f"/v1/consumer/rating-photos/{photo.id}",
+        "analysis_status": photo.analysis_status,
+        "ai_analysis": photo.ai_analysis,
+        "created_at": photo.created_at,
+    }
+
+
 def analyze_rating_photo(
     photo: RatingPhoto,
     image_data_url: str,
@@ -987,36 +999,62 @@ def consumer_dashboard(
         .where(ConsumerFavorite.user_id == user.id)
         .order_by(ConsumerFavorite.created_at.desc())
     ).all()
-    ratings = db.scalars(
+    community_ratings = db.scalars(
         select(CommunityRating)
         .where(CommunityRating.consumer_user_id == user.id)
         .order_by(CommunityRating.created_at.desc())
         .limit(100)
     ).all()
-    rating_ids = [rating.id for rating in ratings]
-    photos = (
+    verified_ratings = db.scalars(
+        select(Rating)
+        .where(Rating.consumer_user_id == user.id)
+        .order_by(Rating.created_at.desc())
+        .limit(100)
+    ).all()
+    community_rating_ids = [rating.id for rating in community_ratings]
+    verified_rating_ids = [rating.id for rating in verified_ratings]
+    community_photos = (
         db.scalars(
             select(RatingPhoto)
-            .where(RatingPhoto.community_rating_id.in_(rating_ids))
+            .where(RatingPhoto.community_rating_id.in_(community_rating_ids))
             .order_by(RatingPhoto.created_at.desc())
         ).all()
-        if rating_ids
+        if community_rating_ids
         else []
     )
-    photos_by_rating = {photo.community_rating_id: photo for photo in photos}
+    verified_photos = (
+        db.scalars(
+            select(RatingPhoto)
+            .where(RatingPhoto.rating_id.in_(verified_rating_ids))
+            .order_by(RatingPhoto.created_at.desc())
+        ).all()
+        if verified_rating_ids
+        else []
+    )
+    community_photos_by_rating = {
+        photo.community_rating_id: photo for photo in community_photos
+    }
+    verified_photos_by_rating = {
+        photo.rating_id: photo for photo in verified_photos
+    }
     favorite_items = []
     for favorite in favorites:
         item = consumer_object_info(favorite.object_key, favorite.source, db)
         item["saved_at"] = favorite.created_at
         favorite_items.append(item)
     rating_items = []
-    for rating in ratings:
+    for rating in community_ratings:
         item = consumer_object_info(rating.object_key, rating.source, db)
-        photo = photos_by_rating.get(rating.id)
+        photo = community_photos_by_rating.get(rating.id)
         item.update(
             rating_id=rating.id,
+            rating_type="COMMUNITY",
+            rating_type_label="Community",
+            display_score=round(rating.community_score, 1),
+            score_label="Community Score",
             community_score=round(rating.community_score, 1),
             rated_at=rating.created_at,
+            status="PUBLISHED",
             photo=(
                 {
                     "id": photo.id,
@@ -1030,10 +1068,44 @@ def consumer_dashboard(
             ),
         )
         rating_items.append(item)
+    for rating in verified_ratings:
+        visit = db.get(Visit, rating.visit_id)
+        branch = db.get(Branch, visit.branch_id) if visit else None
+        org = db.get(Organization, rating.organization_id)
+        object_key = f"relyqo:{branch.id}" if branch else "relyqo:unavailable"
+        item = consumer_object_info(object_key, "RELYQO_PARTNER", db)
+        if org and not branch:
+            item.update(name=org.name, description="Подтверждённая QR-оценка")
+        photo = verified_photos_by_rating.get(rating.id)
+        item.update(
+            rating_id=rating.id,
+            rating_type="VERIFIED",
+            rating_type_label="Verified · QR",
+            display_score=round(rating.ces, 1),
+            score_label="Verified CES",
+            rated_at=rating.created_at,
+            status=rating.status,
+            included_in_verified_relyqo_score=rating.included,
+            photo=(
+                {
+                    "id": photo.id,
+                    "url": f"/v1/consumer/rating-photos/{photo.id}",
+                    "analysis_status": photo.analysis_status,
+                    "ai_analysis": photo.ai_analysis,
+                    "created_at": photo.created_at,
+                }
+                if photo
+                else None
+            ),
+        )
+        rating_items.append(item)
+    rating_items.sort(key=lambda item: item["rated_at"], reverse=True)
     photo_items = []
-    ratings_by_id = {rating.id: rating for rating in ratings}
-    for photo in photos:
-        rating = ratings_by_id.get(photo.community_rating_id)
+    community_ratings_by_id = {
+        rating.id: rating for rating in community_ratings
+    }
+    for photo in community_photos:
+        rating = community_ratings_by_id.get(photo.community_rating_id)
         if not rating:
             continue
         item = consumer_object_info(rating.object_key, rating.source, db)
@@ -1041,12 +1113,40 @@ def consumer_dashboard(
             photo_id=photo.id,
             photo_url=f"/v1/consumer/rating-photos/{photo.id}",
             rating_id=rating.id,
+            rating_type="COMMUNITY",
+            rating_type_label="Community",
+            display_score=round(rating.community_score, 1),
             community_score=round(rating.community_score, 1),
             analysis_status=photo.analysis_status,
             ai_analysis=photo.ai_analysis,
             photographed_at=photo.created_at,
         )
         photo_items.append(item)
+    verified_ratings_by_id = {rating.id: rating for rating in verified_ratings}
+    for photo in verified_photos:
+        rating = verified_ratings_by_id.get(photo.rating_id)
+        if not rating:
+            continue
+        visit = db.get(Visit, rating.visit_id)
+        branch = db.get(Branch, visit.branch_id) if visit else None
+        org = db.get(Organization, rating.organization_id)
+        object_key = f"relyqo:{branch.id}" if branch else "relyqo:unavailable"
+        item = consumer_object_info(object_key, "RELYQO_PARTNER", db)
+        if org and not branch:
+            item.update(name=org.name, description="Подтверждённая QR-оценка")
+        item.update(
+            photo_id=photo.id,
+            photo_url=f"/v1/consumer/rating-photos/{photo.id}",
+            rating_id=rating.id,
+            rating_type="VERIFIED",
+            rating_type_label="Verified · QR",
+            display_score=round(rating.ces, 1),
+            analysis_status=photo.analysis_status,
+            ai_analysis=photo.ai_analysis,
+            photographed_at=photo.created_at,
+        )
+        photo_items.append(item)
+    photo_items.sort(key=lambda item: item["photographed_at"], reverse=True)
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
         "username": user.username,
@@ -1070,10 +1170,20 @@ def consumer_rating_photo(
 ):
     user = session_user(relyqo_session, db, CONSUMER_ROLE)
     photo = db.get(RatingPhoto, photo_id)
-    if not photo or not photo.community_rating_id:
+    if not photo:
         raise HTTPException(404, "Фотография не найдена")
-    rating = db.get(CommunityRating, photo.community_rating_id)
-    if not rating or rating.consumer_user_id != user.id:
+    allowed = False
+    if photo.community_rating_id:
+        community_rating = db.get(CommunityRating, photo.community_rating_id)
+        allowed = bool(
+            community_rating and community_rating.consumer_user_id == user.id
+        )
+    elif photo.rating_id:
+        verified_rating = db.get(Rating, photo.rating_id)
+        allowed = bool(
+            verified_rating and verified_rating.consumer_user_id == user.id
+        )
+    if not allowed:
         raise HTTPException(404, "Фотография не найдена")
     return Response(
         content=photo.image_data,
@@ -1093,41 +1203,76 @@ def consumer_rating_detail(
     db: Session = Depends(get_db),
 ):
     user = session_user(relyqo_session, db, CONSUMER_ROLE)
-    rating = db.get(CommunityRating, rating_id)
-    if not rating or rating.consumer_user_id != user.id:
-        raise HTTPException(404, "Оценка не найдена")
-    item = consumer_object_info(rating.object_key, rating.source, db)
-    photo = db.scalar(
-        select(RatingPhoto).where(RatingPhoto.community_rating_id == rating.id)
-    )
     response.headers["Cache-Control"] = "no-store, max-age=0"
+    community_rating = db.get(CommunityRating, rating_id)
+    if community_rating and community_rating.consumer_user_id == user.id:
+        item = consumer_object_info(
+            community_rating.object_key, community_rating.source, db
+        )
+        photo = db.scalar(
+            select(RatingPhoto).where(
+                RatingPhoto.community_rating_id == community_rating.id
+            )
+        )
+        return {
+            **item,
+            "rating_id": community_rating.id,
+            "rating_type": "COMMUNITY",
+            "rating_type_label": "Community — мнение потребителя",
+            "category": community_rating.category,
+            "display_score": round(community_rating.community_score, 1),
+            "score_label": "Community Score из 100",
+            "community_score": round(community_rating.community_score, 1),
+            "metrics": {
+                "overall": community_rating.overall,
+                "quality": community_rating.quality,
+                "service": community_rating.service,
+                "cleanliness": community_rating.cleanliness,
+                "value": community_rating.value,
+            },
+            "rated_at": community_rating.created_at,
+            "status": "PUBLISHED",
+            "photo": rating_photo_payload(photo),
+            "included_in_verified_relyqo_score": False,
+            "consumer_is_only_rating_author": True,
+            "ai_can_change_rating": False,
+        }
+    verified_rating = db.get(Rating, rating_id)
+    if not verified_rating or verified_rating.consumer_user_id != user.id:
+        raise HTTPException(404, "Оценка не найдена")
+    visit = db.get(Visit, verified_rating.visit_id)
+    branch = db.get(Branch, visit.branch_id) if visit else None
+    organization = db.get(Organization, verified_rating.organization_id)
+    object_key = f"relyqo:{branch.id}" if branch else "relyqo:unavailable"
+    item = consumer_object_info(object_key, "RELYQO_PARTNER", db)
+    if organization and not branch:
+        item.update(name=organization.name, description="Подтверждённая QR-оценка")
+    photo = db.scalar(
+        select(RatingPhoto).where(RatingPhoto.rating_id == verified_rating.id)
+    )
     return {
         **item,
-        "rating_id": rating.id,
-        "rating_type": "COMMUNITY",
-        "rating_type_label": "Community — мнение потребителя",
-        "category": rating.category,
-        "community_score": round(rating.community_score, 1),
-        "metrics": {
-            "overall": rating.overall,
-            "quality": rating.quality,
-            "service": rating.service,
-            "cleanliness": rating.cleanliness,
-            "value": rating.value,
-        },
-        "rated_at": rating.created_at,
-        "photo": (
-            {
-                "id": photo.id,
-                "url": f"/v1/consumer/rating-photos/{photo.id}",
-                "analysis_status": photo.analysis_status,
-                "ai_analysis": photo.ai_analysis,
-                "created_at": photo.created_at,
-            }
-            if photo
-            else None
+        "rating_id": verified_rating.id,
+        "rating_type": "VERIFIED",
+        "rating_type_label": (
+            "Verified — ожидает независимой проверки"
+            if verified_rating.status == "PENDING_REVIEW"
+            else "Verified — подтверждено одноразовым QR"
         ),
-        "included_in_verified_relyqo_score": False,
+        "category": organization.category if organization else "OTHER",
+        "display_score": round(verified_rating.ces, 1),
+        "score_label": "Verified CES из 100",
+        "metrics": {
+            "overall": verified_rating.overall,
+            "quality": verified_rating.food,
+            "service": verified_rating.service,
+            "cleanliness": verified_rating.cleanliness,
+            "value": verified_rating.value,
+        },
+        "rated_at": verified_rating.created_at,
+        "status": verified_rating.status,
+        "photo": rating_photo_payload(photo),
+        "included_in_verified_relyqo_score": verified_rating.included,
         "consumer_is_only_rating_author": True,
         "ai_can_change_rating": False,
     }
@@ -2295,7 +2440,11 @@ def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
 
 
 @app.post("/v1/ratings")
-def rate(body: RatingCreate, db: Session = Depends(get_db)):
+def rate(
+    body: RatingCreate,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
     normalized_photo = normalize_rating_photo(body.photo_data_url)
     visit = db.get(Visit, body.visit_id)
     if not visit:
@@ -2308,9 +2457,16 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
     pending_reason = review_reason(
         body.overall, body.food, body.service, body.cleanliness, body.value
     )
+    consumer = None
+    if relyqo_session:
+        try:
+            consumer = session_user(relyqo_session, db, CONSUMER_ROLE)
+        except HTTPException:
+            consumer = None
     rating = Rating(
         **body.model_dump(exclude={"photo_data_url"}),
         organization_id=org.id,
+        consumer_user_id=consumer.id if consumer else None,
         ces=ces,
         trust_weight=visit.verification_score,
         included=pending_reason is None,
@@ -2383,6 +2539,7 @@ def rate(body: RatingCreate, db: Session = Depends(get_db)):
         "included_in_rating": rating.included,
         "relyqo_score": org.score,
         "rating_count": org.rating_count,
+        "saved_to_consumer_history": consumer is not None,
         "photo_attached": photo is not None,
         "photo_analysis": photo_analysis,
     }
