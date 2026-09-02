@@ -985,6 +985,17 @@ def consumer_dashboard(
         .order_by(CommunityRating.created_at.desc())
         .limit(100)
     ).all()
+    rating_ids = [rating.id for rating in ratings]
+    photos = (
+        db.scalars(
+            select(RatingPhoto)
+            .where(RatingPhoto.community_rating_id.in_(rating_ids))
+            .order_by(RatingPhoto.created_at.desc())
+        ).all()
+        if rating_ids
+        else []
+    )
+    photos_by_rating = {photo.community_rating_id: photo for photo in photos}
     favorite_items = []
     for favorite in favorites:
         item = consumer_object_info(favorite.object_key, favorite.source, db)
@@ -993,24 +1004,77 @@ def consumer_dashboard(
     rating_items = []
     for rating in ratings:
         item = consumer_object_info(rating.object_key, rating.source, db)
+        photo = photos_by_rating.get(rating.id)
         item.update(
             rating_id=rating.id,
             community_score=round(rating.community_score, 1),
             rated_at=rating.created_at,
+            photo=(
+                {
+                    "id": photo.id,
+                    "url": f"/v1/consumer/rating-photos/{photo.id}",
+                    "analysis_status": photo.analysis_status,
+                    "ai_analysis": photo.ai_analysis,
+                    "created_at": photo.created_at,
+                }
+                if photo
+                else None
+            ),
         )
         rating_items.append(item)
+    photo_items = []
+    ratings_by_id = {rating.id: rating for rating in ratings}
+    for photo in photos:
+        rating = ratings_by_id.get(photo.community_rating_id)
+        if not rating:
+            continue
+        item = consumer_object_info(rating.object_key, rating.source, db)
+        item.update(
+            photo_id=photo.id,
+            photo_url=f"/v1/consumer/rating-photos/{photo.id}",
+            rating_id=rating.id,
+            community_score=round(rating.community_score, 1),
+            analysis_status=photo.analysis_status,
+            ai_analysis=photo.ai_analysis,
+            photographed_at=photo.created_at,
+        )
+        photo_items.append(item)
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
         "username": user.username,
         "role": user.role,
         "favorites": favorite_items,
         "ratings": rating_items,
+        "photos": photo_items,
         "principles": {
             "verified_score_is_deterministic": True,
             "community_score_is_separate": True,
             "google_rating_is_separate": True,
         },
     }
+
+
+@app.get("/v1/consumer/rating-photos/{photo_id}", include_in_schema=False)
+def consumer_rating_photo(
+    photo_id: str,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, CONSUMER_ROLE)
+    photo = db.get(RatingPhoto, photo_id)
+    if not photo or not photo.community_rating_id:
+        raise HTTPException(404, "Фотография не найдена")
+    rating = db.get(CommunityRating, photo.community_rating_id)
+    if not rating or rating.consumer_user_id != user.id:
+        raise HTTPException(404, "Фотография не найдена")
+    return Response(
+        content=photo.image_data,
+        media_type=photo.content_type,
+        headers={
+            "Cache-Control": "private, no-store, max-age=0",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.post("/v1/consumer/assistant")

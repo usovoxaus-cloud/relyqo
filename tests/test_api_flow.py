@@ -818,6 +818,7 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
             "service": 9,
             "cleanliness": 8,
             "value": 8,
+            "photo_data_url": TEST_PHOTO_DATA_URL,
         },
     )
     assert rated.status_code == 200
@@ -825,6 +826,18 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     assert dashboard.status_code == 200
     assert dashboard.json()["favorites"][0]["object_key"] == object_key
     assert dashboard.json()["ratings"][0]["object_key"] == object_key
+    assert dashboard.json()["ratings"][0]["photo"]["id"]
+    assert dashboard.json()["photos"][0]["object_key"] == object_key
+    photo_url = dashboard.json()["photos"][0]["photo_url"]
+    assert TestClient(app).get(photo_url).status_code == 401
+    photo = client.get(photo_url)
+    assert photo.status_code == 200
+    assert photo.headers["content-type"] == "image/png"
+    assert photo.headers["cache-control"] == "private, no-store, max-age=0"
+
+    other_consumer = TestClient(app)
+    register_consumer(other_consumer)
+    assert other_consumer.get(photo_url).status_code == 404
 
     main_module._consumer_ai_last_request.clear()
     monkeypatch.setattr(
@@ -854,6 +867,7 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert "МОЙ RELYQO" in page.text
     assert "AI-ПОМОЩНИК ПОТРЕБИТЕЛЯ" in page.text
+    assert "История фотографий" in page.text
     assert TestClient(app).get("/v1/consumer/dashboard").status_code == 401
 
 
