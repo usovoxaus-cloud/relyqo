@@ -142,6 +142,7 @@ class CommunityRating(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     object_key: Mapped[str] = mapped_column(String(320), index=True)
     source: Mapped[str] = mapped_column(String(30))
+    category: Mapped[str] = mapped_column(String(40), default="OTHER")
     rater_hash: Mapped[str] = mapped_column(String(64), index=True)
     consumer_user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True

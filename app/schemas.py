@@ -56,6 +56,23 @@ class GooglePlaceIdsSync(BaseModel):
 class CommunityRatingCreate(BaseModel):
     object_key: str = Field(min_length=8, max_length=320)
     source: Literal["GOOGLE", "RELYQO_PARTNER", "MANUAL"]
+    category: Literal[
+        "FOOD",
+        "RESTAURANT",
+        "CAFE",
+        "COFFEE_SHOP",
+        "BAKERY",
+        "BAR",
+        "FOOD_COURT",
+        "HOTEL",
+        "BEAUTY",
+        "HEALTH",
+        "ENTERTAINMENT",
+        "RETAIL",
+        "AUTO_SERVICE",
+        "PROFESSIONAL_SERVICE",
+        "OTHER",
+    ] = "OTHER"
     overall: int = Field(ge=1, le=10)
     quality: int = Field(ge=1, le=10)
     service: int = Field(ge=1, le=10)

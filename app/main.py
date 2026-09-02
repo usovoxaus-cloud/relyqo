@@ -550,6 +550,14 @@ def consumer_web():
     )
 
 
+@app.get("/me/rating", include_in_schema=False)
+def consumer_rating_web():
+    return FileResponse(
+        static / "rating-detail.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/business-owner", include_in_schema=False)
 def business_owner_web():
     return FileResponse(
@@ -1075,6 +1083,54 @@ def consumer_rating_photo(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@app.get("/v1/consumer/ratings/{rating_id}")
+def consumer_rating_detail(
+    rating_id: str,
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, CONSUMER_ROLE)
+    rating = db.get(CommunityRating, rating_id)
+    if not rating or rating.consumer_user_id != user.id:
+        raise HTTPException(404, "Оценка не найдена")
+    item = consumer_object_info(rating.object_key, rating.source, db)
+    photo = db.scalar(
+        select(RatingPhoto).where(RatingPhoto.community_rating_id == rating.id)
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        **item,
+        "rating_id": rating.id,
+        "rating_type": "COMMUNITY",
+        "rating_type_label": "Community — мнение потребителя",
+        "category": rating.category,
+        "community_score": round(rating.community_score, 1),
+        "metrics": {
+            "overall": rating.overall,
+            "quality": rating.quality,
+            "service": rating.service,
+            "cleanliness": rating.cleanliness,
+            "value": rating.value,
+        },
+        "rated_at": rating.created_at,
+        "photo": (
+            {
+                "id": photo.id,
+                "url": f"/v1/consumer/rating-photos/{photo.id}",
+                "analysis_status": photo.analysis_status,
+                "ai_analysis": photo.ai_analysis,
+                "created_at": photo.created_at,
+            }
+            if photo
+            else None
+        ),
+        "included_in_verified_relyqo_score": False,
+        "consumer_is_only_rating_author": True,
+        "ai_can_change_rating": False,
+    }
 
 
 @app.post("/v1/consumer/assistant")

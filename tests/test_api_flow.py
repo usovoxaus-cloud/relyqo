@@ -813,6 +813,7 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
         json={
             "object_key": object_key,
             "source": "GOOGLE",
+            "category": "BEAUTY",
             "overall": 9,
             "quality": 8,
             "service": 9,
@@ -838,6 +839,23 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     other_consumer = TestClient(app)
     register_consumer(other_consumer)
     assert other_consumer.get(photo_url).status_code == 404
+    detail_url = f"/v1/consumer/ratings/{rated.json()['rating_id']}"
+    assert TestClient(app).get(detail_url).status_code == 401
+    assert other_consumer.get(detail_url).status_code == 404
+    detail = client.get(detail_url)
+    assert detail.status_code == 200
+    assert detail.json()["rating_type"] == "COMMUNITY"
+    assert detail.json()["category"] == "BEAUTY"
+    assert detail.json()["metrics"] == {
+        "overall": 9,
+        "quality": 8,
+        "service": 9,
+        "cleanliness": 8,
+        "value": 8,
+    }
+    assert detail.json()["photo"]["url"] == photo_url
+    assert detail.json()["included_in_verified_relyqo_score"] is False
+    assert detail.json()["ai_can_change_rating"] is False
 
     main_module._consumer_ai_last_request.clear()
     monkeypatch.setattr(
@@ -869,6 +887,10 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     assert "AI-ПОМОЩНИК ПОТРЕБИТЕЛЯ" in page.text
     assert "История фотографий" in page.text
     assert TestClient(app).get("/v1/consumer/dashboard").status_code == 401
+    detail_page = TestClient(app).get("/me/rating")
+    assert detail_page.status_code == 200
+    assert "Подробная оценка" in detail_page.text
+    assert "Community Score" in detail_page.text
 
 
 def test_business_owner_self_registration_and_profile_are_score_read_only():
