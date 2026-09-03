@@ -2290,18 +2290,38 @@ def public_rankings(
     scope: str = "world",
     country_code: str | None = None,
     city: str | None = None,
+    category: str | None = None,
     db: Session = Depends(get_db),
 ):
     if scope not in {"world", "country", "city"}:
         raise HTTPException(422, "Scope должен быть world, country или city")
     normalized_country = country_code.strip().upper() if country_code else None
     normalized_city = city.strip() if city else None
+    normalized_category = category.strip().upper() if category else None
+    allowed_categories = {
+        "RESTAURANT",
+        "CAFE",
+        "COFFEE_SHOP",
+        "BAKERY",
+        "BAR",
+        "FOOD_COURT",
+        "HOTEL",
+        "BEAUTY",
+        "HEALTH",
+        "ENTERTAINMENT",
+        "RETAIL",
+        "AUTO_SERVICE",
+        "PROFESSIONAL_SERVICE",
+        "OTHER",
+    }
     if normalized_country and len(normalized_country) != 2:
         raise HTTPException(422, "Код страны должен содержать две буквы")
     if scope == "country" and not normalized_country:
         raise HTTPException(422, "Для рейтинга страны укажите country_code")
     if scope == "city" and not normalized_city:
         raise HTTPException(422, "Для рейтинга города укажите city")
+    if normalized_category and normalized_category not in allowed_categories:
+        raise HTTPException(422, "Неизвестная сфера услуг")
     rows = db.execute(
         select(Organization, Branch)
         .join(Branch, Branch.organization_id == Organization.id)
@@ -2315,6 +2335,8 @@ def public_rankings(
     for organization, branch in rows:
         branch_country = (branch.country_code or "").upper() or None
         branch_city = branch.city or organization.city
+        if normalized_category and organization.category != normalized_category:
+            continue
         if normalized_country and branch_country != normalized_country:
             continue
         if normalized_city and (branch_city or "").casefold() != normalized_city.casefold():
@@ -2325,6 +2347,7 @@ def public_rankings(
             "organization_id": organization.id,
             "branch_id": branch.id,
             "name": organization.name,
+            "category": organization.category,
             "branch": branch.name,
             "address": branch.address or branch.name,
             "city": branch_city,
@@ -2358,6 +2381,7 @@ def public_rankings(
         "scope": scope,
         "country_code": normalized_country,
         "city": normalized_city,
+        "category": normalized_category,
         "minimum_verified_ratings": 20,
         "ranked_count": len(eligible),
         "provisional_count": len(provisional),

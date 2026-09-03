@@ -366,10 +366,18 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     provisional_name = f"Provisional {suffix}"
     with SessionLocal() as db:
         eligible = Organization(
-            name=eligible_name, city="Testopolis", score=99.9, rating_count=25
+            name=eligible_name,
+            city="Testopolis",
+            category="RESTAURANT",
+            score=99.9,
+            rating_count=25,
         )
         provisional = Organization(
-            name=provisional_name, city="Testopolis", score=100, rating_count=19
+            name=provisional_name,
+            city="Testopolis",
+            category="CAFE",
+            score=100,
+            rating_count=19,
         )
         db.add_all([eligible, provisional])
         db.flush()
@@ -411,6 +419,8 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert 'href="/rankings?scope=country"' in rankings_page.text
     assert 'href="/rankings?scope=world"' in rankings_page.text
     assert 'id="scopeStatus"' in rankings_page.text
+    assert 'id="category"' in rankings_page.text
+    assert "Сфера услуг" in rankings_page.text
     assert "Все организации рядом" in rankings_page.text
 
     response = client.get(
@@ -430,6 +440,27 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert eligible_item["position"] is not None
     assert provisional_item["eligible"] is False
     assert provisional_item["position"] is None
+    assert eligible_item["category"] == "RESTAURANT"
+    category_response = client.get(
+        "/v1/public/rankings",
+        params={
+            "scope": "city",
+            "country_code": "UZ",
+            "city": "Testopolis",
+            "category": "CAFE",
+        },
+    )
+    assert category_response.status_code == 200
+    category_data = category_response.json()
+    assert category_data["category"] == "CAFE"
+    assert [item["name"] for item in category_data["items"]] == [provisional_name]
+    assert (
+        client.get(
+            "/v1/public/rankings",
+            params={"scope": "world", "category": "UNKNOWN"},
+        ).status_code
+        == 422
+    )
     assert client.get("/v1/public/rankings", params={"scope": "invalid"}).status_code == 422
 
 
