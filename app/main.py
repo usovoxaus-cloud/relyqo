@@ -82,6 +82,22 @@ app.add_middleware(
 )
 static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static), name="static")
+SERVICE_CATEGORIES = {
+    "RESTAURANT",
+    "CAFE",
+    "COFFEE_SHOP",
+    "BAKERY",
+    "BAR",
+    "FOOD_COURT",
+    "HOTEL",
+    "BEAUTY",
+    "HEALTH",
+    "ENTERTAINMENT",
+    "RETAIL",
+    "AUTO_SERVICE",
+    "PROFESSIONAL_SERVICE",
+    "OTHER",
+}
 
 
 def normalize_rating_photo(data_url: str | None) -> tuple[bytes, str, str] | None:
@@ -2298,29 +2314,13 @@ def public_rankings(
     normalized_country = country_code.strip().upper() if country_code else None
     normalized_city = city.strip() if city else None
     normalized_category = category.strip().upper() if category else None
-    allowed_categories = {
-        "RESTAURANT",
-        "CAFE",
-        "COFFEE_SHOP",
-        "BAKERY",
-        "BAR",
-        "FOOD_COURT",
-        "HOTEL",
-        "BEAUTY",
-        "HEALTH",
-        "ENTERTAINMENT",
-        "RETAIL",
-        "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE",
-        "OTHER",
-    }
     if normalized_country and len(normalized_country) != 2:
         raise HTTPException(422, "Код страны должен содержать две буквы")
     if scope == "country" and not normalized_country:
         raise HTTPException(422, "Для рейтинга страны укажите country_code")
     if scope == "city" and not normalized_city:
         raise HTTPException(422, "Для рейтинга города укажите city")
-    if normalized_category and normalized_category not in allowed_categories:
+    if normalized_category and normalized_category not in SERVICE_CATEGORIES:
         raise HTTPException(422, "Неизвестная сфера услуг")
     rows = db.execute(
         select(Organization, Branch)
@@ -2387,6 +2387,63 @@ def public_rankings(
         "provisional_count": len(provisional),
         "items": eligible + provisional,
         "calculation": "deterministic_verified_score_rank_v1",
+    }
+
+
+@app.get("/v1/public/ranking-locations")
+def public_ranking_locations(
+    response: Response,
+    category: str | None = None,
+    db: Session = Depends(get_db),
+):
+    normalized_category = category.strip().upper() if category else None
+    if normalized_category and normalized_category not in SERVICE_CATEGORIES:
+        raise HTTPException(422, "Неизвестная сфера услуг")
+    rows = db.execute(
+        select(Organization, Branch)
+        .join(Branch, Branch.organization_id == Organization.id)
+        .where(
+            Branch.active.is_(True),
+            Organization.profile_status == "VERIFIED_PARTNER",
+        )
+    ).all()
+    locations: dict[str, dict] = {}
+    for organization, branch in rows:
+        if normalized_category and organization.category != normalized_category:
+            continue
+        country_code = (branch.country_code or "").strip().upper()
+        city = (branch.city or organization.city or "").strip()
+        if len(country_code) != 2 or not city:
+            continue
+        country = locations.setdefault(
+            country_code,
+            {"organization_ids": set(), "cities": {}},
+        )
+        country["organization_ids"].add(organization.id)
+        city_ids = country["cities"].setdefault(city, set())
+        city_ids.add(organization.id)
+    countries = []
+    for country_code, data in sorted(locations.items()):
+        cities = [
+            {"name": city, "organization_count": len(organization_ids)}
+            for city, organization_ids in sorted(
+                data["cities"].items(), key=lambda item: item[0].casefold()
+            )
+        ]
+        countries.append(
+            {
+                "country_code": country_code,
+                "organization_count": len(data["organization_ids"]),
+                "city_count": len(cities),
+                "cities": cities,
+            }
+        )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "category": normalized_category,
+        "country_count": len(countries),
+        "city_count": sum(item["city_count"] for item in countries),
+        "countries": countries,
     }
 
 

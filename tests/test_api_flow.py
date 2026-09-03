@@ -362,19 +362,20 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
 def test_place_profile_and_verified_rankings_are_public_and_separate():
     Base.metadata.create_all(engine)
     suffix = uuid.uuid4().hex[:8]
+    test_city = f"Testopolis-{suffix}"
     eligible_name = f"Ranked {suffix}"
     provisional_name = f"Provisional {suffix}"
     with SessionLocal() as db:
         eligible = Organization(
             name=eligible_name,
-            city="Testopolis",
+            city=test_city,
             category="RESTAURANT",
             score=99.9,
             rating_count=25,
         )
         provisional = Organization(
             name=provisional_name,
-            city="Testopolis",
+            city=test_city,
             category="CAFE",
             score=100,
             rating_count=19,
@@ -387,7 +388,7 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
                     organization_id=eligible.id,
                     name="Ranked branch",
                     address="Verified street 1",
-                    city="Testopolis",
+                    city=test_city,
                     country_code="UZ",
                     active=True,
                 ),
@@ -395,7 +396,7 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
                     organization_id=provisional.id,
                     name="Provisional branch",
                     address="Verified street 2",
-                    city="Testopolis",
+                    city=test_city,
                     country_code="UZ",
                     active=True,
                 ),
@@ -421,11 +422,12 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert 'id="scopeStatus"' in rankings_page.text
     assert 'id="category"' in rankings_page.text
     assert "Сфера услуг" in rankings_page.text
+    assert "/v1/public/ranking-locations" in rankings_page.text
     assert "Все организации рядом" in rankings_page.text
 
     response = client.get(
         "/v1/public/rankings",
-        params={"scope": "city", "country_code": "uz", "city": "Testopolis"},
+        params={"scope": "city", "country_code": "uz", "city": test_city},
     )
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
@@ -446,7 +448,7 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
         params={
             "scope": "city",
             "country_code": "UZ",
-            "city": "Testopolis",
+                "city": test_city,
             "category": "CAFE",
         },
     )
@@ -454,6 +456,34 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     category_data = category_response.json()
     assert category_data["category"] == "CAFE"
     assert [item["name"] for item in category_data["items"]] == [provisional_name]
+    locations_response = client.get("/v1/public/ranking-locations")
+    assert locations_response.status_code == 200
+    assert locations_response.headers["cache-control"] == "no-store, max-age=0"
+    locations = locations_response.json()
+    uzbekistan = next(
+        item for item in locations["countries"] if item["country_code"] == "UZ"
+    )
+    assert uzbekistan["city_count"] >= 1
+    testopolis = next(
+        item for item in uzbekistan["cities"] if item["name"] == test_city
+    )
+    assert testopolis["organization_count"] == 2
+    cafe_locations = client.get(
+        "/v1/public/ranking-locations", params={"category": "CAFE"}
+    ).json()
+    cafe_uzbekistan = next(
+        item for item in cafe_locations["countries"] if item["country_code"] == "UZ"
+    )
+    cafe_testopolis = next(
+        item for item in cafe_uzbekistan["cities"] if item["name"] == test_city
+    )
+    assert cafe_testopolis["organization_count"] == 1
+    assert (
+        client.get(
+            "/v1/public/ranking-locations", params={"category": "UNKNOWN"}
+        ).status_code
+        == 422
+    )
     assert (
         client.get(
             "/v1/public/rankings",
