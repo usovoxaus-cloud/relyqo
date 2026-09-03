@@ -1916,8 +1916,9 @@ def health(db: Session = Depends(get_db)):
 def public_maps_config(response: Response):
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
-        "configured": True,
-        "provider": "RELYQO",
+        "configured": bool(settings.google_maps_browser_key),
+        "browser_key": settings.google_maps_browser_key,
+        "provider": "GOOGLE_MAPS_BASE_LAYER",
         "external_place_sources": False,
         "search_radius_km": 50,
         "result_limit": 200,

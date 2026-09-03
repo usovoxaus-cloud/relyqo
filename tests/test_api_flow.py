@@ -264,7 +264,7 @@ def test_business_page_loads_data_inline_without_cache():
     assert "/static/business.js" not in response.text
 
 
-def test_relyqo_map_is_self_contained_and_private_by_default():
+def test_relyqo_map_uses_google_only_as_visual_base(monkeypatch):
     page = TestClient(app).get("/nearby")
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
@@ -285,15 +285,19 @@ def test_relyqo_map_is_self_contained_and_private_by_default():
     assert "Добавить в RELYQO" in page.text
     assert "manual-places/nearby" in page.text
     assert "собственном каталоге RELYQO" in page.text
-    assert "maps.googleapis.com" not in page.text
-    assert "google.maps" not in page.text
+    assert "maps.googleapis.com/maps/api/js" in page.text
+    assert "google.maps.Map" in page.text
+    assert "PlacesService" not in page.text
+    assert "searchNearby" not in page.text
 
+    monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
     assert config.status_code == 200
     assert config.headers["cache-control"] == "no-store, max-age=0"
     assert config.json() == {
         "configured": True,
-        "provider": "RELYQO",
+        "browser_key": "browser-key",
+        "provider": "GOOGLE_MAPS_BASE_LAYER",
         "external_place_sources": False,
         "search_radius_km": 50,
         "result_limit": 200,
