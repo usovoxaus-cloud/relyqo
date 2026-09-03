@@ -66,7 +66,7 @@ CONSUMER_AI_INSTRUCTIONS = """
 
 Обязательные правила:
 - не рассчитывай и не изменяй Verified RELYQO Score;
-- не смешивай Verified RELYQO Score, Community Score и Google Rating;
+- не смешивай Verified RELYQO Score и Community Score;
 - явно называй источник каждого показателя;
 - не считай рекламу доказательством качества;
 - не утверждай, что организация хорошая, если данных мало;

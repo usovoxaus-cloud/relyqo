@@ -30,7 +30,6 @@ from .models import (
     Branch,
     CommunityRating,
     ConsumerFavorite,
-    GooglePlaceReference,
     ManualPlace,
     Organization,
     OwnerReview,
@@ -50,7 +49,6 @@ from .schemas import (
     ConsumerAssistantRequest,
     ConsumerFavoriteChange,
     ConsumerRegister,
-    GooglePlaceIdsSync,
     LoginRequest,
     ManualPlaceCreate,
     NearbySearch,
@@ -413,9 +411,9 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
     item = {
         "object_key": object_key,
         "source": source,
-        "name": "Объект Google Maps" if source == "GOOGLE" else "Организация",
+        "name": "Архивный объект" if source == "GOOGLE" else "Организация",
         "category": "OTHER",
-        "description": "Актуальные сведения загружаются при открытии карты.",
+        "description": "Историческая запись. Новые внешние объекты больше не импортируются.",
         "href": "/nearby",
     }
     identifier = object_key.split(":", 1)[1]
@@ -1178,7 +1176,7 @@ def consumer_dashboard(
         "principles": {
             "verified_score_is_deterministic": True,
             "community_score_is_separate": True,
-            "google_rating_is_separate": True,
+            "external_catalogs_are_disabled": True,
         },
     }
 
@@ -1403,7 +1401,7 @@ def consumer_assistant(
         "score_policy": {
             "verified": "deterministic QR-confirmed score",
             "community": "separate user opinion score",
-            "external": "separate current map-provider rating",
+            "catalog": "RELYQO partners and consumer-added places only",
             "advertising_changes_scores": False,
         },
     }
@@ -1918,65 +1916,34 @@ def health(db: Session = Depends(get_db)):
 def public_maps_config(response: Response):
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
-        "configured": bool(settings.google_maps_browser_key),
-        "browser_key": settings.google_maps_browser_key,
-        "search_radius_km": 15,
-        "google_result_limit_per_search": 20,
+        "configured": True,
+        "provider": "RELYQO",
+        "external_place_sources": False,
+        "search_radius_km": 50,
+        "result_limit": 200,
         "location_storage": "none",
-        "google_catalog_storage": "place_ids_only",
     }
 
 
-@app.post("/v1/public/google-place-ids/sync")
-def sync_google_place_ids(
-    body: GooglePlaceIdsSync,
-    response: Response,
-    db: Session = Depends(get_db),
-):
-    unique_ids = list(dict.fromkeys(body.place_ids))
-    if any(
-        not re.fullmatch(r"[A-Za-z0-9_-]{5,255}", place_id)
-        for place_id in unique_ids
-    ):
-        raise HTTPException(422, "Некорректный Google place_id")
-    now = datetime.utcnow()
-    created = 0
-    for place_id in unique_ids:
-        reference = db.get(GooglePlaceReference, place_id)
-        if reference:
-            reference.last_seen_at = now
-        else:
-            db.add(
-                GooglePlaceReference(
-                    place_id=place_id,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                )
-            )
-            created += 1
-    db.commit()
-    total = db.scalar(select(func.count()).select_from(GooglePlaceReference)) or 0
-    response.headers["Cache-Control"] = "no-store, max-age=0"
-    return {
-        "status": "CATALOG_UPDATED",
-        "received": len(unique_ids),
-        "created": created,
-        "catalog_place_ids": int(total),
-        "stored_google_fields": ["place_id"],
-    }
+@app.post("/v1/public/google-place-ids/sync", deprecated=True)
+def sync_external_place_ids():
+    raise HTTPException(
+        410,
+        "Импорт внешних каталогов отключён. Используйте собственный каталог RELYQO.",
+    )
 
 
 @app.get("/v1/public/catalog/stats")
 def public_catalog_stats(response: Response, db: Session = Depends(get_db)):
     response.headers["Cache-Control"] = "no-store, max-age=0"
+    partners = db.scalar(select(func.count()).select_from(Branch)) or 0
+    consumer_places = db.scalar(select(func.count()).select_from(ManualPlace)) or 0
     return {
-        "partners": db.scalar(select(func.count()).select_from(Branch)) or 0,
-        "manual_places": db.scalar(select(func.count()).select_from(ManualPlace)) or 0,
-        "google_place_ids": db.scalar(
-            select(func.count()).select_from(GooglePlaceReference)
-        )
-        or 0,
-        "google_storage_policy": "place_ids_only",
+        "catalog_source": "RELYQO_ONLY",
+        "external_place_sources": False,
+        "partners": int(partners),
+        "consumer_places": int(consumer_places),
+        "total_places": int(partners + consumer_places),
     }
 
 
@@ -2067,7 +2034,6 @@ def public_nearby_branches(
                 "relyqo_score": round(organization.score, 1),
                 "verified_rating_count": organization.rating_count,
                 "verified_metrics": verified_metrics.get(organization.id),
-                "google_place_id": branch.google_place_id,
                 "rating_requires_verified_visit": True,
             }
         )

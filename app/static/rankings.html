@@ -22,11 +22,11 @@
       <button class="load" type="submit">Показать</button>
     </form>
     <p id="scopeStatus" class="scopeStatus" aria-live="polite"></p>
-    <div class="explain"><span><strong>Почему здесь только Fregat?</strong><br>Официальный рейтинг содержит только подключённые организации RELYQO. Остальные рестораны Google показываются отдельно на карте и не смешиваются с Verified Score.</span><a href="/nearby">Все организации рядом</a></div>
+    <div class="explain"><span><strong>Почему список пока небольшой?</strong><br>Официальный рейтинг содержит только подключённые организации RELYQO. Пользовательские места остаются в собственном каталоге и не смешиваются с Verified Score.</span><a href="/nearby">Все организации рядом</a></div>
     <div class="summary"><span id="scopeLabel" class="pill">Город</span><span id="geographyCount" class="pill">Загружаем географию…</span><span id="rankedCount" class="pill">0 в рейтинге</span><span id="provisionalCount" class="pill">0 предварительных</span></div>
     <div id="error" class="error hidden"></div>
     <section class="list"><h2 id="resultsTitle">Официальные позиции</h2><div id="results"><div class="empty">Загружаем рейтинг…</div></div></section>
-    <p class="note">При одинаковом Verified Score выше находится ресторан с большим числом подтверждённых оценок, затем применяется алфавитный порядок. Google Rating и Community Score не влияют на эти позиции. Business остаётся в режиме только для чтения; спорные подтверждённые оценки рассматривает RELYQO Owner Review.</p>
+    <p class="note">При одинаковом Verified Score выше находится организация с большим числом подтверждённых оценок, затем применяется алфавитный порядок. Community Score не влияет на официальные позиции. Business остаётся в режиме только для чтения; спорные подтверждённые оценки рассматривает RELYQO Owner Review.</p>
   </main>
   <script>
     const $=id=>document.getElementById(id);const labels={world:'Мир',country:'Страна',city:'Город'};const categoryLabels={RESTAURANT:'Ресторан',CAFE:'Кафе',COFFEE_SHOP:'Кофейня',BAKERY:'Пекарня',BAR:'Бар',FOOD_COURT:'Фуд-корт',HOTEL:'Гостиница',BEAUTY:'Красота и уход',HEALTH:'Здоровье',ENTERTAINMENT:'Развлечения',RETAIL:'Магазин',AUTO_SERVICE:'Автоуслуги',PROFESSIONAL_SERVICE:'Профессиональные услуги',OTHER:'Другие услуги'};const initialParams=new URLSearchParams(location.search);const requestedCountry=(initialParams.get('country_code')||'UZ').toUpperCase();const requestedCity=initialParams.get('city')||'Tashkent';const regionNames=typeof Intl.DisplayNames==='function'?new Intl.DisplayNames(['ru'],{type:'region'}):null;let activeScope=['city','country','world'].includes(initialParams.get('scope'))?initialParams.get('scope'):'city';let locationDirectory=[];

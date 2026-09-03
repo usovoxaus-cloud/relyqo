@@ -264,39 +264,40 @@ def test_business_page_loads_data_inline_without_cache():
     assert "/static/business.js" not in response.text
 
 
-def test_nearby_page_and_maps_config_are_private_by_default(monkeypatch):
+def test_relyqo_map_is_self_contained_and_private_by_default():
     page = TestClient(app).get("/nearby")
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
-    assert "RELYQO NEARBY" in page.text
+    assert "RELYQO MAP" in page.text
     assert "navigator.geolocation" in page.text
     assert "не сохраняется RELYQO" in page.text
     assert "Оценить в RELYQO" in page.text
-    assert "Verified Score по QR" in page.text
-    assert "♡ Избранные" in page.text
+    assert "Verified только по QR" in page.text
+    assert "♡ Моя карта" in page.text
     assert "relyqo_favorites_v1" in page.text
     assert 'id="radius"' in page.text
-    assert "radius:zoneRadius*1000" in page.text
+    assert "selectedRadius()" in page.text
     assert 'id="resultLimit"' in page.text
-    assert "searchCenters" in page.text
+    assert "RELYQO Map" in page.text
     assert "до 100" in page.text
-    assert "placeProfileUrl" in page.text
+    assert "profileUrl" in page.text
     assert 'href="/rankings"' in page.text
-    assert "Добавить место вручную" in page.text
+    assert "Добавить в RELYQO" in page.text
     assert "manual-places/nearby" in page.text
-    assert "Сохранить в RELYQO" in page.text
+    assert "собственном каталоге RELYQO" in page.text
+    assert "maps.googleapis.com" not in page.text
+    assert "google.maps" not in page.text
 
-    monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
     assert config.status_code == 200
     assert config.headers["cache-control"] == "no-store, max-age=0"
     assert config.json() == {
         "configured": True,
-        "browser_key": "browser-key",
-        "search_radius_km": 15,
-        "google_result_limit_per_search": 20,
+        "provider": "RELYQO",
+        "external_place_sources": False,
+        "search_radius_km": 50,
+        "result_limit": 200,
         "location_storage": "none",
-        "google_catalog_storage": "place_ids_only",
     }
 
 
@@ -310,10 +311,10 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
     assert "не меняет официальный RELYQO Score" in rating_page.text
 
     before = client.get("/v1/business/fregat").json()["relyqo_score"]
-    object_key = f"google:test-{uuid.uuid4()}"
+    object_key = f"manual:test-{uuid.uuid4()}"
     body = {
         "object_key": object_key,
-        "source": "GOOGLE",
+        "source": "MANUAL",
         "overall": 8,
         "quality": 8,
         "service": 8,
@@ -410,7 +411,8 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert place.headers["cache-control"] == "no-store, max-age=0"
     assert "VERIFIED RELYQO SCORE" in place.text
     assert "COMMUNITY SCORE" in place.text
-    assert "GOOGLE RATING" in place.text
+    assert "GOOGLE RATING" not in place.text
+    assert "Внешние каталоги и внешние рейтинги не используются" in place.text
     rankings_page = client.get("/rankings")
     assert rankings_page.status_code == 200
     assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
@@ -599,20 +601,22 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert rated.json()["included_in_relyqo_score"] is False
 
 
-def test_google_catalog_persists_only_place_ids():
+def test_external_catalog_import_is_disabled():
     Base.metadata.create_all(engine)
     client = TestClient(app)
     place_id = f"ChIJ{uuid.uuid4().hex}"
     synced = client.post(
         "/v1/public/google-place-ids/sync", json={"place_ids": [place_id, place_id]}
     )
-    assert synced.status_code == 200
-    assert synced.json()["received"] == 1
-    assert synced.json()["stored_google_fields"] == ["place_id"]
+    assert synced.status_code == 410
+    assert "Импорт внешних каталогов отключён" in synced.json()["detail"]
     stats = client.get("/v1/public/catalog/stats")
     assert stats.status_code == 200
-    assert stats.json()["google_place_ids"] >= 1
-    assert stats.json()["google_storage_policy"] == "place_ids_only"
+    assert stats.json()["catalog_source"] == "RELYQO_ONLY"
+    assert stats.json()["external_place_sources"] is False
+    assert stats.json()["total_places"] == (
+        stats.json()["partners"] + stats.json()["consumer_places"]
+    )
 
 
 def test_contradictory_rating_requires_independent_review():
@@ -937,17 +941,17 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     assert registered.json()["role"] == "CONSUMER"
     assert client.get("/v1/auth/me").json()["username"] == username
 
-    object_key = f"google:test-{uuid.uuid4().hex}"
+    object_key = f"manual:test-{uuid.uuid4().hex}"
     saved = client.post(
         "/v1/consumer/favorites",
-        json={"object_key": object_key, "source": "GOOGLE", "saved": True},
+        json={"object_key": object_key, "source": "MANUAL", "saved": True},
     )
     assert saved.status_code == 200
     rated = client.post(
         "/v1/community-ratings",
         json={
             "object_key": object_key,
-            "source": "GOOGLE",
+            "source": "MANUAL",
             "category": "BEAUTY",
             "overall": 9,
             "quality": 8,
@@ -1024,7 +1028,7 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
 
     removed = client.post(
         "/v1/consumer/favorites",
-        json={"object_key": object_key, "source": "GOOGLE", "saved": False},
+        json={"object_key": object_key, "source": "MANUAL", "saved": False},
     )
     assert removed.status_code == 200
     assert client.get("/v1/consumer/dashboard").json()["favorites"] == []
@@ -1101,8 +1105,8 @@ def test_business_owner_self_registration_and_profile_are_score_read_only():
     forbidden_rating = client.post(
         "/v1/community-ratings",
         json={
-            "object_key": f"google:test-{suffix}",
-            "source": "GOOGLE",
+            "object_key": f"manual:test-{suffix}",
+            "source": "MANUAL",
             "overall": 10,
             "quality": 10,
             "service": 10,

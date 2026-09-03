@@ -49,13 +49,9 @@ class ManualPlaceCreate(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
-class GooglePlaceIdsSync(BaseModel):
-    place_ids: list[str] = Field(min_length=1, max_length=100)
-
-
 class CommunityRatingCreate(BaseModel):
     object_key: str = Field(min_length=8, max_length=320)
-    source: Literal["GOOGLE", "RELYQO_PARTNER", "MANUAL"]
+    source: Literal["RELYQO_PARTNER", "MANUAL"]
     category: Literal[
         "FOOD",
         "RESTAURANT",
@@ -101,7 +97,7 @@ class ConsumerRegister(BaseModel):
 
 class ConsumerFavoriteChange(BaseModel):
     object_key: str = Field(min_length=8, max_length=320)
-    source: Literal["GOOGLE", "RELYQO_PARTNER", "MANUAL"]
+    source: Literal["RELYQO_PARTNER", "MANUAL"]
     saved: bool = True
 
 
