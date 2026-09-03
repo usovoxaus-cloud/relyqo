@@ -414,6 +414,7 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
         "object_key": object_key,
         "source": source,
         "name": "Объект Google Maps" if source == "GOOGLE" else "Организация",
+        "category": "OTHER",
         "description": "Актуальные сведения загружаются при открытии карты.",
         "href": "/nearby",
     }
@@ -423,6 +424,7 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
         if place:
             item.update(
                 name=place.name,
+                category=place.category,
                 description=place.description,
                 href=f"/place?object_key={object_key}&source=MANUAL",
             )
@@ -432,6 +434,7 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
         if branch and organization:
             item.update(
                 name=organization.name,
+                category=organization.category,
                 description=f"{branch.address or branch.name} · Verified RELYQO Score {organization.score:.1f}/100",
                 href=f"/place?object_key={object_key}&source=RELYQO_PARTNER",
             )
@@ -1066,6 +1069,7 @@ def consumer_dashboard(
             rating_id=rating.id,
             rating_type="COMMUNITY",
             rating_type_label="Community",
+            category=rating.category,
             display_score=round(rating.community_score, 1),
             score_label="Community Score",
             community_score=round(rating.community_score, 1),
@@ -1131,6 +1135,7 @@ def consumer_dashboard(
             rating_id=rating.id,
             rating_type="COMMUNITY",
             rating_type_label="Community",
+            category=rating.category,
             display_score=round(rating.community_score, 1),
             community_score=round(rating.community_score, 1),
             analysis_status=photo.analysis_status,
@@ -1314,12 +1319,63 @@ def consumer_assistant(
         .order_by(ConsumerFavorite.created_at.desc())
         .limit(30)
     ).all()
-    ratings = db.scalars(
+    community_ratings = db.scalars(
         select(CommunityRating)
         .where(CommunityRating.consumer_user_id == user.id)
         .order_by(CommunityRating.created_at.desc())
         .limit(30)
     ).all()
+    verified_ratings = db.scalars(
+        select(Rating)
+        .where(Rating.consumer_user_id == user.id)
+        .order_by(Rating.created_at.desc())
+        .limit(30)
+    ).all()
+    category_stats: dict[str, dict] = {}
+    for rating in community_ratings:
+        stats = category_stats.setdefault(
+            rating.category,
+            {"rating_count": 0, "score_total": 0.0},
+        )
+        stats["rating_count"] += 1
+        stats["score_total"] += rating.community_score
+    verified_items = []
+    for rating in verified_ratings:
+        organization = db.get(Organization, rating.organization_id)
+        category = organization.category if organization else "OTHER"
+        stats = category_stats.setdefault(
+            category,
+            {"rating_count": 0, "score_total": 0.0},
+        )
+        stats["rating_count"] += 1
+        stats["score_total"] += rating.ces
+        verified_items.append(
+            {
+                "name": organization.name if organization else "Организация",
+                "category": category,
+                "verified_ces_given": round(rating.ces, 1),
+                "status": rating.status,
+            }
+        )
+    top_categories = sorted(
+        (
+            {
+                "category": category,
+                "rating_count": stats["rating_count"],
+                "average_score_given": round(
+                    stats["score_total"] / stats["rating_count"], 1
+                ),
+            }
+            for category, stats in category_stats.items()
+        ),
+        key=lambda item: (-item["rating_count"], -item["average_score_given"]),
+    )
+    skills = [
+        "compare_favorites",
+        "analyze_personal_rating_history",
+        "explain_score_sources",
+        "prepare_service_checklist",
+    ]
     context = {
         "question": body.question.strip(),
         "favorites": [
@@ -1329,10 +1385,21 @@ def consumer_assistant(
         "own_community_ratings": [
             {
                 **consumer_object_info(item.object_key, item.source, db),
+                "category": item.category,
                 "community_score_given": round(item.community_score, 1),
             }
-            for item in ratings
+            for item in community_ratings
         ],
+        "own_verified_ratings": verified_items,
+        "preference_profile": {
+            "basis": "derived for this request from the consumer's own ratings",
+            "favorite_count": len(favorites),
+            "community_rating_count": len(community_ratings),
+            "verified_rating_count": len(verified_ratings),
+            "top_categories": top_categories[:5],
+            "persistent_model_training": False,
+        },
+        "available_skills": skills,
         "score_policy": {
             "verified": "deterministic QR-confirmed score",
             "community": "separate user opinion score",
@@ -1350,6 +1417,10 @@ def consumer_assistant(
     return {
         "answer": answer,
         "model": settings.openai_model,
+        "skills": skills,
+        "personalized_from_account": bool(
+            favorites or community_ratings or verified_ratings
+        ),
         "read_only": True,
         "disclaimer": "AI объясняет данные, но не меняет Score и решения Review.",
     }

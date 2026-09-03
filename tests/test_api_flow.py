@@ -962,6 +962,7 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     assert dashboard.status_code == 200
     assert dashboard.json()["favorites"][0]["object_key"] == object_key
     assert dashboard.json()["ratings"][0]["object_key"] == object_key
+    assert dashboard.json()["ratings"][0]["category"] == "BEAUTY"
     assert dashboard.json()["ratings"][0]["photo"]["id"]
     assert dashboard.json()["photos"][0]["object_key"] == object_key
     photo_url = dashboard.json()["photos"][0]["photo_url"]
@@ -993,10 +994,16 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     assert detail.json()["ai_can_change_rating"] is False
 
     main_module._consumer_ai_last_request.clear()
+    captured_context = {}
+
+    def fake_consumer_assistance(context):
+        captured_context.update(context)
+        return f"Рекомендация по {len(context['favorites'])} избранным."
+
     monkeypatch.setattr(
         main_module,
         "generate_consumer_assistance",
-        lambda context: f"Рекомендация по {len(context['favorites'])} избранным.",
+        fake_consumer_assistance,
     )
     assistant = client.post(
         "/v1/consumer/assistant",
@@ -1004,7 +1011,16 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     )
     assert assistant.status_code == 200
     assert assistant.json()["read_only"] is True
+    assert assistant.json()["personalized_from_account"] is True
+    assert "compare_favorites" in assistant.json()["skills"]
     assert "Рекомендация" in assistant.json()["answer"]
+    assert captured_context["preference_profile"]["persistent_model_training"] is False
+    assert captured_context["preference_profile"]["top_categories"][0] == {
+        "category": "BEAUTY",
+        "rating_count": 1,
+        "average_score_given": rated.json()["community_score"],
+    }
+    assert "analyze_personal_rating_history" in captured_context["available_skills"]
 
     removed = client.post(
         "/v1/consumer/favorites",
@@ -1020,6 +1036,8 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert "МОЙ RELYQO" in page.text
     assert "AI-ПОМОЩНИК ПОТРЕБИТЕЛЯ" in page.text
+    assert "Сравнить избранное" in page.text
+    assert "Мои предпочтения" in page.text
     assert "История фотографий" in page.text
     assert TestClient(app).get("/v1/consumer/dashboard").status_code == 401
     detail_page = TestClient(app).get("/me/rating")
