@@ -264,9 +264,11 @@ def test_business_page_loads_data_inline_without_cache():
     assert "/static/business.js" not in response.text
 
 
-def test_relyqo_map_uses_google_only_as_visual_base(monkeypatch):
+def test_relyqo_map_discovers_external_places_without_importing_external_ratings(monkeypatch):
     page = TestClient(app).get("/nearby")
+    script = TestClient(app).get("/static/nearby.js")
     assert page.status_code == 200
+    assert script.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO MAP" in page.text
     assert "navigator.geolocation" in page.text
@@ -280,18 +282,27 @@ def test_relyqo_map_uses_google_only_as_visual_base(monkeypatch):
     assert 'id="resultLimit"' in page.text
     assert "RELYQO Map" in page.text
     assert "до 100" in page.text
-    assert "profileUrl" in page.text
+    assert "profileUrl" in script.text
     assert 'href="/rankings"' in page.text
     assert "Добавить в RELYQO" in page.text
-    assert "manual-places/nearby" in page.text
+    assert "manual-places/nearby" in script.text
     assert "собственном каталоге RELYQO" in page.text
-    assert "maps.googleapis.com/maps/api/js" in page.text
-    assert "google.maps.Map" in page.text
-    assert "PlacesService" not in page.text
-    assert "searchNearby" not in page.text
+    assert "maps.googleapis.com/maps/api/js" in script.text
+    assert "google.maps.Map" in script.text
+    assert "libraries=places" in script.text
+    assert "Place.searchNearby" in script.text
+    assert "userRatingCount" not in script.text
+    assert '"rating", "userRatingCount"' not in script.text
+    assert "Данные Google Maps автоматически не сохраняются" in script.text
+    assert 'source: sourceFor(item)' in script.text
+    assert 'source: "GOOGLE"' not in script.text
     assert 'id="catalogQuery"' in page.text
     assert "Поиск по названию, адресу или городу" in page.text
-    assert "www.google.com/maps/search" in page.text
+    assert "www.google.com/maps/search" in script.text
+    assert 'href="/terms"' in page.text
+    assert 'href="/privacy"' in page.text
+    assert TestClient(app).get("/terms").status_code == 200
+    assert TestClient(app).get("/privacy").status_code == 200
 
     monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
@@ -300,8 +311,10 @@ def test_relyqo_map_uses_google_only_as_visual_base(monkeypatch):
     assert config.json() == {
         "configured": True,
         "browser_key": "browser-key",
-        "provider": "GOOGLE_MAPS_BASE_LAYER",
-        "external_place_sources": False,
+        "provider": "GOOGLE_MAPS_DISCOVERY",
+        "external_place_sources": True,
+        "external_place_storage": "none",
+        "external_ratings_used": False,
         "search_radius_km": 50,
         "result_limit": 200,
         "location_storage": "none",

@@ -523,6 +523,15 @@ def nearby_web():
     )
 
 
+@app.get("/terms", include_in_schema=False)
+@app.get("/privacy", include_in_schema=False)
+def legal_web():
+    return FileResponse(
+        static / "legal.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/community-rate", include_in_schema=False)
 def community_rate_web():
     return FileResponse(
@@ -1918,8 +1927,10 @@ def public_maps_config(response: Response):
     return {
         "configured": bool(settings.google_maps_browser_key),
         "browser_key": settings.google_maps_browser_key,
-        "provider": "GOOGLE_MAPS_BASE_LAYER",
-        "external_place_sources": False,
+        "provider": "GOOGLE_MAPS_DISCOVERY",
+        "external_place_sources": True,
+        "external_place_storage": "none",
+        "external_ratings_used": False,
         "search_radius_km": 50,
         "result_limit": 200,
         "location_storage": "none",
