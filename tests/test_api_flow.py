@@ -293,7 +293,9 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "Place.searchNearby" in script.text
     assert "userRatingCount" not in script.text
     assert '"rating", "userRatingCount"' not in script.text
-    assert "Данные Google Maps автоматически не сохраняются" in script.text
+    assert 'rate.textContent = "Оценить в RELYQO"' in script.text
+    assert 'openManualDialog(item, "rate")' in script.text
+    assert "location.href = ratingUrl(addedItem)" in script.text
     assert 'source: sourceFor(item)' in script.text
     assert 'source: "GOOGLE"' not in script.text
     assert 'id="catalogQuery"' in page.text
@@ -332,6 +334,10 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
     assert rating_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Community Score" in rating_page.text
     assert "не меняет официальный RELYQO Score" in rating_page.text
+    assert "return_to=" in rating_page.text
+    consumer_page = client.get("/me")
+    assert "requestedReturn" in consumer_page.text
+    assert "location.href=returnTo" in consumer_page.text
 
     before = client.get("/v1/business/fregat").json()["relyqo_score"]
     object_key = f"manual:test-{uuid.uuid4()}"
@@ -601,6 +607,22 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert item["verified"] is False
     assert item["category"] == "CAFE"
     assert item["description"].startswith("Небольшое")
+    repeated = client.post(
+        "/v1/public/manual-places",
+        json={
+            "name": f"Community Cafe {suffix}",
+            "category": "CAFE",
+            "description": "Небольшое пользовательское кафе с кофе и выпечкой.",
+            "address": "Community street 7",
+            "city": "Tashkent",
+            "country_code": "uz",
+            "latitude": 41.31,
+            "longitude": 69.28,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["status"] == "COMMUNITY_PLACE_EXISTS"
+    assert repeated.json()["item"]["id"] == item["id"]
     nearby = client.post(
         "/v1/public/manual-places/nearby",
         json={"latitude": 41.31, "longitude": 69.28, "radius_km": 2},

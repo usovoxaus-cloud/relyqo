@@ -2105,8 +2105,30 @@ def create_manual_place(
             f"{body.longitude:.4f}",
         )
     )
+    identity_hash = token_hash(identity)
+    existing = db.scalar(
+        select(ManualPlace).where(
+            ManualPlace.identity_hash == identity_hash,
+            ManualPlace.active.is_(True),
+        )
+    )
+    if existing:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.set_cookie(
+            COMMUNITY_COOKIE,
+            cookie_value,
+            max_age=365 * 24 * 3600,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path="/",
+        )
+        return {
+            "status": "COMMUNITY_PLACE_EXISTS",
+            "item": manual_place_item(existing),
+        }
     place = ManualPlace(
-        identity_hash=token_hash(identity),
+        identity_hash=identity_hash,
         name=name,
         category=body.category,
         description=description,

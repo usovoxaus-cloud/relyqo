@@ -10,6 +10,8 @@ let googleMarkers = [];
 let mapLoadPromise = null;
 let remoteSearchQuery = "";
 let remoteSearchIds = new Set();
+let pendingManualLocation = null;
+let pendingManualAction = "save";
 
 const foodCategories = new Set([
   "RESTAURANT",
@@ -419,24 +421,48 @@ function internalActions(item, favorites) {
   return actions;
 }
 
+function openManualDialog(item = null, action = "save") {
+  pendingManualAction = action;
+  pendingManualLocation = item ? {
+    lat: Number(item.latitude),
+    lng: Number(item.longitude),
+  } : null;
+  $("#manualError").classList.add("hidden");
+  if (item) {
+    const category = item.category || "OTHER";
+    $("#manualName").value = item.title || item.name || "";
+    $("#manualCategory").value = category;
+    $("#manualDescription").value = `${categoryNames[category] || "Организация"} — карточка подтверждена потребителем RELYQO для независимой оценки.`;
+    $("#manualAddress").value = item.address || "";
+    $("#manualCity").value = item.city || "Не указан";
+    $("#manualCountry").value = item.country_code || "XX";
+  } else {
+    $("#manualForm").reset();
+  }
+  const submit = $("#manualForm").querySelector('[type="submit"]');
+  submit.textContent = action === "rate" ? "Продолжить к оценке" : "Добавить в RELYQO";
+  $("#manualDialog").showModal();
+}
+
 function externalActions(item) {
   const actions = document.createElement("div");
   actions.className = "actions";
+  const rate = document.createElement("button");
+  rate.type = "button";
+  rate.className = "importButton rateLink";
+  rate.textContent = "Оценить в RELYQO";
+  rate.addEventListener("click", () => openManualDialog(item, "rate"));
   const save = document.createElement("button");
   save.type = "button";
   save.className = "importButton";
-  save.textContent = "Добавить вручную в RELYQO";
-  save.addEventListener("click", () => {
-    $("#manualError").classList.add("hidden");
-    $("#manualDialog").showModal();
-    $("#status").textContent = `Введите собственные данные для карточки «${item.name}». Данные Google Maps автоматически не сохраняются.`;
-  });
+  save.textContent = "Сохранить в RELYQO";
+  save.addEventListener("click", () => openManualDialog(item));
   const mapLink = document.createElement("a");
   mapLink.href = mapLinkFor(item);
   mapLink.target = "_blank";
   mapLink.rel = "noopener";
   mapLink.textContent = "Открыть на Google Карте";
-  actions.append(save, mapLink);
+  actions.append(rate, save, mapLink);
   return actions;
 }
 
@@ -735,11 +761,12 @@ async function locate() {
 }
 
 $("#locate").addEventListener("click", locate);
-$("#addPlace").addEventListener("click", () => {
-  $("#manualError").classList.add("hidden");
-  $("#manualDialog").showModal();
+$("#addPlace").addEventListener("click", () => openManualDialog());
+$("#cancelManual").addEventListener("click", () => {
+  pendingManualAction = "save";
+  pendingManualLocation = null;
+  $("#manualDialog").close();
 });
-$("#cancelManual").addEventListener("click", () => $("#manualDialog").close());
 $("#favoritesFilter").addEventListener("click", () => {
   showFavoritesOnly = !showFavoritesOnly;
   renderAll();
@@ -771,7 +798,8 @@ document.addEventListener("keydown", (event) => {
 
 $("#manualForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!currentCenter) return;
+  const locationForPlace = pendingManualLocation || currentCenter;
+  if (!locationForPlace) return;
   const submit = event.submitter;
   submit.disabled = true;
   $("#manualError").classList.add("hidden");
@@ -782,8 +810,8 @@ $("#manualForm").addEventListener("submit", async (event) => {
     address: $("#manualAddress").value,
     city: $("#manualCity").value,
     country_code: $("#manualCountry").value.toUpperCase(),
-    latitude: currentCenter.lat,
-    longitude: currentCenter.lng,
+    latitude: locationForPlace.lat,
+    longitude: locationForPlace.lng,
   };
   try {
     const response = await fetch("/v1/public/manual-places", {
@@ -794,12 +822,21 @@ $("#manualForm").addEventListener("submit", async (event) => {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Не удалось добавить место");
-    data.item.distance_km = 0;
-    lastManualPlaces = [data.item, ...lastManualPlaces];
+    data.item.distance_km = distanceKm(currentCenter, {
+      lat: Number(data.item.latitude),
+      lng: Number(data.item.longitude),
+    });
+    lastManualPlaces = [data.item, ...lastManualPlaces.filter((item) => item.id !== data.item.id)];
     renderAll();
     $("#manualDialog").close();
     $("#manualForm").reset();
     $("#status").textContent = `${data.item.name} добавлено в каталог RELYQO.`;
+    if (pendingManualAction === "rate") {
+      const addedItem = { kind: "manual", title: data.item.name, distance: data.item.distance_km, ...data.item };
+      location.href = ratingUrl(addedItem);
+      return;
+    }
+    pendingManualLocation = null;
   } catch (error) {
     $("#manualError").textContent = error.message;
     $("#manualError").classList.remove("hidden");
