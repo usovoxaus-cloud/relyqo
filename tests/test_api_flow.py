@@ -289,6 +289,9 @@ def test_relyqo_map_uses_google_only_as_visual_base(monkeypatch):
     assert "google.maps.Map" in page.text
     assert "PlacesService" not in page.text
     assert "searchNearby" not in page.text
+    assert 'id="catalogQuery"' in page.text
+    assert "Поиск по названию, адресу или городу" in page.text
+    assert "www.google.com/maps/search" in page.text
 
     monkeypatch.setattr(settings, "google_maps_browser_key", "browser-key")
     config = TestClient(app).get("/v1/public/maps-config")
