@@ -297,6 +297,9 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'source: sourceFor(item)' in script.text
     assert 'source: "GOOGLE"' not in script.text
     assert 'id="catalogQuery"' in page.text
+    assert 'id="catalogSearchButton"' in page.text
+    assert "Place.searchByText" in script.text
+    assert "SearchByTextRankPreference.RELEVANCE" in script.text
     assert "Поиск по названию, адресу или городу" in page.text
     assert "www.google.com/maps/search" in script.text
     assert 'href="/terms"' in page.text

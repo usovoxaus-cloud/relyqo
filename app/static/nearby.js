@@ -8,6 +8,8 @@ let showFavoritesOnly = false;
 let googleMap = null;
 let googleMarkers = [];
 let mapLoadPromise = null;
+let remoteSearchQuery = "";
+let remoteSearchIds = new Set();
 
 const foodCategories = new Set([
   "RESTAURANT",
@@ -178,7 +180,11 @@ function viewRows() {
       .filter((item) => !isAlreadyInRelyqo(item, internalRows)),
   ].filter(matchesCategory);
   if (query) {
-    rows = rows.filter((item) => [item.title, item.address, item.city, item.description, categoryNames[item.category]]
+    rows = rows.filter((item) => (
+      item.kind === "external"
+      && query === remoteSearchQuery
+      && remoteSearchIds.has(item.id)
+    ) || [item.title, item.address, item.city, item.description, categoryNames[item.category]]
       .filter(Boolean).join(" ").toLocaleLowerCase("ru").includes(query));
   }
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
@@ -573,11 +579,11 @@ async function fetchExternalPlaces() {
     const request = {
       fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
       locationRestriction: { center, radius: Math.min(50000, zoneRadius * 1000) },
-      includedPrimaryTypes: googlePlaceTypes[selected] || googlePlaceTypes.ALL,
       maxResultCount: 20,
       rankPreference: SearchNearbyRankPreference.POPULARITY,
       language: (navigator.language || "ru").split("-")[0],
     };
+    if (selected !== "ALL") request.includedPrimaryTypes = googlePlaceTypes[selected] || [];
     const { places } = await Place.searchNearby(request);
     for (const place of places || []) {
       if (!place.location || !place.id || found.has(place.id)) continue;
@@ -605,6 +611,77 @@ async function fetchExternalPlaces() {
     }
   }
   return [...found.values()].sort((a, b) => a.distance - b.distance).slice(0, limit);
+}
+
+function externalPlaceItem(place) {
+  if (!place.location || !place.id) return null;
+  const coordinates = { lat: place.location.lat(), lng: place.location.lng() };
+  const category = externalCategory(place.primaryType);
+  return {
+    id: place.id,
+    name: place.displayName || "Организация",
+    address: place.formattedAddress || "Адрес на Google Карте",
+    city: addressPart(place, "locality", "longText")
+      || addressPart(place, "administrative_area_level_2", "longText")
+      || addressPart(place, "administrative_area_level_1", "longText")
+      || "Не указан",
+    country_code: addressPart(place, "country", "shortText").toUpperCase() || "XX",
+    category,
+    primaryType: place.primaryType || "",
+    description: `${categoryNames[category] || "Организация"}, найденная в Google Maps. Внешние рейтинги не используются RELYQO.`,
+    latitude: coordinates.lat,
+    longitude: coordinates.lng,
+    distance: distanceKm(currentCenter, coordinates),
+    mapsUri: place.googleMapsURI || "",
+  };
+}
+
+async function searchCatalog() {
+  const input = $("#catalogQuery");
+  const query = input.value.trim();
+  if (!query) {
+    remoteSearchQuery = "";
+    remoteSearchIds = new Set();
+    if (!currentCenter) await locate();
+    else await refreshCatalog();
+    return;
+  }
+  if (!currentCenter) await locate();
+  if (!currentCenter) return;
+  clearError();
+  const button = $("#catalogSearchButton");
+  button.disabled = true;
+  $("#status").textContent = `Ищем «${query}»…`;
+  try {
+    const mapReady = await loadGoogleMap();
+    if (!mapReady) throw new Error("Google Places сейчас недоступен");
+    const { Place, SearchByTextRankPreference } = await google.maps.importLibrary("places");
+    const { places } = await Place.searchByText({
+      textQuery: query,
+      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
+      locationBias: { center: currentCenter, radius: selectedRadius() * 1000 },
+      maxResultCount: Math.min(20, selectedLimit()),
+      rankPreference: SearchByTextRankPreference.RELEVANCE,
+      language: (navigator.language || "ru").split("-")[0],
+    });
+    const found = (places || []).map(externalPlaceItem).filter(Boolean)
+      .filter((item) => item.distance <= selectedRadius());
+    lastExternalPlaces = found;
+    remoteSearchQuery = query.toLocaleLowerCase("ru");
+    remoteSearchIds = new Set(found.map((item) => item.id));
+    renderAll();
+    $("#status").textContent = found.length
+      ? `По запросу «${query}» найдено: ${found.length}.`
+      : `По запросу «${query}» в радиусе ${selectedRadius()} км ничего не найдено.`;
+  } catch (error) {
+    remoteSearchQuery = "";
+    remoteSearchIds = new Set();
+    renderAll();
+    showError(`Поиск по названию временно недоступен: ${error.message || "повторите позже"}`);
+    $("#status").textContent = "Поиск не выполнен";
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function refreshCatalog() {
@@ -669,6 +746,13 @@ $("#favoritesFilter").addEventListener("click", () => {
 });
 $("#sortMode").addEventListener("change", renderAll);
 $("#catalogQuery").addEventListener("input", renderAll);
+$("#catalogSearchButton").addEventListener("click", searchCatalog);
+$("#catalogQuery").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    searchCatalog();
+  }
+});
 $("#serviceCategory").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
 $("#resultLimit").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
 $("#radius").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
