@@ -55,6 +55,8 @@ const api = async (url, body) => {
 let cameraStream = null;
 let scanTimer = null;
 let qrDetector = null;
+const qrCanvas = document.createElement("canvas");
+const qrContext = qrCanvas.getContext("2d", { willReadFrequently: true });
 
 const stopCamera = () => {
   if (scanTimer) window.clearTimeout(scanTimer);
@@ -85,16 +87,44 @@ const acceptScannedQr = (rawValue) => {
   $("#verify").click();
 };
 
-const getQrDetector = async () => {
-  if (!("BarcodeDetector" in window)) {
-    throw new Error("Этот браузер не умеет распознавать QR внутри страницы. Откройте QR обычной камерой телефона или вставьте код вручную.");
+const prepareQrReader = async () => {
+  if (!qrDetector && "BarcodeDetector" in window) {
+    try {
+      const formats = BarcodeDetector.getSupportedFormats
+        ? await BarcodeDetector.getSupportedFormats()
+        : ["qr_code"];
+      if (formats.includes("qr_code")) qrDetector = new BarcodeDetector({ formats: ["qr_code"] });
+    } catch (_) {
+      qrDetector = null;
+    }
   }
-  if (BarcodeDetector.getSupportedFormats) {
-    const formats = await BarcodeDetector.getSupportedFormats();
-    if (!formats.includes("qr_code")) throw new Error("Браузер не поддерживает сканирование QR");
+  if (!qrDetector && typeof window.jsQR !== "function") {
+    throw new Error("Модуль QR не загрузился. Проверьте интернет и обновите страницу.");
   }
-  if (!qrDetector) qrDetector = new BarcodeDetector({ formats: ["qr_code"] });
-  return qrDetector;
+};
+
+const detectQr = async (source) => {
+  if (qrDetector) {
+    try {
+      const codes = await qrDetector.detect(source);
+      if (codes.length) return codes[0].rawValue;
+    } catch (_) {
+      qrDetector = null;
+    }
+  }
+  if (typeof window.jsQR !== "function" || !qrContext) return null;
+  const sourceWidth = source.videoWidth || source.naturalWidth || source.width;
+  const sourceHeight = source.videoHeight || source.naturalHeight || source.height;
+  if (!sourceWidth || !sourceHeight) return null;
+  const scale = Math.min(1, 1280 / sourceWidth);
+  qrCanvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  qrCanvas.height = Math.max(1, Math.round(sourceHeight * scale));
+  qrContext.drawImage(source, 0, 0, qrCanvas.width, qrCanvas.height);
+  const imageData = qrContext.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+  const code = window.jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  return code?.data || null;
 };
 
 const scanVideoFrame = async () => {
@@ -102,9 +132,9 @@ const scanVideoFrame = async () => {
   const video = $("#cameraPreview");
   try {
     if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      const codes = await qrDetector.detect(video);
-      if (codes.length) {
-        acceptScannedQr(codes[0].rawValue);
+      const rawValue = await detectQr(video);
+      if (rawValue) {
+        acceptScannedQr(rawValue);
         return;
       }
     }
@@ -114,11 +144,20 @@ const scanVideoFrame = async () => {
   scanTimer = window.setTimeout(scanVideoFrame, 220);
 };
 
+const cameraErrorMessage = (error) => {
+  if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+    return "Доступ к камере запрещён. Разрешите камеру для relyqo.onrender.com в настройках браузера.";
+  }
+  if (error.name === "NotFoundError") return "Камера на этом устройстве не найдена.";
+  if (error.name === "NotReadableError") return "Камера занята другим приложением. Закройте его и попробуйте снова.";
+  return error.message;
+};
+
 $("#startCamera").onclick = async () => {
   try {
     $("#scanError").textContent = "";
     $("#scanStatus").textContent = "Запрашиваем разрешение на камеру…";
-    qrDetector = await getQrDetector();
+    await prepareQrReader();
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Камера недоступна в этом браузере");
     stopCamera();
     cameraStream = await navigator.mediaDevices.getUserMedia({
@@ -134,9 +173,7 @@ $("#startCamera").onclick = async () => {
   } catch (error) {
     stopCamera();
     $("#scanStatus").textContent = "";
-    $("#scanError").textContent = error.name === "NotAllowedError"
-      ? "Доступ к камере запрещён. Разрешите камеру для relyqo.onrender.com в настройках браузера."
-      : error.message;
+    $("#scanError").textContent = cameraErrorMessage(error);
   }
 };
 
@@ -151,12 +188,12 @@ $("#qrImage").addEventListener("change", async (event) => {
   try {
     $("#scanError").textContent = "";
     $("#scanStatus").textContent = "Читаем QR с фотографии…";
-    const detector = await getQrDetector();
+    await prepareQrReader();
     const image = await createImageBitmap(file);
-    const codes = await detector.detect(image);
+    const rawValue = await detectQr(image);
     image.close();
-    if (!codes.length) throw new Error("На фотографии QR-код не найден");
-    acceptScannedQr(codes[0].rawValue);
+    if (!rawValue) throw new Error("На фотографии QR-код не найден");
+    acceptScannedQr(rawValue);
   } catch (error) {
     $("#scanStatus").textContent = "";
     $("#scanError").textContent = error.message;

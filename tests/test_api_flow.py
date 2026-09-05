@@ -273,8 +273,11 @@ def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
     assert 'id="cameraPreview"' in page.text
     assert 'id="qrImage"' in page.text
     assert "видео не сохраняется" in page.text
+    assert "cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" in page.text
     assert "navigator.mediaDevices.getUserMedia" in script.text
     assert 'new BarcodeDetector({ formats: ["qr_code"] })' in script.text
+    assert 'typeof window.jsQR !== "function"' in script.text
+    assert "qrContext.getImageData" in script.text
     assert 'facingMode: { ideal: "environment" }' in script.text
     assert 'window.addEventListener("pagehide", stopCamera)' in script.text
     assert '$("#verify").click()' in script.text
