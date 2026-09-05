@@ -52,9 +52,126 @@ const api = async (url, body) => {
   return data;
 };
 
+let cameraStream = null;
+let scanTimer = null;
+let qrDetector = null;
+
+const stopCamera = () => {
+  if (scanTimer) window.clearTimeout(scanTimer);
+  scanTimer = null;
+  if (cameraStream) cameraStream.getTracks().forEach((track) => track.stop());
+  cameraStream = null;
+  $("#cameraPreview").srcObject = null;
+  $("#cameraBox").classList.add("hidden");
+};
+
+const readRelyqoToken = (rawValue) => {
+  const value = String(rawValue || "").trim();
+  if (!value) throw new Error("QR-код пустой");
+  if (/^https?:\/\//i.test(value)) {
+    const url = new URL(value);
+    const scannedToken = url.searchParams.get("token");
+    if (!scannedToken) throw new Error("Это не QR посещения RELYQO");
+    return scannedToken;
+  }
+  return value;
+};
+
+const acceptScannedQr = (rawValue) => {
+  const scannedToken = readRelyqoToken(rawValue);
+  $("#token").value = scannedToken;
+  $("#scanStatus").textContent = "QR распознан. Подтверждаем посещение…";
+  stopCamera();
+  $("#verify").click();
+};
+
+const getQrDetector = async () => {
+  if (!("BarcodeDetector" in window)) {
+    throw new Error("Этот браузер не умеет распознавать QR внутри страницы. Откройте QR обычной камерой телефона или вставьте код вручную.");
+  }
+  if (BarcodeDetector.getSupportedFormats) {
+    const formats = await BarcodeDetector.getSupportedFormats();
+    if (!formats.includes("qr_code")) throw new Error("Браузер не поддерживает сканирование QR");
+  }
+  if (!qrDetector) qrDetector = new BarcodeDetector({ formats: ["qr_code"] });
+  return qrDetector;
+};
+
+const scanVideoFrame = async () => {
+  if (!cameraStream) return;
+  const video = $("#cameraPreview");
+  try {
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      const codes = await qrDetector.detect(video);
+      if (codes.length) {
+        acceptScannedQr(codes[0].rawValue);
+        return;
+      }
+    }
+  } catch (error) {
+    $("#scanError").textContent = `Не удалось прочитать QR: ${error.message}`;
+  }
+  scanTimer = window.setTimeout(scanVideoFrame, 220);
+};
+
+$("#startCamera").onclick = async () => {
+  try {
+    $("#scanError").textContent = "";
+    $("#scanStatus").textContent = "Запрашиваем разрешение на камеру…";
+    qrDetector = await getQrDetector();
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Камера недоступна в этом браузере");
+    stopCamera();
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" } },
+    });
+    const video = $("#cameraPreview");
+    video.srcObject = cameraStream;
+    $("#cameraBox").classList.remove("hidden");
+    await video.play();
+    $("#scanStatus").textContent = "Наведите камеру на QR-код RELYQO";
+    scanVideoFrame();
+  } catch (error) {
+    stopCamera();
+    $("#scanStatus").textContent = "";
+    $("#scanError").textContent = error.name === "NotAllowedError"
+      ? "Доступ к камере запрещён. Разрешите камеру для relyqo.onrender.com в настройках браузера."
+      : error.message;
+  }
+};
+
+$("#stopCamera").onclick = () => {
+  stopCamera();
+  $("#scanStatus").textContent = "Сканирование остановлено";
+};
+
+$("#qrImage").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    $("#scanError").textContent = "";
+    $("#scanStatus").textContent = "Читаем QR с фотографии…";
+    const detector = await getQrDetector();
+    const image = await createImageBitmap(file);
+    const codes = await detector.detect(image);
+    image.close();
+    if (!codes.length) throw new Error("На фотографии QR-код не найден");
+    acceptScannedQr(codes[0].rawValue);
+  } catch (error) {
+    $("#scanStatus").textContent = "";
+    $("#scanError").textContent = error.message;
+  } finally {
+    event.target.value = "";
+  }
+});
+
+window.addEventListener("pagehide", stopCamera);
+
 $("#verify").onclick = async () => {
   try {
     $("#scanError").textContent = "";
+    $("#scanStatus").textContent = "";
+    stopCamera();
     const result = await api("/v1/visits/verify-token", { token: $("#token").value.trim() });
     visitId = result.visit_id;
     $("#place").textContent = result.organization.name;

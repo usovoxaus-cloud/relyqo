@@ -264,6 +264,22 @@ def test_business_page_loads_data_inline_without_cache():
     assert "/static/business.js" not in response.text
 
 
+def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
+    page = TestClient(app).get("/")
+    script = TestClient(app).get("/static/app.js")
+    assert page.status_code == 200
+    assert script.status_code == 200
+    assert 'id="startCamera"' in page.text
+    assert 'id="cameraPreview"' in page.text
+    assert 'id="qrImage"' in page.text
+    assert "видео не сохраняется" in page.text
+    assert "navigator.mediaDevices.getUserMedia" in script.text
+    assert 'new BarcodeDetector({ formats: ["qr_code"] })' in script.text
+    assert 'facingMode: { ideal: "environment" }' in script.text
+    assert 'window.addEventListener("pagehide", stopCamera)' in script.text
+    assert '$("#verify").click()' in script.text
+
+
 def test_relyqo_map_discovers_external_places_without_importing_external_ratings(monkeypatch):
     page = TestClient(app).get("/nearby")
     script = TestClient(app).get("/static/nearby.js")
