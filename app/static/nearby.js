@@ -77,7 +77,8 @@ function clearError() {
 }
 
 function selectedRadius() {
-  return 15;
+  const value = Number($("#radius").value);
+  return Number.isFinite(value) && value > 0 ? value : 15;
 }
 
 function selectedLimit() {
@@ -687,7 +688,7 @@ async function searchCatalog() {
     const { places } = await Place.searchByText({
       textQuery: query,
       fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
-      locationBias: { center: currentCenter, radius: selectedRadius() * 1000 },
+      locationBias: { center: currentCenter, radius: Math.min(50000, selectedRadius() * 1000) },
       maxResultCount: Math.min(20, selectedLimit()),
       rankPreference: SearchByTextRankPreference.RELEVANCE,
       language: (navigator.language || "ru").split("-")[0],
@@ -750,6 +751,7 @@ async function locate() {
     ));
     currentCenter = { lat: position.coords.latitude, lng: position.coords.longitude };
     $("#addPlace").disabled = false;
+    $("#radius").value = selectedRadius();
     await refreshCatalog();
   } catch (error) {
     showError(error.code === 1
@@ -783,6 +785,7 @@ $("#catalogQuery").addEventListener("keydown", (event) => {
 });
 $("#serviceCategory").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
 $("#resultLimit").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
+$("#radius").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();

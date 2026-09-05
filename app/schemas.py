@@ -19,7 +19,7 @@ class RatingCreate(BaseModel):
 class NearbySearch(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    radius_km: float = Field(default=15, gt=0, le=50)
+    radius_km: float = Field(default=15, gt=0)
     limit: int = Field(default=200, ge=1, le=200)
 
 

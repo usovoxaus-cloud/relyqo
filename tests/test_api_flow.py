@@ -300,8 +300,9 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "Verified только по QR" in page.text
     assert "♡ Моя карта" in page.text
     assert "relyqo_favorites_v1" in page.text
-    assert 'id="radius"' not in page.text
-    assert "Радиус, км" not in page.text
+    assert 'id="radius"' in page.text
+    assert "Радиус, км" in page.text
+    assert 'max="50"' not in page.text
     assert "selectedRadius()" in page.text
     assert 'id="resultLimit"' in page.text
     assert "RELYQO Map" in page.text
@@ -607,6 +608,15 @@ def test_public_nearby_branches_rejects_invalid_coordinates():
         json={"latitude": 91, "longitude": 69.25},
     )
     assert response.status_code == 422
+
+
+def test_public_nearby_branches_accepts_radius_above_fifty_kilometers():
+    response = TestClient(app).post(
+        "/v1/public/branches/nearby",
+        json={"latitude": 41.3, "longitude": 69.25, "radius_km": 250},
+    )
+    assert response.status_code == 200
+    assert response.json()["radius_km"] == 250
 
 
 def test_manual_place_is_saved_listed_and_community_rateable():
