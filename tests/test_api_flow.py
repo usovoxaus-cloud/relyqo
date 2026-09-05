@@ -446,6 +446,7 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert rankings_page.status_code == 200
     assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Город. Страна. Мир." in rankings_page.text
+    assert 'href="/nearby">Перейти к оценке →</a>' in rankings_page.text
     assert 'data-scope="country"' in rankings_page.text
     assert 'href="/rankings?scope=city"' in rankings_page.text
     assert 'href="/rankings?scope=country"' in rankings_page.text
