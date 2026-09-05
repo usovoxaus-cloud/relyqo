@@ -670,7 +670,7 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert rated.json()["included_in_relyqo_score"] is False
 
 
-def test_education_and_universities_are_supported_across_relyqo():
+def test_education_institutions_are_supported_across_relyqo():
     Base.metadata.create_all(engine)
     client = TestClient(app)
     suffix = uuid.uuid4().hex[:8]
@@ -697,10 +697,10 @@ def test_education_and_universities_are_supported_across_relyqo():
     rating_page = client.get("/community-rate")
     home_script = client.get("/static/app.js")
 
-    assert '<option value="EDUCATION">Образование и университеты</option>' in nearby_page.text
-    assert '<option value="EDUCATION">Образование и университеты</option>' in rankings_page.text
-    assert "['EDUCATION','Образование и университеты']" in owner_page.text
-    assert 'EDUCATION: "Образование и университеты"' in nearby_script.text
+    assert '<option value="EDUCATION">Образование и образовательные учреждения</option>' in nearby_page.text
+    assert '<option value="EDUCATION">Образование и образовательные учреждения</option>' in rankings_page.text
+    assert "['EDUCATION','Образование и образовательные учреждения']" in owner_page.text
+    assert 'EDUCATION: "Образование и образовательные учреждения"' in nearby_script.text
     assert '"university"' in nearby_script.text
     assert '"educational_institution"' in nearby_script.text
     assert "Качество обучения" in rating_page.text

@@ -38,7 +38,7 @@ const categoryNames = {
   RETAIL: "Магазин",
   AUTO_SERVICE: "Автоуслуги",
   PROFESSIONAL_SERVICE: "Профессиональные услуги",
-  EDUCATION: "Образование и университеты",
+  EDUCATION: "Образование и образовательные учреждения",
   OTHER: "Другая услуга",
 };
 
