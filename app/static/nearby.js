@@ -77,7 +77,7 @@ function clearError() {
 }
 
 function selectedRadius() {
-  return Math.max(1, Math.min(50, Math.round(Number($("#radius").value) || 15)));
+  return 15;
 }
 
 function selectedLimit() {
@@ -750,7 +750,6 @@ async function locate() {
     ));
     currentCenter = { lat: position.coords.latitude, lng: position.coords.longitude };
     $("#addPlace").disabled = false;
-    $("#radius").value = selectedRadius();
     await refreshCatalog();
   } catch (error) {
     showError(error.code === 1
@@ -784,8 +783,6 @@ $("#catalogQuery").addEventListener("keydown", (event) => {
 });
 $("#serviceCategory").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
 $("#resultLimit").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
-$("#radius").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
-
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();

@@ -300,7 +300,8 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "Verified только по QR" in page.text
     assert "♡ Моя карта" in page.text
     assert "relyqo_favorites_v1" in page.text
-    assert 'id="radius"' in page.text
+    assert 'id="radius"' not in page.text
+    assert "Радиус, км" not in page.text
     assert "selectedRadius()" in page.text
     assert 'id="resultLimit"' in page.text
     assert "RELYQO Map" in page.text
