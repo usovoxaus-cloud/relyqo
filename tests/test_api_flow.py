@@ -260,6 +260,8 @@ def test_business_page_loads_data_inline_without_cache():
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "loadDashboard()" in response.text
     assert 'id="content" class="grid"' in response.text
+    assert "информационная панель организации" in response.text
+    assert "Организация не может менять оценки или Score" in response.text
     assert "Пилот по текущим данным" in response.text
     assert "/static/business.js" not in response.text
 
