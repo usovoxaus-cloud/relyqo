@@ -39,6 +39,7 @@ class ManualPlaceCreate(BaseModel):
         "RETAIL",
         "AUTO_SERVICE",
         "PROFESSIONAL_SERVICE",
+        "EDUCATION",
         "OTHER",
     ]
     description: str = Field(min_length=10, max_length=500)
@@ -67,6 +68,7 @@ class CommunityRatingCreate(BaseModel):
         "RETAIL",
         "AUTO_SERVICE",
         "PROFESSIONAL_SERVICE",
+        "EDUCATION",
         "OTHER",
     ] = "OTHER"
     overall: int = Field(ge=1, le=10)
@@ -112,7 +114,7 @@ class BusinessOwnerRegister(BaseModel):
     category: Literal[
         "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT",
         "HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE", "OTHER",
+        "PROFESSIONAL_SERVICE", "EDUCATION", "OTHER",
     ]
     description: str = Field(min_length=10, max_length=1000)
     address: str = Field(min_length=3, max_length=255)
@@ -129,7 +131,7 @@ class BusinessProfileUpdate(BaseModel):
     category: Literal[
         "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT",
         "HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE", "OTHER",
+        "PROFESSIONAL_SERVICE", "EDUCATION", "OTHER",
     ]
     description: str = Field(min_length=10, max_length=1000)
     address: str = Field(min_length=3, max_length=255)

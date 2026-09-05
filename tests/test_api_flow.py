@@ -670,6 +670,43 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert rated.json()["included_in_relyqo_score"] is False
 
 
+def test_education_and_universities_are_supported_across_relyqo():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    suffix = uuid.uuid4().hex[:8]
+    created = client.post(
+        "/v1/public/manual-places",
+        json={
+            "name": f"RELYQO University {suffix}",
+            "category": "EDUCATION",
+            "description": "Educational institution added to the RELYQO service catalog.",
+            "address": "University street 1",
+            "city": "Tashkent",
+            "country_code": "uz",
+            "latitude": 41.32,
+            "longitude": 69.29,
+        },
+    )
+    assert created.status_code == 200
+    assert created.json()["item"]["category"] == "EDUCATION"
+
+    nearby_page = client.get("/nearby")
+    nearby_script = client.get("/static/nearby.js")
+    rankings_page = client.get("/rankings")
+    owner_page = client.get("/business-owner")
+    rating_page = client.get("/community-rate")
+    home_script = client.get("/static/app.js")
+
+    assert '<option value="EDUCATION">Образование и университеты</option>' in nearby_page.text
+    assert '<option value="EDUCATION">Образование и университеты</option>' in rankings_page.text
+    assert "['EDUCATION','Образование и университеты']" in owner_page.text
+    assert 'EDUCATION: "Образование и университеты"' in nearby_script.text
+    assert '"university"' in nearby_script.text
+    assert '"educational_institution"' in nearby_script.text
+    assert "Качество обучения" in rating_page.text
+    assert "Качество обучения" in home_script.text
+
+
 def test_external_catalog_import_is_disabled():
     Base.metadata.create_all(engine)
     client = TestClient(app)

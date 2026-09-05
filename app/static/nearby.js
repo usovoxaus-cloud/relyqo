@@ -38,6 +38,7 @@ const categoryNames = {
   RETAIL: "Магазин",
   AUTO_SERVICE: "Автоуслуги",
   PROFESSIONAL_SERVICE: "Профессиональные услуги",
+  EDUCATION: "Образование и университеты",
   OTHER: "Другая услуга",
 };
 
@@ -49,7 +50,7 @@ const googlePlaceTypes = {
     "movie_theater", "amusement_park", "museum", "park", "shopping_mall",
     "supermarket", "clothing_store", "electronics_store", "car_repair",
     "car_wash", "gas_station", "lawyer", "real_estate_agency", "travel_agency",
-    "gym", "school", "bank", "laundry", "veterinary_care",
+    "gym", "school", "university", "educational_institution", "bank", "laundry", "veterinary_care",
   ],
   FOOD: [
     "restaurant", "cafe", "coffee_shop", "bakery", "bar", "food_court",
@@ -62,7 +63,8 @@ const googlePlaceTypes = {
   RETAIL: ["shopping_mall", "store", "supermarket", "grocery_store", "clothing_store", "electronics_store", "home_goods_store", "book_store", "jewelry_store", "pet_store"],
   AUTO_SERVICE: ["car_dealer", "car_rental", "car_repair", "car_wash", "gas_station", "tire_shop", "auto_parts_store"],
   PROFESSIONAL_SERVICE: ["consultant", "lawyer", "real_estate_agency", "insurance_agency", "electrician", "plumber", "moving_company", "travel_agency"],
-  OTHER: ["gym", "school", "university", "bank", "post_office", "laundry", "veterinary_care", "pet_store", "tourist_attraction", "community_center"],
+  EDUCATION: ["university", "educational_institution", "academic_department", "research_institute", "school", "secondary_school", "primary_school", "preschool", "library"],
+  OTHER: ["gym", "bank", "post_office", "laundry", "veterinary_care", "pet_store", "tourist_attraction", "community_center"],
 };
 
 function showError(message) {
@@ -86,7 +88,7 @@ function selectedLimit() {
 function categoryGroup(value) {
   if (foodCategories.has(String(value || "").toUpperCase())) return "FOOD";
   const normalized = String(value || "").toUpperCase();
-  if (["HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE", "PROFESSIONAL_SERVICE"].includes(normalized)) return normalized;
+  if (["HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE", "PROFESSIONAL_SERVICE", "EDUCATION"].includes(normalized)) return normalized;
   for (const [group, types] of Object.entries(googlePlaceTypes)) {
     if (group !== "ALL" && types.includes(String(value || "").toLowerCase())) return group;
   }
