@@ -272,6 +272,8 @@ def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
     assert 'id="startCamera"' in page.text
     assert 'id="cameraPreview"' in page.text
     assert 'id="qrImage"' in page.text
+    assert "Найти организации рядом" in page.text
+    assert "Найти рестораны рядом" not in page.text
     assert "видео не сохраняется" in page.text
     assert "cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" in page.text
     assert "navigator.mediaDevices.getUserMedia" in script.text
