@@ -150,6 +150,51 @@ function matchesCategory(item) {
   return selected === "ALL" || categoryGroup(item.category) === selected;
 }
 
+function ratedFilterValue(id) {
+  return $(id)?.value || "ALL";
+}
+
+function matchesRatedFilters(item) {
+  const country = ratedFilterValue("#ratedCountry");
+  const city = ratedFilterValue("#ratedCity");
+  const category = ratedFilterValue("#ratedCategory");
+  const scoreType = ratedFilterValue("#ratedScoreType");
+  const minimum = Math.max(0, Math.min(100, Number($("#ratedMinScore")?.value) || 0));
+  if (country !== "ALL" && String(item.country_code || "").toUpperCase() !== country) return false;
+  if (city !== "ALL" && String(item.city || "") !== city) return false;
+  if (category !== "ALL" && categoryGroup(item.category) !== category) return false;
+  if (scoreType === "VERIFIED" && Number(item.verified_rating_count) <= 0) return false;
+  if (scoreType === "COMMUNITY" && Number(item.community_rating_count) <= 0) return false;
+  const filteredScore = scoreType === "VERIFIED"
+    ? Number(item.relyqo_score) || 0
+    : scoreType === "COMMUNITY" ? Number(item.community_score) || 0 : scoreFor(item);
+  return filteredScore >= minimum;
+}
+
+function replaceOptions(select, values, allLabel, selectedValue = "ALL") {
+  select.replaceChildren(new Option(allLabel, "ALL"));
+  for (const value of values) select.add(new Option(value, value));
+  select.value = values.includes(selectedValue) ? selectedValue : "ALL";
+}
+
+function updateRatedLocationFilters() {
+  const countrySelect = $("#ratedCountry");
+  const citySelect = $("#ratedCity");
+  if (!countrySelect || !citySelect) return;
+  const previousCountry = countrySelect.value;
+  const previousCity = citySelect.value;
+  const countries = [...new Set(lastRatedPlaces
+    .map((item) => String(item.country_code || "").toUpperCase()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  replaceOptions(countrySelect, countries, "Все страны", previousCountry);
+  const selectedCountry = countrySelect.value;
+  const cities = [...new Set(lastRatedPlaces
+    .filter((item) => selectedCountry === "ALL" || String(item.country_code || "").toUpperCase() === selectedCountry)
+    .map((item) => String(item.city || "").trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "ru"));
+  replaceOptions(citySelect, cities, "Все города", previousCity);
+}
+
 function readFavorites() {
   try {
     const value = JSON.parse(localStorage.getItem("relyqo_favorites_v1") || "[]");
@@ -250,7 +295,7 @@ function viewRows() {
         .map((item) => ({ kind: "external", title: item.name, ...item }))
         .filter((item) => !isAlreadyInRelyqo(item, internalRows)),
     ];
-  rows = rows.filter(matchesCategory);
+  rows = rows.filter(showRatedOnly ? matchesRatedFilters : matchesCategory);
   if (query) {
     rows = rows.filter((item) => (
       item.kind === "external"
@@ -543,7 +588,7 @@ function renderList(rows) {
   const favorites = readFavorites();
   if (!rows.length) {
     root.innerHTML = `<div class="empty">${showRatedOnly
-      ? "В выбранной зоне пока нет организаций с оценками RELYQO."
+      ? "По выбранным фильтрам пока нет организаций с оценками RELYQO."
       : showFavoritesOnly ? "На вашей личной карте пока нет объектов в выбранном радиусе."
         : "Организации не найдены. Измените радиус или сферу и повторите поиск."}</div>`;
     $("#listCount").textContent = "0 найдено";
@@ -615,6 +660,7 @@ function updateCatalogMode() {
   ratedTab.classList.toggle("active", showRatedOnly);
   allTab.setAttribute("aria-selected", String(!showRatedOnly));
   ratedTab.setAttribute("aria-selected", String(showRatedOnly));
+  $("#ratedFilters").classList.toggle("hidden", !showRatedOnly);
   allTab.textContent = "Все организации рядом";
   ratedTab.textContent = ratedCatalogLoaded
     ? `Все с оценками RELYQO · ${lastRatedPlaces.length}`
@@ -646,6 +692,7 @@ async function loadRatedCatalog() {
     if (!response.ok) throw new Error(data.detail || "Не удалось загрузить оценки RELYQO");
     lastRatedPlaces = data.items || [];
     ratedCatalogLoaded = true;
+    updateRatedLocationFilters();
   } finally {
     button.disabled = false;
   }
@@ -900,6 +947,23 @@ $("#ratedOrganizationsTab").addEventListener("click", async () => {
   }
 });
 $("#sortMode").addEventListener("change", renderAll);
+for (const id of ["#ratedCategory", "#ratedScoreType", "#ratedMinScore"]) {
+  $(id).addEventListener("input", renderAll);
+}
+$("#ratedCountry").addEventListener("change", () => {
+  updateRatedLocationFilters();
+  renderAll();
+});
+$("#ratedCity").addEventListener("change", renderAll);
+$("#ratedReset").addEventListener("click", () => {
+  $("#ratedCountry").value = "ALL";
+  updateRatedLocationFilters();
+  $("#ratedCity").value = "ALL";
+  $("#ratedCategory").value = "ALL";
+  $("#ratedScoreType").value = "ALL";
+  $("#ratedMinScore").value = "0";
+  renderAll();
+});
 $("#catalogQuery").addEventListener("input", renderAll);
 $("#catalogSearchButton").addEventListener("click", searchCatalog);
 $("#catalogQuery").addEventListener("keydown", (event) => {

@@ -307,12 +307,24 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'id="allOrganizationsTab"' in page.text
     assert 'id="ratedOrganizationsTab"' in page.text
     assert "Все с оценками RELYQO" in page.text
+    assert 'id="ratedFilters"' in page.text
+    assert 'id="ratedCountry"' in page.text
+    assert 'id="ratedCity"' in page.text
+    assert 'id="ratedCategory"' in page.text
+    assert 'id="ratedScoreType"' in page.text
+    assert 'id="ratedMinScore"' in page.text
+    assert "Verified — по QR" in page.text
+    assert "Community — потребители" in page.text
     assert "selectedRadius()" in page.text
     assert "relyqo_map_search_v1" in script.text
     assert "Радиус RELYQO" in script.text
     assert '$("#radius").addEventListener("input"' in script.text
     assert "/v1/public/rated-organizations?limit=500" in script.text
     assert "Общий каталог работает без геолокации" in script.text
+    assert "matchesRatedFilters" in script.text
+    assert "updateRatedLocationFilters" in script.text
+    assert 'scoreType === "VERIFIED"' in script.text
+    assert 'scoreType === "COMMUNITY"' in script.text
     assert 'id="resultLimit"' in page.text
     assert "RELYQO Map" in page.text
     assert "до 100" in page.text
