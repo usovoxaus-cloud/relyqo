@@ -831,6 +831,10 @@ $("#catalogQuery").addEventListener("keydown", (event) => {
 });
 $("#serviceCategory").addEventListener("change", searchPreferencesChanged);
 $("#resultLimit").addEventListener("change", searchPreferencesChanged);
+$("#radius").addEventListener("input", () => {
+  saveSearchPreferences();
+  updateSearchScope();
+});
 $("#radius").addEventListener("change", searchPreferencesChanged);
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
