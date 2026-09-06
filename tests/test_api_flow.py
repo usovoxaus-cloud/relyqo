@@ -324,6 +324,9 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "Показать ещё" in page.text
     assert 'limit: "50"' in script.text
     assert "ratedCatalogHasMore" in script.text
+    assert "ТОП ОРГАНИЗАЦИЙ" in script.text
+    assert "topOrganization" in script.text
+    assert "top-organizations-1" in page.text
     assert "Общий каталог работает без геолокации" in script.text
     assert "matchesRatedFilters" in script.text
     assert "updateRatedLocationFilters" in script.text
@@ -736,6 +739,8 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert catalog_item["id"] == item["id"]
     assert catalog_item["score_type"] == "COMMUNITY"
     assert catalog_item["display_score"] == 84.0
+    assert rated_catalog.json()["top_policy"]["paid_placement"] is False
+    assert rated_catalog.json()["top_policy"]["business_can_edit"] is False
     first_page = client.get(
         "/v1/public/rated-organizations",
         params={"limit": 1, "offset": 0},

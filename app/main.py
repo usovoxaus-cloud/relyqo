@@ -116,6 +116,8 @@ SERVICE_CATEGORY_ALIASES = {
     "ГОСТИНИЦА": "HOTEL",
     "ОБРАЗОВАНИЕ": "EDUCATION",
 }
+TOP_ORGANIZATION_LIMIT = 3
+TOP_ORGANIZATION_MIN_RATINGS = 3
 
 
 def service_category_group(value: str | None) -> str:
@@ -2478,6 +2480,30 @@ def public_rated_organizations(
         return True
 
     filtered_items = [item for item in items if matches(item)]
+    top_candidates = [
+        item
+        for item in filtered_items
+        if selected_reviews(item) >= TOP_ORGANIZATION_MIN_RATINGS
+    ]
+    top_candidates.sort(
+        key=lambda item: (
+            -selected_score(item),
+            -selected_reviews(item),
+            item["name"].casefold(),
+        )
+    )
+    for top_rank, item in enumerate(
+        top_candidates[:TOP_ORGANIZATION_LIMIT],
+        start=1,
+    ):
+        item["top_rank"] = top_rank
+        item["top_score_type"] = (
+            score_type
+            if score_type != "ALL"
+            else "VERIFIED"
+            if item["verified_rating_count"] > 0
+            else "COMMUNITY"
+        )
     if sort == "name":
         filtered_items.sort(key=lambda item: item["name"].casefold())
     elif sort == "reviews":
@@ -2507,6 +2533,13 @@ def public_rated_organizations(
         "has_more": offset + limit < total,
         "facets": facets,
         "score_policy": "VERIFIED_AND_COMMUNITY_SEPARATE",
+        "top_policy": {
+            "calculation": "deterministic_score_then_rating_count_v1",
+            "limit": TOP_ORGANIZATION_LIMIT,
+            "minimum_ratings": TOP_ORGANIZATION_MIN_RATINGS,
+            "paid_placement": False,
+            "business_can_edit": False,
+        },
         "external_ratings_used": False,
     }
 

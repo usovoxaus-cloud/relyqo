@@ -599,10 +599,22 @@ function renderList(rows) {
     $("#listCount").textContent = "0 найдено";
     return;
   }
+  if (showRatedOnly && rows.some((item) => Number(item.top_rank) > 0)) {
+    const topIntro = document.createElement("div");
+    topIntro.className = "topOrganizationsIntro";
+    const topTitle = document.createElement("strong");
+    topTitle.textContent = "ТОП ОРГАНИЗАЦИЙ";
+    const topExplanation = document.createElement("span");
+    topExplanation.textContent = "Лидеры по выбранному виду рейтинга. Место рассчитывается автоматически; бизнес не может купить или изменить его.";
+    topIntro.append(topTitle, topExplanation);
+    root.append(topIntro);
+  }
   for (const item of rows) {
     const card = document.createElement("section");
     card.id = markerCardId(item);
     card.className = `place ${item.kind === "partner" ? "partner" : item.kind === "external" ? "external" : ""}`;
+    const topRank = Number(item.top_rank) || 0;
+    if (showRatedOnly && topRank > 0) card.classList.add("topOrganization");
     const top = document.createElement("div");
     top.className = "placeTop";
     const title = document.createElement("div");
@@ -613,6 +625,12 @@ function renderList(rows) {
       : item.kind === "manual" ? "ДОБАВЛЕНО ПОТРЕБИТЕЛЕМ" : "НАЙДЕНО · Google Maps";
     const heading = document.createElement("h2");
     heading.textContent = item.title;
+    if (showRatedOnly && topRank > 0) {
+      const topBadge = document.createElement("span");
+      topBadge.className = "topBadge";
+      topBadge.textContent = `ТОП #${topRank} · ${item.top_score_type === "VERIFIED" ? "VERIFIED" : "COMMUNITY"}`;
+      title.append(topBadge);
+    }
     title.append(badge, heading);
     const score = document.createElement("div");
     score.className = "score";
