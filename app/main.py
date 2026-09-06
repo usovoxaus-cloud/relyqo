@@ -97,6 +97,35 @@ SERVICE_CATEGORIES = {
     "EDUCATION",
     "OTHER",
 }
+SERVICE_CATEGORY_GROUPS = {
+    "FOOD": {"RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT", "FOOD"},
+    "HOTEL": {"HOTEL"},
+    "BEAUTY": {"BEAUTY"},
+    "HEALTH": {"HEALTH"},
+    "ENTERTAINMENT": {"ENTERTAINMENT"},
+    "RETAIL": {"RETAIL"},
+    "AUTO_SERVICE": {"AUTO_SERVICE"},
+    "PROFESSIONAL_SERVICE": {"PROFESSIONAL_SERVICE"},
+    "EDUCATION": {"EDUCATION"},
+    "OTHER": {"OTHER"},
+}
+SERVICE_CATEGORY_ALIASES = {
+    "РЕСТОРАН": "FOOD",
+    "КАФЕ": "FOOD",
+    "КОФЕЙНЯ": "FOOD",
+    "ГОСТИНИЦА": "HOTEL",
+    "ОБРАЗОВАНИЕ": "EDUCATION",
+}
+
+
+def service_category_group(value: str | None) -> str:
+    normalized = (value or "OTHER").strip().upper()
+    if normalized in SERVICE_CATEGORY_ALIASES:
+        return SERVICE_CATEGORY_ALIASES[normalized]
+    for group, categories in SERVICE_CATEGORY_GROUPS.items():
+        if normalized in categories:
+            return group
+    return "OTHER"
 
 
 def normalize_rating_photo(data_url: str | None) -> tuple[bytes, str, str] | None:
@@ -2277,11 +2306,31 @@ def public_manual_places_nearby(
 @app.get("/v1/public/rated-organizations")
 def public_rated_organizations(
     response: Response,
-    limit: int = 200,
+    offset: int = 0,
+    limit: int = 50,
+    q: str = "",
+    country_code: str = "",
+    city: str = "",
+    category: str = "ALL",
+    score_type: str = "ALL",
+    min_score: float = 0,
+    sort: str = "rating",
     db: Session = Depends(get_db),
 ):
-    if not 1 <= limit <= 500:
-        raise HTTPException(422, "Количество должно быть от 1 до 500")
+    if offset < 0:
+        raise HTTPException(422, "Смещение не может быть отрицательным")
+    if not 1 <= limit <= 100:
+        raise HTTPException(422, "Количество должно быть от 1 до 100")
+    if len(q) > 120:
+        raise HTTPException(422, "Поисковый запрос слишком длинный")
+    if category not in {"ALL", *SERVICE_CATEGORY_GROUPS}:
+        raise HTTPException(422, "Неизвестная сфера услуг")
+    if score_type not in {"ALL", "VERIFIED", "COMMUNITY"}:
+        raise HTTPException(422, "Неизвестный тип оценки")
+    if not 0 <= min_score <= 100:
+        raise HTTPException(422, "Минимальный рейтинг должен быть от 0 до 100")
+    if sort not in {"rating", "reviews", "name"}:
+        raise HTTPException(422, "Неизвестная сортировка")
     community_rows = db.execute(
         select(
             CommunityRating.object_key,
@@ -2322,6 +2371,7 @@ def public_rated_organizations(
         items.append(
             {
                 "kind": "partner",
+                "object_key": object_key,
                 "organization_id": organization.id,
                 "branch_id": branch.id,
                 "organization": organization.name,
@@ -2371,18 +2421,91 @@ def public_rated_organizations(
                 "display_score": community["community_score"],
             }
         )
-    items.sort(
-        key=lambda item: (
-            -float(item["display_score"]),
-            -int(item["verified_rating_count"]),
-            -int(item["community_rating_count"]),
-            item["name"].casefold(),
+    facets = {
+        "countries": sorted(
+            {item["country_code"] for item in items if item.get("country_code")}
+        ),
+        "cities": sorted(
+            [
+                {"city": city_name, "country_code": country}
+                for city_name, country in {
+                    (item.get("city") or "", item.get("country_code") or "")
+                    for item in items
+                    if item.get("city")
+                }
+            ],
+            key=lambda value: (value["country_code"], value["city"].casefold()),
+        ),
+    }
+    query = q.strip().casefold()
+    selected_country = country_code.strip().upper()
+    selected_city = city.strip().casefold()
+
+    def selected_score(item: dict) -> float:
+        if score_type == "VERIFIED":
+            return float(item["relyqo_score"])
+        if score_type == "COMMUNITY":
+            return float(item["community_score"])
+        return float(item["display_score"])
+
+    def selected_reviews(item: dict) -> int:
+        if score_type == "VERIFIED":
+            return int(item["verified_rating_count"])
+        if score_type == "COMMUNITY":
+            return int(item["community_rating_count"])
+        return int(item["verified_rating_count"] + item["community_rating_count"])
+
+    def matches(item: dict) -> bool:
+        if selected_country and item.get("country_code") != selected_country:
+            return False
+        if selected_city and (item.get("city") or "").casefold() != selected_city:
+            return False
+        if category != "ALL" and service_category_group(item.get("category")) != category:
+            return False
+        if score_type == "VERIFIED" and item["verified_rating_count"] <= 0:
+            return False
+        if score_type == "COMMUNITY" and item["community_rating_count"] <= 0:
+            return False
+        if selected_score(item) < min_score:
+            return False
+        if query:
+            searchable = " ".join(
+                str(item.get(field) or "")
+                for field in ("name", "address", "city", "country_code", "category", "description")
+            ).casefold()
+            if query not in searchable:
+                return False
+        return True
+
+    filtered_items = [item for item in items if matches(item)]
+    if sort == "name":
+        filtered_items.sort(key=lambda item: item["name"].casefold())
+    elif sort == "reviews":
+        filtered_items.sort(
+            key=lambda item: (
+                -selected_reviews(item),
+                -selected_score(item),
+                item["name"].casefold(),
+            )
         )
-    )
+    else:
+        filtered_items.sort(
+            key=lambda item: (
+                -selected_score(item),
+                -int(item["verified_rating_count"]),
+                -int(item["community_rating_count"]),
+                item["name"].casefold(),
+            )
+        )
+    total = len(filtered_items)
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
-        "items": items[:limit],
-        "total": len(items),
+        "items": filtered_items[offset : offset + limit],
+        "offset": offset,
+        "limit": limit,
+        "total": total,
+        "has_more": offset + limit < total,
+        "facets": facets,
         "score_policy": "VERIFIED_AND_COMMUNITY_SEPARATE",
         "external_ratings_used": False,
     }

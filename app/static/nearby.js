@@ -6,6 +6,10 @@ let lastManualPlaces = [];
 let lastExternalPlaces = [];
 let lastRatedPlaces = [];
 let ratedCatalogLoaded = false;
+let ratedCatalogTotal = 0;
+let ratedCatalogHasMore = false;
+let ratedCatalogFacets = { countries: [], cities: [] };
+let ratedSearchTimer = null;
 let currentCenter = null;
 let showFavoritesOnly = false;
 let showRatedOnly = false;
@@ -136,8 +140,10 @@ function searchPreferencesChanged() {
 }
 
 function categoryGroup(value) {
-  if (foodCategories.has(String(value || "").toUpperCase())) return "FOOD";
   const normalized = String(value || "").toUpperCase();
+  if (foodCategories.has(normalized) || ["РЕСТОРАН", "КАФЕ", "КОФЕЙНЯ"].includes(normalized)) return "FOOD";
+  if (normalized === "ГОСТИНИЦА") return "HOTEL";
+  if (normalized === "ОБРАЗОВАНИЕ") return "EDUCATION";
   if (["HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE", "PROFESSIONAL_SERVICE", "EDUCATION"].includes(normalized)) return normalized;
   for (const [group, types] of Object.entries(googlePlaceTypes)) {
     if (group !== "ALL" && types.includes(String(value || "").toLowerCase())) return group;
@@ -183,13 +189,12 @@ function updateRatedLocationFilters() {
   if (!countrySelect || !citySelect) return;
   const previousCountry = countrySelect.value;
   const previousCity = citySelect.value;
-  const countries = [...new Set(lastRatedPlaces
-    .map((item) => String(item.country_code || "").toUpperCase()).filter(Boolean))]
+  const countries = [...new Set(ratedCatalogFacets.countries || [])]
     .sort((a, b) => a.localeCompare(b, "ru"));
   replaceOptions(countrySelect, countries, "Все страны", previousCountry);
   const selectedCountry = countrySelect.value;
-  const cities = [...new Set(lastRatedPlaces
-    .filter((item) => selectedCountry === "ALL" || String(item.country_code || "").toUpperCase() === selectedCountry)
+  const cities = [...new Set((ratedCatalogFacets.cities || [])
+    .filter((item) => selectedCountry === "ALL" || item.country_code === selectedCountry)
     .map((item) => String(item.city || "").trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "ru"));
   replaceOptions(citySelect, cities, "Все города", previousCity);
@@ -307,7 +312,7 @@ function viewRows() {
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
   if (showRatedOnly) rows = rows.filter(hasRelyqoRatings);
   sortRows(rows);
-  return rows.slice(0, selectedLimit());
+  return showRatedOnly ? rows : rows.slice(0, selectedLimit());
 }
 
 function distanceKm(a, b) {
@@ -643,7 +648,9 @@ function renderList(rows) {
     );
     root.append(card);
   }
-  $("#listCount").textContent = `${rows.length} найдено`;
+  $("#listCount").textContent = showRatedOnly
+    ? `${rows.length} из ${ratedCatalogTotal}`
+    : `${rows.length} найдено`;
 }
 
 function updatePersonalMode() {
@@ -663,7 +670,7 @@ function updateCatalogMode() {
   $("#ratedFilters").classList.toggle("hidden", !showRatedOnly);
   allTab.textContent = "Все организации рядом";
   ratedTab.textContent = ratedCatalogLoaded
-    ? `Все с оценками RELYQO · ${lastRatedPlaces.length}`
+    ? `Все с оценками RELYQO · ${ratedCatalogTotal}`
     : "Все с оценками RELYQO";
   $("#catalogTitle").textContent = showRatedOnly ? "Оценённые в RELYQO" : "Каталог рядом";
   $("#catalogHint").textContent = showRatedOnly
@@ -677,25 +684,65 @@ function renderAll() {
     ? rows.filter((item) => item.distance != null && Number.isFinite(Number(item.distance)) && item.distance <= selectedRadius())
     : rows);
   renderList(rows);
+  $("#ratedLoadMore").classList.toggle("hidden", !showRatedOnly || !ratedCatalogHasMore);
   updatePersonalMode();
   updateCatalogMode();
 }
 
-async function loadRatedCatalog() {
-  if (ratedCatalogLoaded) return;
+async function loadRatedCatalog(reset = true) {
+  if (!reset && !ratedCatalogHasMore) return;
   const button = $("#ratedOrganizationsTab");
+  const moreButton = $("#ratedLoadMore");
   button.disabled = true;
-  button.textContent = "Загружаем оценки…";
+  moreButton.disabled = true;
+  if (reset) button.textContent = "Загружаем оценки…";
+  else moreButton.textContent = "Загружаем…";
   try {
-    const response = await fetch("/v1/public/rated-organizations?limit=500", { cache: "no-store" });
+    const offset = reset ? 0 : lastRatedPlaces.length;
+    const sortMode = $("#sortMode").value;
+    const params = new URLSearchParams({
+      offset: String(offset),
+      limit: "50",
+      q: $("#catalogQuery").value.trim(),
+      category: ratedFilterValue("#ratedCategory"),
+      score_type: ratedFilterValue("#ratedScoreType"),
+      min_score: String(Math.max(0, Math.min(100, Number($("#ratedMinScore").value) || 0))),
+      sort: ["rating", "reviews", "name"].includes(sortMode) ? sortMode : "rating",
+    });
+    const country = ratedFilterValue("#ratedCountry");
+    const city = ratedFilterValue("#ratedCity");
+    if (country !== "ALL") params.set("country_code", country);
+    if (city !== "ALL") params.set("city", city);
+    const response = await fetch(`/v1/public/rated-organizations?${params}`, { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Не удалось загрузить оценки RELYQO");
-    lastRatedPlaces = data.items || [];
+    lastRatedPlaces = reset ? (data.items || []) : [...lastRatedPlaces, ...(data.items || [])];
+    ratedCatalogTotal = Number(data.total) || 0;
+    ratedCatalogHasMore = Boolean(data.has_more);
+    ratedCatalogFacets = data.facets || ratedCatalogFacets;
     ratedCatalogLoaded = true;
     updateRatedLocationFilters();
   } finally {
     button.disabled = false;
+    moreButton.disabled = false;
+    moreButton.textContent = "Показать ещё";
   }
+}
+
+async function reloadRatedCatalog() {
+  clearError();
+  try {
+    await loadRatedCatalog(true);
+    renderAll();
+  } catch (error) {
+    showError(error.message || "Не удалось загрузить каталог RELYQO");
+    updateCatalogMode();
+  }
+}
+
+function scheduleRatedReload() {
+  clearTimeout(ratedSearchTimer);
+  ratedSearchTimer = setTimeout(reloadRatedCatalog, 250);
 }
 
 async function fetchNearby(url) {
@@ -822,6 +869,10 @@ function externalPlaceItem(place) {
 }
 
 async function searchCatalog() {
+  if (showRatedOnly) {
+    await reloadRatedCatalog();
+    return;
+  }
   const input = $("#catalogQuery");
   const query = input.value.trim();
   if (!query) {
@@ -946,25 +997,40 @@ $("#ratedOrganizationsTab").addEventListener("click", async () => {
     updateCatalogMode();
   }
 });
-$("#sortMode").addEventListener("change", renderAll);
-for (const id of ["#ratedCategory", "#ratedScoreType", "#ratedMinScore"]) {
-  $(id).addEventListener("input", renderAll);
+$("#sortMode").addEventListener("change", () => {
+  if (showRatedOnly) reloadRatedCatalog();
+  else renderAll();
+});
+for (const id of ["#ratedCategory", "#ratedScoreType"]) {
+  $(id).addEventListener("change", reloadRatedCatalog);
 }
+$("#ratedMinScore").addEventListener("input", scheduleRatedReload);
 $("#ratedCountry").addEventListener("change", () => {
   updateRatedLocationFilters();
-  renderAll();
+  reloadRatedCatalog();
 });
-$("#ratedCity").addEventListener("change", renderAll);
-$("#ratedReset").addEventListener("click", () => {
+$("#ratedCity").addEventListener("change", reloadRatedCatalog);
+$("#ratedReset").addEventListener("click", async () => {
   $("#ratedCountry").value = "ALL";
   updateRatedLocationFilters();
   $("#ratedCity").value = "ALL";
   $("#ratedCategory").value = "ALL";
   $("#ratedScoreType").value = "ALL";
   $("#ratedMinScore").value = "0";
-  renderAll();
+  await reloadRatedCatalog();
 });
-$("#catalogQuery").addEventListener("input", renderAll);
+$("#ratedLoadMore").addEventListener("click", async () => {
+  try {
+    await loadRatedCatalog(false);
+    renderAll();
+  } catch (error) {
+    showError(error.message || "Не удалось загрузить следующую страницу каталога");
+  }
+});
+$("#catalogQuery").addEventListener("input", () => {
+  if (showRatedOnly) scheduleRatedReload();
+  else renderAll();
+});
 $("#catalogSearchButton").addEventListener("click", searchCatalog);
 $("#catalogQuery").addEventListener("keydown", (event) => {
   if (event.key === "Enter") {

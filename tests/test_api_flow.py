@@ -319,7 +319,11 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "relyqo_map_search_v1" in script.text
     assert "Радиус RELYQO" in script.text
     assert '$("#radius").addEventListener("input"' in script.text
-    assert "/v1/public/rated-organizations?limit=500" in script.text
+    assert "/v1/public/rated-organizations?${params}" in script.text
+    assert 'id="ratedLoadMore"' in page.text
+    assert "Показать ещё" in page.text
+    assert 'limit: "50"' in script.text
+    assert "ratedCatalogHasMore" in script.text
     assert "Общий каталог работает без геолокации" in script.text
     assert "matchesRatedFilters" in script.text
     assert "updateRatedLocationFilters" in script.text
@@ -711,16 +715,39 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     )
     assert rated_place["community_rating_count"] == 1
     assert rated_place["community_score"] == 84.0
-    rated_catalog = client.get("/v1/public/rated-organizations", params={"limit": 500})
+    rated_catalog = client.get(
+        "/v1/public/rated-organizations",
+        params={
+            "limit": 1,
+            "q": suffix,
+            "country_code": "uz",
+            "city": "Tashkent",
+            "category": "FOOD",
+            "score_type": "COMMUNITY",
+            "min_score": 80,
+        },
+    )
     assert rated_catalog.status_code == 200
     assert rated_catalog.json()["external_ratings_used"] is False
-    catalog_item = next(
-        place
-        for place in rated_catalog.json()["items"]
-        if place.get("id") == item["id"]
-    )
+    assert rated_catalog.json()["total"] == 1
+    assert rated_catalog.json()["has_more"] is False
+    assert "UZ" in rated_catalog.json()["facets"]["countries"]
+    catalog_item = rated_catalog.json()["items"][0]
+    assert catalog_item["id"] == item["id"]
     assert catalog_item["score_type"] == "COMMUNITY"
     assert catalog_item["display_score"] == 84.0
+    first_page = client.get(
+        "/v1/public/rated-organizations",
+        params={"limit": 1, "offset": 0},
+    ).json()
+    assert len(first_page["items"]) == 1
+    if first_page["total"] > 1:
+        assert first_page["has_more"] is True
+        second_page = client.get(
+            "/v1/public/rated-organizations",
+            params={"limit": 1, "offset": 1},
+        ).json()
+        assert second_page["items"][0]["object_key"] != first_page["items"][0]["object_key"]
 
 
 def test_education_institutions_are_supported_across_relyqo():
