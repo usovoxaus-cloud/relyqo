@@ -48,6 +48,7 @@ class ManualPlaceCreate(BaseModel):
     country_code: str = Field(min_length=2, max_length=2)
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+    google_place_id: str | None = Field(default=None, min_length=3, max_length=255)
 
 
 class CommunityRatingCreate(BaseModel):

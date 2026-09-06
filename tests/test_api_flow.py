@@ -326,7 +326,8 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "ratedCatalogHasMore" in script.text
     assert "ТОП ОРГАНИЗАЦИЙ" in script.text
     assert "topOrganization" in script.text
-    assert "top-organizations-1" in page.text
+    assert "google-place-flow-1" in page.text
+    assert "google_place_id: pendingGooglePlaceId" in script.text
     assert "Общий каталог работает без геолокации" in script.text
     assert "matchesRatedFilters" in script.text
     assert "updateRatedLocationFilters" in script.text
@@ -753,6 +754,37 @@ def test_manual_place_is_saved_listed_and_community_rateable():
             params={"limit": 1, "offset": 1},
         ).json()
         assert second_page["items"][0]["object_key"] != first_page["items"][0]["object_key"]
+
+
+def test_google_place_id_prevents_duplicate_community_places():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    suffix = uuid.uuid4().hex
+    payload = {
+        "name": f"Google linked place {suffix[:8]}",
+        "category": "OTHER",
+        "description": "Consumer-confirmed organization data for RELYQO rating.",
+        "address": "Confirmed street 10",
+        "city": "Tashkent",
+        "country_code": "UZ",
+        "latitude": 41.3,
+        "longitude": 69.2,
+        "google_place_id": f"ChIJ-relyqo-{suffix}",
+    }
+    created = client.post("/v1/public/manual-places", json=payload)
+    assert created.status_code == 200
+    assert created.json()["item"]["google_place_id"] == payload["google_place_id"]
+    repeated = client.post(
+        "/v1/public/manual-places",
+        json={
+            **payload,
+            "name": "A changed live display name",
+            "address": "A changed live display address",
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["status"] == "COMMUNITY_PLACE_EXISTS"
+    assert repeated.json()["item"]["id"] == created.json()["item"]["id"]
 
 
 def test_education_institutions_are_supported_across_relyqo():

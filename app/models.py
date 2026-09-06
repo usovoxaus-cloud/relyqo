@@ -68,6 +68,9 @@ class ManualPlace(Base):
     country_code: Mapped[str] = mapped_column(String(2))
     latitude: Mapped[float] = mapped_column(Float, index=True)
     longitude: Mapped[float] = mapped_column(Float, index=True)
+    google_place_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
     created_by_hash: Mapped[str] = mapped_column(String(64), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)

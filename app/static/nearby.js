@@ -20,6 +20,7 @@ let remoteSearchQuery = "";
 let remoteSearchIds = new Set();
 let pendingManualLocation = null;
 let pendingManualAction = "save";
+let pendingGooglePlaceId = null;
 
 const foodCategories = new Set([
   "RESTAURANT",
@@ -544,6 +545,7 @@ function internalActions(item, favorites) {
 
 function openManualDialog(item = null, action = "save") {
   pendingManualAction = action;
+  pendingGooglePlaceId = item?.kind === "external" ? item.id : null;
   pendingManualLocation = item ? {
     lat: Number(item.latitude),
     lng: Number(item.longitude),
@@ -993,6 +995,7 @@ $("#addPlace").addEventListener("click", () => openManualDialog());
 $("#cancelManual").addEventListener("click", () => {
   pendingManualAction = "save";
   pendingManualLocation = null;
+  pendingGooglePlaceId = null;
   $("#manualDialog").close();
 });
 $("#favoritesFilter").addEventListener("click", () => {
@@ -1091,6 +1094,7 @@ $("#manualForm").addEventListener("submit", async (event) => {
     country_code: $("#manualCountry").value.toUpperCase(),
     latitude: locationForPlace.lat,
     longitude: locationForPlace.lng,
+    google_place_id: pendingGooglePlaceId,
   };
   try {
     const response = await fetch("/v1/public/manual-places", {
@@ -1116,6 +1120,7 @@ $("#manualForm").addEventListener("submit", async (event) => {
       return;
     }
     pendingManualLocation = null;
+    pendingGooglePlaceId = null;
   } catch (error) {
     $("#manualError").textContent = error.message;
     $("#manualError").classList.remove("hidden");

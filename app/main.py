@@ -30,6 +30,7 @@ from .models import (
     Branch,
     CommunityRating,
     ConsumerFavorite,
+    GooglePlaceReference,
     ManualPlace,
     Organization,
     OwnerReview,
@@ -2132,6 +2133,7 @@ def manual_place_item(
         "country_code": place.country_code,
         "latitude": place.latitude,
         "longitude": place.longitude,
+        "google_place_id": place.google_place_id,
         "distance_km": round(distance_km, 2) if distance_km is not None else None,
         "source": "MANUAL",
         "verified": False,
@@ -2156,6 +2158,9 @@ def create_manual_place(
     city = " ".join(body.city.split())
     description = " ".join(body.description.split())
     country_code = body.country_code.strip().upper()
+    google_place_id = (
+        body.google_place_id.strip() if body.google_place_id else None
+    )
     if len(name) < 2 or len(address) < 3 or len(city) < 2 or len(description) < 10:
         raise HTTPException(422, "Заполните название, описание, адрес и город")
     raw_rater = verified_community_rater(rater_cookie)
@@ -2173,13 +2178,30 @@ def create_manual_place(
         )
     )
     identity_hash = token_hash(identity)
-    existing = db.scalar(
-        select(ManualPlace).where(
-            ManualPlace.identity_hash == identity_hash,
-            ManualPlace.active.is_(True),
+    existing = None
+    if google_place_id:
+        existing = db.scalar(
+            select(ManualPlace).where(
+                ManualPlace.google_place_id == google_place_id,
+                ManualPlace.active.is_(True),
+            )
         )
-    )
+    if existing is None:
+        existing = db.scalar(
+            select(ManualPlace).where(
+                ManualPlace.identity_hash == identity_hash,
+                ManualPlace.active.is_(True),
+            )
+        )
     if existing:
+        if google_place_id and existing.google_place_id is None:
+            existing.google_place_id = google_place_id
+            reference = db.get(GooglePlaceReference, google_place_id)
+            if reference:
+                reference.last_seen_at = datetime.utcnow()
+            else:
+                db.add(GooglePlaceReference(place_id=google_place_id))
+            db.commit()
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.set_cookie(
             COMMUNITY_COOKIE,
@@ -2204,9 +2226,16 @@ def create_manual_place(
         country_code=country_code,
         latitude=body.latitude,
         longitude=body.longitude,
+        google_place_id=google_place_id,
         created_by_hash=token_hash(raw_rater),
     )
     db.add(place)
+    if google_place_id:
+        reference = db.get(GooglePlaceReference, google_place_id)
+        if reference:
+            reference.last_seen_at = datetime.utcnow()
+        else:
+            db.add(GooglePlaceReference(place_id=google_place_id))
     try:
         db.flush()
     except IntegrityError:
