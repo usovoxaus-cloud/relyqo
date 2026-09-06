@@ -306,11 +306,13 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'id="scopeHint"' in page.text
     assert 'id="allOrganizationsTab"' in page.text
     assert 'id="ratedOrganizationsTab"' in page.text
-    assert "С оценками RELYQO" in page.text
+    assert "Все с оценками RELYQO" in page.text
     assert "selectedRadius()" in page.text
     assert "relyqo_map_search_v1" in script.text
     assert "Радиус RELYQO" in script.text
     assert '$("#radius").addEventListener("input"' in script.text
+    assert "/v1/public/rated-organizations?limit=500" in script.text
+    assert "Общий каталог работает без геолокации" in script.text
     assert 'id="resultLimit"' in page.text
     assert "RELYQO Map" in page.text
     assert "до 100" in page.text
@@ -334,7 +336,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'id="catalogSearchButton"' in page.text
     assert "Place.searchByText" in script.text
     assert "SearchByTextRankPreference.RELEVANCE" in script.text
-    assert "Поиск по названию, адресу или городу" in page.text
+    assert "Поиск по названию, сфере, адресу или городу" in page.text
     assert "www.google.com/maps/search" in script.text
     assert 'href="/terms"' in page.text
     assert 'href="/privacy"' in page.text
@@ -697,6 +699,16 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     )
     assert rated_place["community_rating_count"] == 1
     assert rated_place["community_score"] == 84.0
+    rated_catalog = client.get("/v1/public/rated-organizations", params={"limit": 500})
+    assert rated_catalog.status_code == 200
+    assert rated_catalog.json()["external_ratings_used"] is False
+    catalog_item = next(
+        place
+        for place in rated_catalog.json()["items"]
+        if place.get("id") == item["id"]
+    )
+    assert catalog_item["score_type"] == "COMMUNITY"
+    assert catalog_item["display_score"] == 84.0
 
 
 def test_education_institutions_are_supported_across_relyqo():

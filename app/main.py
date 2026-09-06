@@ -2274,6 +2274,120 @@ def public_manual_places_nearby(
     }
 
 
+@app.get("/v1/public/rated-organizations")
+def public_rated_organizations(
+    response: Response,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+):
+    if not 1 <= limit <= 500:
+        raise HTTPException(422, "Количество должно быть от 1 до 500")
+    community_rows = db.execute(
+        select(
+            CommunityRating.object_key,
+            func.avg(CommunityRating.community_score),
+            func.count(CommunityRating.id),
+        ).group_by(CommunityRating.object_key)
+    ).all()
+    community_stats = {
+        row[0]: {
+            "community_score": round(float(row[1]), 1),
+            "community_rating_count": int(row[2]),
+        }
+        for row in community_rows
+    }
+    items = []
+    seen_organizations = set()
+    partner_rows = db.execute(
+        select(Organization, Branch)
+        .join(Branch, Branch.organization_id == Organization.id)
+        .where(
+            Branch.active.is_(True),
+            Organization.profile_status.in_({"PUBLISHED", "VERIFIED_PARTNER"}),
+        )
+        .order_by(Organization.name, Branch.name)
+    ).all()
+    for organization, branch in partner_rows:
+        object_key = f"relyqo:{branch.id}"
+        community = community_stats.get(
+            object_key,
+            {"community_score": 0.0, "community_rating_count": 0},
+        )
+        if organization.rating_count <= 0 and community["community_rating_count"] <= 0:
+            continue
+        if organization.id in seen_organizations:
+            continue
+        seen_organizations.add(organization.id)
+        verified_count = int(organization.rating_count)
+        items.append(
+            {
+                "kind": "partner",
+                "organization_id": organization.id,
+                "branch_id": branch.id,
+                "organization": organization.name,
+                "name": organization.name,
+                "category": organization.category,
+                "description": organization.description,
+                "profile_status": organization.profile_status,
+                "verified_partner": organization.profile_status
+                == "VERIFIED_PARTNER",
+                "address": branch.address or branch.name,
+                "city": branch.city or organization.city,
+                "country_code": (branch.country_code or "").upper(),
+                "latitude": branch.latitude,
+                "longitude": branch.longitude,
+                "relyqo_score": round(organization.score, 1),
+                "verified_rating_count": verified_count,
+                **community,
+                "score_type": "VERIFIED" if verified_count else "COMMUNITY",
+                "display_score": round(organization.score, 1)
+                if verified_count
+                else community["community_score"],
+            }
+        )
+    manual_ids = [
+        object_key.removeprefix("manual:")
+        for object_key in community_stats
+        if object_key.startswith("manual:")
+    ]
+    manual_places = (
+        db.scalars(
+            select(ManualPlace).where(
+                ManualPlace.id.in_(manual_ids),
+                ManualPlace.active.is_(True),
+            )
+        ).all()
+        if manual_ids
+        else []
+    )
+    for place in manual_places:
+        community = community_stats[f"manual:{place.id}"]
+        items.append(
+            {
+                "kind": "manual",
+                **manual_place_item(place, community_stats=community),
+                "verified_rating_count": 0,
+                "score_type": "COMMUNITY",
+                "display_score": community["community_score"],
+            }
+        )
+    items.sort(
+        key=lambda item: (
+            -float(item["display_score"]),
+            -int(item["verified_rating_count"]),
+            -int(item["community_rating_count"]),
+            item["name"].casefold(),
+        )
+    )
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "items": items[:limit],
+        "total": len(items),
+        "score_policy": "VERIFIED_AND_COMMUNITY_SEPARATE",
+        "external_ratings_used": False,
+    }
+
+
 def community_summary(object_key: str, db: Session) -> dict:
     score, count, overall, quality, service, cleanliness, value = db.execute(
         select(
