@@ -1988,6 +1988,27 @@ def public_nearby_branches(
         .limit(limit * 3)
     ).all()
     organization_ids = [organization.id for _, organization in rows]
+    community_keys = [f"relyqo:{branch.id}" for branch, _ in rows]
+    community_rows = (
+        db.execute(
+            select(
+                CommunityRating.object_key,
+                func.avg(CommunityRating.community_score),
+                func.count(CommunityRating.id),
+            )
+            .where(CommunityRating.object_key.in_(community_keys))
+            .group_by(CommunityRating.object_key)
+        ).all()
+        if community_keys
+        else []
+    )
+    community_stats = {
+        row[0]: {
+            "community_score": round(float(row[1]), 1),
+            "community_rating_count": int(row[2]),
+        }
+        for row in community_rows
+    }
     metric_rows = (
         db.execute(
             select(
@@ -2028,8 +2049,7 @@ def public_nearby_branches(
         )
         if distance > radius_km:
             continue
-        items.append(
-            {
+        item = {
                 "organization_id": organization.id,
                 "branch_id": branch.id,
                 "organization": organization.name,
@@ -2049,7 +2069,13 @@ def public_nearby_branches(
                 "verified_metrics": verified_metrics.get(organization.id),
                 "rating_requires_verified_visit": True,
             }
+        item.update(
+            community_stats.get(
+                f"relyqo:{branch.id}",
+                {"community_score": 0.0, "community_rating_count": 0},
+            )
         )
+        items.append(item)
     items.sort(key=lambda item: item["distance_km"])
     return {
         "items": items[:limit],
@@ -2059,8 +2085,12 @@ def public_nearby_branches(
     }
 
 
-def manual_place_item(place: ManualPlace, distance_km: float | None = None) -> dict:
-    return {
+def manual_place_item(
+    place: ManualPlace,
+    distance_km: float | None = None,
+    community_stats: dict | None = None,
+) -> dict:
+    item = {
         "id": place.id,
         "object_key": f"manual:{place.id}",
         "name": place.name,
@@ -2075,6 +2105,11 @@ def manual_place_item(place: ManualPlace, distance_km: float | None = None) -> d
         "source": "MANUAL",
         "verified": False,
     }
+    item.update(
+        community_stats
+        or {"community_score": 0.0, "community_rating_count": 0}
+    )
+    return item
 
 
 @app.post("/v1/public/manual-places")
@@ -2193,6 +2228,27 @@ def public_manual_places_nearby(
         )
         .limit(search.limit * 3)
     ).all()
+    community_keys = [f"manual:{place.id}" for place in rows]
+    community_rows = (
+        db.execute(
+            select(
+                CommunityRating.object_key,
+                func.avg(CommunityRating.community_score),
+                func.count(CommunityRating.id),
+            )
+            .where(CommunityRating.object_key.in_(community_keys))
+            .group_by(CommunityRating.object_key)
+        ).all()
+        if community_keys
+        else []
+    )
+    community_stats = {
+        row[0]: {
+            "community_score": round(float(row[1]), 1),
+            "community_rating_count": int(row[2]),
+        }
+        for row in community_rows
+    }
     items = []
     for place in rows:
         distance = haversine_km(
@@ -2202,7 +2258,13 @@ def public_manual_places_nearby(
             place.longitude,
         )
         if distance <= search.radius_km:
-            items.append(manual_place_item(place, distance))
+            items.append(
+                manual_place_item(
+                    place,
+                    distance,
+                    community_stats.get(f"manual:{place.id}"),
+                )
+            )
     items.sort(key=lambda item: item["distance_km"])
     return {
         "items": items[: search.limit],

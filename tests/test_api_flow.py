@@ -304,6 +304,9 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "Радиус, км" in page.text
     assert 'max="50"' not in page.text
     assert 'id="scopeHint"' in page.text
+    assert 'id="allOrganizationsTab"' in page.text
+    assert 'id="ratedOrganizationsTab"' in page.text
+    assert "С оценками RELYQO" in page.text
     assert "selectedRadius()" in page.text
     assert "relyqo_map_search_v1" in script.text
     assert "Радиус RELYQO" in script.text
@@ -683,6 +686,17 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     )
     assert rated.status_code == 200
     assert rated.json()["included_in_relyqo_score"] is False
+    nearby_after_rating = client.post(
+        "/v1/public/manual-places/nearby",
+        json={"latitude": 41.31, "longitude": 69.28, "radius_km": 2},
+    )
+    rated_place = next(
+        place
+        for place in nearby_after_rating.json()["items"]
+        if place["id"] == item["id"]
+    )
+    assert rated_place["community_rating_count"] == 1
+    assert rated_place["community_score"] == 84.0
 
 
 def test_education_institutions_are_supported_across_relyqo():

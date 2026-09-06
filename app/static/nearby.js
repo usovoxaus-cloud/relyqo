@@ -6,6 +6,7 @@ let lastManualPlaces = [];
 let lastExternalPlaces = [];
 let currentCenter = null;
 let showFavoritesOnly = false;
+let showRatedOnly = false;
 let googleMap = null;
 let googleMarkers = [];
 let mapLoadPromise = null;
@@ -185,11 +186,18 @@ async function syncFavorite(item, saved) {
 }
 
 function scoreFor(item) {
-  return item.kind === "partner" && item.verified_partner ? Number(item.relyqo_score) || 0 : 0;
+  if (item.kind === "partner" && Number(item.verified_rating_count) > 0) {
+    return Number(item.relyqo_score) || 0;
+  }
+  return Number(item.community_score) || 0;
 }
 
 function reviewCount(item) {
-  return item.kind === "partner" ? Number(item.verified_rating_count) || 0 : 0;
+  return (Number(item.verified_rating_count) || 0) + (Number(item.community_rating_count) || 0);
+}
+
+function hasRelyqoRatings(item) {
+  return reviewCount(item) > 0;
 }
 
 function sortRows(rows) {
@@ -239,6 +247,7 @@ function viewRows() {
       .filter(Boolean).join(" ").toLocaleLowerCase("ru").includes(query));
   }
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
+  if (showRatedOnly) rows = rows.filter(hasRelyqoRatings);
   sortRows(rows);
   return rows.slice(0, selectedLimit());
 }
@@ -520,9 +529,10 @@ function renderList(rows) {
   root.replaceChildren();
   const favorites = readFavorites();
   if (!rows.length) {
-    root.innerHTML = `<div class="empty">${showFavoritesOnly
-      ? "На вашей личной карте пока нет объектов в выбранном радиусе."
-      : "Организации не найдены. Измените радиус или сферу и повторите поиск."}</div>`;
+    root.innerHTML = `<div class="empty">${showRatedOnly
+      ? "В выбранной зоне пока нет организаций с оценками RELYQO."
+      : showFavoritesOnly ? "На вашей личной карте пока нет объектов в выбранном радиусе."
+        : "Организации не найдены. Измените радиус или сферу и повторите поиск."}</div>`;
     $("#listCount").textContent = "0 найдено";
     return;
   }
@@ -543,9 +553,10 @@ function renderList(rows) {
     title.append(badge, heading);
     const score = document.createElement("div");
     score.className = "score";
-    score.textContent = item.kind === "partner" && item.verified_partner
+    score.textContent = item.kind === "partner" && Number(item.verified_rating_count) > 0
       ? `${Number(item.relyqo_score).toFixed(1)}/100`
-      : item.kind === "external" ? "НА КАРТЕ" : "COMMUNITY";
+      : Number(item.community_rating_count) > 0 ? `${Number(item.community_score).toFixed(1)}/100`
+        : item.kind === "external" ? "НА КАРТЕ" : "НЕТ ОЦЕНОК";
     top.append(title, score);
     const address = document.createElement("p");
     address.className = "address";
@@ -555,11 +566,14 @@ function renderList(rows) {
     description.textContent = item.description || `${categoryNames[item.category] || "Услуга"} рядом с вами.`;
     const meta = document.createElement("div");
     meta.className = "meta";
+    const ratingMeta = item.kind === "partner"
+      ? `${Number(item.verified_rating_count) || 0} Verified · ${Number(item.community_rating_count) || 0} Community`
+      : item.kind === "manual" ? `${Number(item.community_rating_count) || 0} Community оценок`
+        : "Данные показываются без сохранения";
     addMeta(meta, [
       `${Number(item.distance).toFixed(1)} км`,
       categoryNames[item.category] || "Другая услуга",
-      item.kind === "partner" ? `${item.verified_rating_count} Verified оценок`
-        : item.kind === "manual" ? "Community объект" : "Данные показываются без сохранения",
+      ratingMeta,
     ]);
     card.append(
       top,
@@ -581,11 +595,24 @@ function updatePersonalMode() {
   button.classList.toggle("active", showFavoritesOnly);
 }
 
+function updateCatalogMode() {
+  const internalRows = [...lastPartners, ...lastManualPlaces];
+  const ratedCount = internalRows.filter(hasRelyqoRatings).length;
+  const allTab = $("#allOrganizationsTab");
+  const ratedTab = $("#ratedOrganizationsTab");
+  allTab.classList.toggle("active", !showRatedOnly);
+  ratedTab.classList.toggle("active", showRatedOnly);
+  allTab.setAttribute("aria-selected", String(!showRatedOnly));
+  ratedTab.setAttribute("aria-selected", String(showRatedOnly));
+  ratedTab.textContent = `С оценками RELYQO · ${ratedCount}`;
+}
+
 function renderAll() {
   const rows = viewRows();
   drawMap(rows);
   renderList(rows);
   updatePersonalMode();
+  updateCatalogMode();
 }
 
 async function fetchNearby(url) {
@@ -818,6 +845,14 @@ $("#cancelManual").addEventListener("click", () => {
 });
 $("#favoritesFilter").addEventListener("click", () => {
   showFavoritesOnly = !showFavoritesOnly;
+  renderAll();
+});
+$("#allOrganizationsTab").addEventListener("click", () => {
+  showRatedOnly = false;
+  renderAll();
+});
+$("#ratedOrganizationsTab").addEventListener("click", () => {
+  showRatedOnly = true;
   renderAll();
 });
 $("#sortMode").addEventListener("change", renderAll);
