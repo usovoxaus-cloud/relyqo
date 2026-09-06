@@ -1,4 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
+const searchPreferencesKey = "relyqo_map_search_v1";
 
 let lastPartners = [];
 let lastManualPlaces = [];
@@ -84,6 +85,51 @@ function selectedRadius() {
 function selectedLimit() {
   const value = Number($("#resultLimit").value);
   return [20, 50, 100].includes(value) ? value : 20;
+}
+
+function saveSearchPreferences() {
+  try {
+    localStorage.setItem(searchPreferencesKey, JSON.stringify({
+      category: $("#serviceCategory").value,
+      radius: selectedRadius(),
+      limit: selectedLimit(),
+    }));
+  } catch {
+    // Private browsing can disable storage; searching must still work.
+  }
+}
+
+function restoreSearchPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(searchPreferencesKey) || "null");
+    if (!saved || typeof saved !== "object") return;
+    if ([...$("#serviceCategory").options].some((option) => option.value === saved.category)) {
+      $("#serviceCategory").value = saved.category;
+    }
+    if (Number.isFinite(Number(saved.radius)) && Number(saved.radius) > 0) {
+      $("#radius").value = Number(saved.radius);
+    }
+    if ([20, 50, 100].includes(Number(saved.limit))) {
+      $("#resultLimit").value = String(saved.limit);
+    }
+  } catch {
+    // Ignore malformed browser data and use safe defaults.
+  }
+}
+
+function updateSearchScope() {
+  const radius = selectedRadius();
+  $("#mapRadius").textContent = radius;
+  $("#scopeHint").textContent = radius > 50
+    ? `Радиус RELYQO: ${radius} км без верхнего лимита. Внешняя карта проверяет несколько участков внутри выбранной зоны.`
+    : `Поиск выполняется в радиусе ${radius} км. Настройки сохраняются на этом устройстве.`;
+}
+
+function searchPreferencesChanged() {
+  saveSearchPreferences();
+  updateSearchScope();
+  if (currentCenter) refreshCatalog();
+  else renderAll();
 }
 
 function categoryGroup(value) {
@@ -716,7 +762,7 @@ async function searchCatalog() {
 async function refreshCatalog() {
   if (!currentCenter) return;
   clearError();
-  $("#mapRadius").textContent = selectedRadius();
+  updateSearchScope();
   $("#status").textContent = "Ищем организации рядом…";
   const mapReady = await loadGoogleMap();
   [lastPartners, lastManualPlaces] = await Promise.all([
@@ -783,9 +829,9 @@ $("#catalogQuery").addEventListener("keydown", (event) => {
     searchCatalog();
   }
 });
-$("#serviceCategory").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
-$("#resultLimit").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
-$("#radius").addEventListener("change", () => currentCenter ? refreshCatalog() : renderAll());
+$("#serviceCategory").addEventListener("change", searchPreferencesChanged);
+$("#resultLimit").addEventListener("change", searchPreferencesChanged);
+$("#radius").addEventListener("change", searchPreferencesChanged);
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
     event.preventDefault();
@@ -847,5 +893,7 @@ $("#manualForm").addEventListener("submit", async (event) => {
   }
 });
 
+restoreSearchPreferences();
+updateSearchScope();
 updatePersonalMode();
 locate();

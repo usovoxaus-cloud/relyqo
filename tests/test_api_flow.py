@@ -303,7 +303,10 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'id="radius"' in page.text
     assert "Радиус, км" in page.text
     assert 'max="50"' not in page.text
+    assert 'id="scopeHint"' in page.text
     assert "selectedRadius()" in page.text
+    assert "relyqo_map_search_v1" in script.text
+    assert "Радиус RELYQO" in script.text
     assert 'id="resultLimit"' in page.text
     assert "RELYQO Map" in page.text
     assert "до 100" in page.text
