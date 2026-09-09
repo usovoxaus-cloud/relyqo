@@ -108,6 +108,16 @@ class ConsumerAssistantRequest(BaseModel):
     question: str = Field(min_length=3, max_length=500)
 
 
+class PublicAdvisorCandidate(BaseModel):
+    object_key: str = Field(min_length=8, max_length=320)
+    distance_km: float | None = Field(default=None, ge=0)
+
+
+class PublicAdvisorRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=300)
+    candidates: list[PublicAdvisorCandidate] = Field(min_length=1, max_length=40)
+
+
 class BusinessOwnerRegister(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)

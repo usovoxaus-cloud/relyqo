@@ -316,6 +316,104 @@ function viewRows() {
   return showRatedOnly ? rows : rows.slice(0, selectedLimit());
 }
 
+async function advisorCandidateRows() {
+  let rows = viewRows().filter((item) => item.kind !== "external" && hasRelyqoRatings(item));
+  if (!rows.length) {
+    const response = await fetch("/v1/public/rated-organizations?limit=40&sort=rating", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Не удалось загрузить оценки RELYQO");
+    rows = (data.items || []).map((item) => ({
+      ...item,
+      title: item.organization || item.name,
+      distance: currentCenter && item.latitude != null && item.longitude != null
+        ? distanceKm(currentCenter, { lat: Number(item.latitude), lng: Number(item.longitude) })
+        : null,
+    })).filter(hasRelyqoRatings);
+  }
+  const unique = new Map();
+  for (const item of rows) {
+    const key = objectKey(item);
+    if (!unique.has(key)) unique.set(key, item);
+  }
+  return [...unique.values()].slice(0, 40);
+}
+
+function renderAdvisorResult(data) {
+  $("#advisorAnswer").textContent = data.answer;
+  const root = $("#advisorSections");
+  root.replaceChildren();
+  for (const section of data.sections || []) {
+    const block = document.createElement("section");
+    block.className = "advisorSection";
+    const title = document.createElement("h3");
+    title.textContent = section.label;
+    block.append(title);
+    for (const item of section.items || []) {
+      const choice = document.createElement("article");
+      choice.className = "advisorChoice";
+      const top = document.createElement("div");
+      top.className = "advisorChoiceTop";
+      const name = document.createElement("strong");
+      name.textContent = `${item.position}. ${item.name}`;
+      const score = document.createElement("span");
+      score.className = "advisorChoiceScore";
+      score.textContent = `${Number(item.score).toFixed(1)}/100`;
+      top.append(name, score);
+      const meta = document.createElement("p");
+      meta.className = "advisorChoiceMeta";
+      const distance = item.distance_km == null ? "расстояние не определено" : `${Number(item.distance_km).toFixed(1)} км`;
+      meta.textContent = `${item.rating_count} оценок · ${distance} · ${item.confidence_label}`;
+      const actions = document.createElement("div");
+      actions.className = "advisorChoiceActions";
+      const details = document.createElement("a");
+      details.href = item.href;
+      details.textContent = "Подробнее";
+      const rate = document.createElement("a");
+      rate.href = item.rate_href;
+      rate.textContent = "Оценить";
+      actions.append(details, rate);
+      choice.append(top, meta, actions);
+      block.append(choice);
+    }
+    root.append(block);
+  }
+  $("#advisorDisclaimer").textContent = data.disclaimer;
+  $("#advisorResult").classList.remove("hidden");
+  $("#advisorStatus").textContent = data.ai_generated
+    ? "ИИ объяснил выбор по данным RELYQO. Рейтинг рассчитан без участия ИИ."
+    : "Показан надёжный автоматический совет по данным RELYQO; AI‑сервис сейчас не понадобился.";
+}
+
+async function askPublicAdvisor(question) {
+  const submit = $("#advisorSubmit");
+  submit.disabled = true;
+  $("#advisorResult").classList.add("hidden");
+  $("#advisorStatus").textContent = "Сравниваем реальные оценки RELYQO…";
+  try {
+    const rows = await advisorCandidateRows();
+    if (!rows.length) throw new Error("Пока нет организаций с оценками RELYQO для сравнения");
+    const response = await fetch("/v1/public/advisor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question,
+        candidates: rows.map((item) => ({
+          object_key: objectKey(item),
+          distance_km: item.distance == null ? null : Number(item.distance),
+        })),
+      }),
+      cache: "no-store",
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Помощник временно недоступен");
+    renderAdvisorResult(data);
+  } catch (error) {
+    $("#advisorStatus").textContent = error.message || "Помощник временно недоступен";
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 function distanceKm(a, b) {
   const toRad = (value) => value * Math.PI / 180;
   const dLat = toRad(b.lat - a.lat);
@@ -991,6 +1089,17 @@ async function locate() {
 }
 
 $("#locate").addEventListener("click", locate);
+$("#advisorForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const question = $("#advisorQuestion").value.trim();
+  if (question.length >= 3) askPublicAdvisor(question);
+});
+for (const prompt of document.querySelectorAll(".advisorPrompt")) {
+  prompt.addEventListener("click", () => {
+    $("#advisorQuestion").value = prompt.textContent.trim();
+    askPublicAdvisor($("#advisorQuestion").value);
+  });
+}
 $("#addPlace").addEventListener("click", () => openManualDialog());
 $("#cancelManual").addEventListener("click", () => {
   pendingManualAction = "save";

@@ -112,6 +112,51 @@ def generate_consumer_assistance(context: dict) -> str:
     return answer
 
 
+PUBLIC_ADVISOR_INSTRUCTIONS = """
+Ты — простой и грамотный помощник RELYQO. Помоги человеку выбрать организацию
+только из переданного короткого списка. Пиши по-русски, ясно, максимум 5 коротких
+предложений.
+
+Обязательные правила:
+- порядок вариантов уже рассчитан RELYQO; не переставляй и не добавляй места;
+- называй только организации из recommendations;
+- Verified RELYQO Score и Community Score всегда объясняй раздельно;
+- рядом с баллом называй число оценок и предупреждай, если это ранний сигнал;
+- AI не выставляет, не пересчитывает и не изменяет оценки;
+- реклама, внешние рейтинги и данные Google не являются доказательством качества;
+- если данных мало, скажи это прямо и предложи человеку проверить детали услуги;
+- закончи одним конкретным советом, что проверить перед посещением.
+""".strip()
+
+
+def generate_public_advice(context: dict) -> str:
+    if not settings.openai_api_key:
+        raise AIUnavailableError("OPENAI_API_KEY is not configured")
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(
+            api_key=settings.openai_api_key,
+            timeout=30.0,
+            max_retries=1,
+        )
+        response = client.responses.create(
+            model=settings.openai_model,
+            instructions=PUBLIC_ADVISOR_INSTRUCTIONS,
+            input=json.dumps(context, ensure_ascii=False, sort_keys=True),
+            max_output_tokens=350,
+            reasoning={"effort": "low"},
+            store=False,
+            text={"verbosity": "low"},
+        )
+    except Exception as exc:
+        raise AIServiceError("OpenAI public advice request failed") from exc
+    answer = (response.output_text or "").strip()
+    if not answer:
+        raise AIServiceError("OpenAI returned an empty public advice")
+    return answer
+
+
 PHOTO_ANALYSIS_INSTRUCTIONS = """
 Ты — визуальный аналитик RELYQO. Анализируй только то, что действительно видно
 на фотографии потребителя. Отвечай по-русски, максимум 5 коротких предложений.

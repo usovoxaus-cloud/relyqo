@@ -3,7 +3,17 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Branch, Organization, RatingPhoto, User, VisitToken
+from app.models import (
+    Branch,
+    CommunityRating,
+    ManualPlace,
+    Organization,
+    Rating,
+    RatingPhoto,
+    User,
+    Visit,
+    VisitToken,
+)
 from app.security import create_token, password_hash, token_hash, verify_password
 from app.config import settings
 import uuid
@@ -326,7 +336,11 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "ratedCatalogHasMore" in script.text
     assert "ТОП ОРГАНИЗАЦИЙ" in script.text
     assert "topOrganization" in script.text
-    assert "google-place-flow-1" in page.text
+    assert "public-ai-advisor-1" in page.text
+    assert "AI‑ПОМОЩНИК RELYQO" in page.text
+    assert 'id="advisorForm"' in page.text
+    assert "/v1/public/advisor" in script.text
+    assert "consumer_is_only_rating_author" not in script.text
     assert "google_place_id: pendingGooglePlaceId" in script.text
     assert "Общий каталог работает без геолокации" in script.text
     assert "matchesRatedFilters" in script.text
@@ -378,6 +392,118 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
         "result_limit": 200,
         "location_storage": "none",
     }
+
+
+def test_public_ai_advisor_uses_real_scores_and_keeps_score_types_separate(monkeypatch):
+    Base.metadata.create_all(engine)
+    suffix = uuid.uuid4().hex[:8]
+    with SessionLocal() as db:
+        organization = Organization(
+            name=f"Advisor Partner {suffix}",
+            city="Tashkent",
+            category="CAFE",
+            profile_status="VERIFIED_PARTNER",
+            score=86.4,
+            rating_count=1,
+        )
+        db.add(organization)
+        db.flush()
+        branch = Branch(
+            organization_id=organization.id,
+            name="Advisor branch",
+            address="Advisor street 1",
+            city="Tashkent",
+            country_code="UZ",
+            active=True,
+        )
+        db.add(branch)
+        db.flush()
+        visit = Visit(branch_id=branch.id, verification_score=0.95)
+        db.add(visit)
+        db.flush()
+        db.add(
+            Rating(
+                visit_id=visit.id,
+                organization_id=organization.id,
+                overall=9,
+                food=8,
+                service=7,
+                cleanliness=10,
+                value=8,
+                ces=84.0,
+                trust_weight=0.95,
+                included=True,
+            )
+        )
+        manual = ManualPlace(
+            identity_hash=token_hash(f"advisor-manual-{suffix}"),
+            name=f"Advisor Community {suffix}",
+            category="BEAUTY",
+            description="Проверенная карточка для теста помощника.",
+            address="Advisor street 2",
+            city="Tashkent",
+            country_code="UZ",
+            latitude=41.3,
+            longitude=69.2,
+            created_by_hash=token_hash(f"advisor-author-{suffix}"),
+            active=True,
+        )
+        db.add(manual)
+        db.flush()
+        manual_key = f"manual:{manual.id}"
+        db.add(
+            CommunityRating(
+                object_key=manual_key,
+                source="MANUAL",
+                category="BEAUTY",
+                rater_hash=token_hash(f"advisor-rater-{suffix}"),
+                overall=8,
+                quality=8,
+                service=7,
+                cleanliness=9,
+                value=7,
+                community_score=78.0,
+            )
+        )
+        db.commit()
+        partner_key = f"relyqo:{branch.id}"
+
+    captured = {}
+
+    def fake_public_advice(context):
+        captured.update(context)
+        return "Выбор объяснён по реальным оценкам RELYQO."
+
+    monkeypatch.setattr(settings, "openai_api_key", "test-key")
+    monkeypatch.setattr(main_module, "generate_public_advice", fake_public_advice)
+    main_module._public_ai_cache.clear()
+    main_module._public_ai_last_request.clear()
+    response = TestClient(app).post(
+        "/v1/public/advisor",
+        json={
+            "question": "Где выше чистота?",
+            "candidates": [
+                {"object_key": partner_key, "distance_km": 1.2},
+                {"object_key": manual_key, "distance_km": 0.7},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ai_generated"] is True
+    assert data["priority"] == {"key": "cleanliness", "label": "чистота и состояние"}
+    assert [section["score_type"] for section in data["sections"]] == [
+        "VERIFIED",
+        "COMMUNITY",
+    ]
+    assert data["sections"][0]["items"][0]["score"] == 86.4
+    assert data["sections"][0]["items"][0]["metric_score"] == 100.0
+    assert data["sections"][1]["items"][0]["score"] == 78.0
+    assert data["consumer_is_only_rating_author"] is True
+    assert data["score_changed"] is False
+    assert captured["policy"]["external_ratings_used"] is False
+    assert "latitude" not in str(captured)
+    assert "longitude" not in str(captured)
 
 
 def test_community_rating_requires_consumer_and_stays_separate_from_score():
@@ -499,7 +625,8 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     rankings_page = client.get("/rankings")
     assert rankings_page.status_code == 200
     assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
-    assert "Город. Страна. Мир." in rankings_page.text
+    assert "Лучшие организации" in rankings_page.text
+    assert "Показать рейтинг" in rankings_page.text
     assert 'href="/nearby">Перейти к оценке →</a>' in rankings_page.text
     assert 'data-scope="country"' in rankings_page.text
     assert 'href="/rankings?scope=city"' in rankings_page.text

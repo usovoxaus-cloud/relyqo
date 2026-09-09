@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import secrets
 from threading import Lock
+from urllib.parse import urlencode
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -22,6 +23,7 @@ from .ai import (
     analyze_service_photo,
     generate_business_insight,
     generate_consumer_assistance,
+    generate_public_advice,
 )
 from .db import get_db
 from .models import (
@@ -55,6 +57,7 @@ from .schemas import (
     NearbySearch,
     OwnerTokenCreate,
     PasswordChange,
+    PublicAdvisorRequest,
     RatingCreate,
     RecoveryCodeCreate,
     ReviewDecision,
@@ -295,6 +298,9 @@ _ai_cache: dict[str, dict] = {}
 _ai_last_request: dict[str, datetime] = {}
 _ai_lock = Lock()
 _consumer_ai_last_request: dict[str, datetime] = {}
+PUBLIC_AI_COOLDOWN_SECONDS = 20
+_public_ai_cache: dict[str, dict] = {}
+_public_ai_last_request: dict[str, datetime] = {}
 
 
 def new_community_rater() -> tuple[str, str]:
@@ -470,6 +476,295 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
                 href=f"/place?object_key={object_key}&source=RELYQO_PARTNER",
             )
     return item
+
+
+PUBLIC_ADVISOR_PRIORITIES = (
+    ("cleanliness", "чистота и состояние", ("чист", "поряд", "санитар")),
+    ("service", "сервис", ("сервис", "обслуж", "персонал")),
+    ("value", "цена и ценность", ("цен", "дешев", "бюдж", "выгод")),
+    ("quality", "качество", ("качеств", "вкус", "еда", "результат")),
+    ("distance", "близость", ("рядом", "близк", "недалеко")),
+)
+
+
+def public_advisor_priority(question: str) -> tuple[str, str]:
+    normalized = question.casefold()
+    for key, label, words in PUBLIC_ADVISOR_PRIORITIES:
+        if any(word in normalized for word in words):
+            return key, label
+    return "overall", "общая оценка"
+
+
+def public_advisor_fallback(priority_label: str, sections: list[dict]) -> str:
+    leaders = [section["items"][0] for section in sections if section["items"]]
+    if not leaders:
+        return "Пока недостаточно оценок RELYQO для уверенного совета."
+    parts = []
+    for item in leaders:
+        parts.append(
+            f'{item["name"]}: {item["score"]:.1f}/100, '
+            f'{item["rating_count"]} оценок ({item["confidence_label"]})'
+        )
+    return (
+        f'По критерию «{priority_label}» лидируют: ' + "; ".join(parts) + ". "
+        "Перед посещением проверьте адрес, профиль и актуальные условия услуги."
+    )
+
+
+def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict, list[dict]]:
+    priority_key, priority_label = public_advisor_priority(body.question)
+    distances: dict[str, float | None] = {}
+    for candidate in body.candidates:
+        current = distances.get(candidate.object_key)
+        if current is None or (
+            candidate.distance_km is not None and candidate.distance_km < current
+        ):
+            distances[candidate.object_key] = candidate.distance_km
+    partner_ids = [
+        key.removeprefix("relyqo:")
+        for key in distances
+        if key.startswith("relyqo:")
+    ]
+    manual_ids = [
+        key.removeprefix("manual:")
+        for key in distances
+        if key.startswith("manual:")
+    ]
+    partner_rows = (
+        db.execute(
+            select(Branch, Organization)
+            .join(Organization, Organization.id == Branch.organization_id)
+            .where(
+                Branch.id.in_(partner_ids),
+                Branch.active.is_(True),
+                Organization.profile_status.in_({"PUBLISHED", "VERIFIED_PARTNER"}),
+            )
+        ).all()
+        if partner_ids
+        else []
+    )
+    manual_places = (
+        db.scalars(
+            select(ManualPlace).where(
+                ManualPlace.id.in_(manual_ids), ManualPlace.active.is_(True)
+            )
+        ).all()
+        if manual_ids
+        else []
+    )
+    accepted_keys = {
+        *(f"relyqo:{branch.id}" for branch, _ in partner_rows),
+        *(f"manual:{place.id}" for place in manual_places),
+    }
+    community_rows = (
+        db.execute(
+            select(
+                CommunityRating.object_key,
+                func.avg(CommunityRating.community_score),
+                func.avg(CommunityRating.overall),
+                func.avg(CommunityRating.quality),
+                func.avg(CommunityRating.service),
+                func.avg(CommunityRating.cleanliness),
+                func.avg(CommunityRating.value),
+                func.count(CommunityRating.id),
+            )
+            .where(CommunityRating.object_key.in_(accepted_keys))
+            .group_by(CommunityRating.object_key)
+        ).all()
+        if accepted_keys
+        else []
+    )
+    community_stats = {
+        row[0]: {
+            "score": round(float(row[1]), 1),
+            "metrics": {
+                "overall": round(float(row[2]) * 10, 1),
+                "quality": round(float(row[3]) * 10, 1),
+                "service": round(float(row[4]) * 10, 1),
+                "cleanliness": round(float(row[5]) * 10, 1),
+                "value": round(float(row[6]) * 10, 1),
+            },
+            "count": int(row[7]),
+        }
+        for row in community_rows
+    }
+    organization_ids = {organization.id for _, organization in partner_rows}
+    verified_rows = (
+        db.execute(
+            select(
+                Rating.organization_id,
+                func.avg(Rating.overall),
+                func.avg(Rating.food),
+                func.avg(Rating.service),
+                func.avg(Rating.cleanliness),
+                func.avg(Rating.value),
+                func.count(Rating.id),
+            )
+            .where(
+                Rating.organization_id.in_(organization_ids),
+                Rating.included.is_(True),
+            )
+            .group_by(Rating.organization_id)
+        ).all()
+        if organization_ids
+        else []
+    )
+    verified_stats = {
+        row[0]: {
+            "metrics": {
+                "overall": round(float(row[1]) * 10, 1),
+                "quality": round(float(row[2]) * 10, 1),
+                "service": round(float(row[3]) * 10, 1),
+                "cleanliness": round(float(row[4]) * 10, 1),
+                "value": round(float(row[5]) * 10, 1),
+            },
+            "count": int(row[6]),
+        }
+        for row in verified_rows
+    }
+
+    def base_item(
+        *, object_key: str, source: str, name: str, category: str,
+        address: str, description: str | None, distance_km: float | None,
+        profile_status: str = "", verified_score: float = 0,
+        verified_count: int = 0, verified_metrics: dict | None = None,
+    ) -> dict:
+        rate_query = urlencode(
+            {
+                "object_key": object_key,
+                "source": source,
+                "name": name,
+                "address": address,
+                "category": category,
+            }
+        )
+        profile_query = {
+            "object_key": object_key,
+            "source": source,
+            "name": name,
+            "address": address,
+            "category": category,
+            "category_code": category,
+            "description": description or "Профиль организации в RELYQO.",
+            "profile_status": profile_status,
+            "verified_score": verified_score,
+            "verified_count": verified_count,
+        }
+        for key, value in (verified_metrics or {}).items():
+            profile_query[f"verified_{key}"] = value
+        return {
+            "object_key": object_key,
+            "source": source,
+            "name": name,
+            "category": category,
+            "address": address,
+            "description": description or "Профиль организации в RELYQO.",
+            "distance_km": round(distance_km, 2) if distance_km is not None else None,
+            "href": f"/place?{urlencode(profile_query)}",
+            "rate_href": f"/community-rate?{rate_query}",
+        }
+
+    verified_items: list[dict] = []
+    community_items: list[dict] = []
+    for branch, organization in partner_rows:
+        object_key = f"relyqo:{branch.id}"
+        verified = verified_stats.get(organization.id)
+        base = base_item(
+            object_key=object_key,
+            source="RELYQO_PARTNER",
+            name=organization.name,
+            category=organization.category,
+            address=branch.address or branch.name,
+            description=organization.description,
+            distance_km=distances[object_key],
+            profile_status=organization.profile_status,
+            verified_score=round(float(organization.score), 1),
+            verified_count=verified["count"] if verified else 0,
+            verified_metrics=verified["metrics"] if verified else None,
+        )
+        if verified:
+            metric_key = "overall" if priority_key == "distance" else priority_key
+            verified_items.append(
+                {
+                    **base,
+                    "score_type": "VERIFIED",
+                    "score": round(float(organization.score), 1),
+                    "metric_score": verified["metrics"].get(metric_key),
+                    "rating_count": verified["count"],
+                }
+            )
+        community = community_stats.get(object_key)
+        if community:
+            metric_key = "overall" if priority_key == "distance" else priority_key
+            community_items.append(
+                {
+                    **base,
+                    "score_type": "COMMUNITY",
+                    "score": community["score"],
+                    "metric_score": community["metrics"].get(metric_key),
+                    "rating_count": community["count"],
+                }
+            )
+    for place in manual_places:
+        object_key = f"manual:{place.id}"
+        community = community_stats.get(object_key)
+        if not community:
+            continue
+        metric_key = "overall" if priority_key == "distance" else priority_key
+        community_items.append(
+            {
+                **base_item(
+                    object_key=object_key,
+                    source="MANUAL",
+                    name=place.name,
+                    category=place.category,
+                    address=place.address,
+                    description=place.description,
+                    distance_km=distances[object_key],
+                ),
+                "score_type": "COMMUNITY",
+                "score": community["score"],
+                "metric_score": community["metrics"].get(metric_key),
+                "rating_count": community["count"],
+            }
+        )
+
+    def ranking_key(item: dict):
+        distance = item["distance_km"]
+        if priority_key == "distance":
+            return (
+                distance is None,
+                distance if distance is not None else math.inf,
+                -item["score"],
+                -item["rating_count"],
+                item["name"].casefold(),
+            )
+        return (
+            -float(item["metric_score"] or item["score"]),
+            -item["rating_count"],
+            distance is None,
+            distance if distance is not None else math.inf,
+            item["name"].casefold(),
+        )
+
+    sections = []
+    for score_type, label, items in (
+        ("VERIFIED", "Verified — посещение подтверждено QR", verified_items),
+        ("COMMUNITY", "Community — оценки потребителей", community_items),
+    ):
+        selected = sorted(items, key=ranking_key)[:3]
+        for position, item in enumerate(selected, 1):
+            item["position"] = position
+            item["confidence_label"] = (
+                "достаточно подтверждений"
+                if item["rating_count"] >= 20
+                else "ранний сигнал — данных пока мало"
+            )
+        if selected:
+            sections.append(
+                {"score_type": score_type, "label": label, "items": selected}
+            )
+    return {"key": priority_key, "label": priority_label}, sections
 
 
 def normalize_business_profile(body: BusinessOwnerRegister | BusinessProfileUpdate) -> dict:
@@ -2731,6 +3026,113 @@ def create_community_rating(
         "photo_analysis": photo_analysis,
         **community_summary(body.object_key, db),
     }
+
+
+@app.post("/v1/public/advisor")
+def public_advisor(
+    body: PublicAdvisorRequest,
+    request: Request,
+    response: Response,
+    rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    priority, sections = public_advisor_items(body, db)
+    if not sections:
+        raise HTTPException(
+            404,
+            "Пока нет организаций с оценками RELYQO для такого выбора",
+        )
+    raw_rater = verified_community_rater(rater_cookie)
+    cookie_value = rater_cookie
+    if raw_rater is None:
+        raw_rater, cookie_value = new_community_rater()
+        response.set_cookie(
+            COMMUNITY_COOKIE,
+            cookie_value,
+            max_age=365 * 24 * 3600,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path="/",
+        )
+    ai_context = {
+        "question": body.question.strip(),
+        "priority": priority,
+        "recommendations": [
+            {
+                "score_type": section["score_type"],
+                "items": [
+                    {
+                        "position": item["position"],
+                        "name": item["name"],
+                        "score": item["score"],
+                        "selected_metric_score": item["metric_score"],
+                        "rating_count": item["rating_count"],
+                        "confidence": item["confidence_label"],
+                        "distance_km": item["distance_km"],
+                    }
+                    for item in section["items"]
+                ],
+            }
+            for section in sections
+        ],
+        "policy": {
+            "consumer_is_only_rating_author": True,
+            "ai_cannot_change_score": True,
+            "verified_and_community_are_separate": True,
+            "external_ratings_used": False,
+        },
+    }
+    signature = token_hash(json.dumps(ai_context, ensure_ascii=False, sort_keys=True))
+    now = datetime.utcnow()
+    with _ai_lock:
+        cached = _public_ai_cache.get(signature)
+        if cached and cached["expires_at"] > now:
+            return {**cached["response"], "cached": True}
+        rater_key = token_hash(raw_rater)
+        last_request = _public_ai_last_request.get(rater_key)
+        if last_request:
+            seconds_left = PUBLIC_AI_COOLDOWN_SECONDS - int(
+                (now - last_request).total_seconds()
+            )
+            if seconds_left > 0:
+                raise HTTPException(
+                    429,
+                    f"Новый совет будет доступен через {seconds_left} сек.",
+                )
+        _public_ai_last_request[rater_key] = now
+    ai_generated = False
+    answer = public_advisor_fallback(priority["label"], sections)
+    if settings.openai_api_key:
+        try:
+            answer = generate_public_advice(ai_context)
+            ai_generated = True
+        except (AIUnavailableError, AIServiceError):
+            pass
+    result = {
+        "answer": answer,
+        "ai_generated": ai_generated,
+        "priority": priority,
+        "sections": sections,
+        "generated_at": now.isoformat() + "Z",
+        "cached": False,
+        "read_only": True,
+        "consumer_is_only_rating_author": True,
+        "score_changed": False,
+        "disclaimer": (
+            "ИИ объясняет реальные оценки RELYQO, но не выставляет и не меняет их. "
+            "Verified и Community не смешиваются."
+        ),
+    }
+    with _ai_lock:
+        if len(_public_ai_cache) >= 200:
+            _public_ai_cache.clear()
+        _public_ai_cache[signature] = {
+            "expires_at": now + timedelta(minutes=AI_CACHE_MINUTES),
+            "response": result,
+        }
+    return result
 
 
 @app.get("/v1/public/rankings")
