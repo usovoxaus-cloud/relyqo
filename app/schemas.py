@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field
 
 
 class VerifyVisit(BaseModel):
@@ -156,6 +156,19 @@ class BusinessProfileUpdate(BaseModel):
 
 class BusinessApplicationDecision(BaseModel):
     decision: Literal["PUBLISH", "REJECT", "ENABLE_QR"]
+
+
+class AdvertisementCreate(BaseModel):
+    sponsor_name: str = Field(min_length=2, max_length=120)
+    headline: str = Field(min_length=3, max_length=120)
+    message: str = Field(min_length=5, max_length=280)
+    target_url: AnyHttpUrl | None = None
+    placement: Literal["TOP_BANNER", "CORNER"]
+    active: bool = True
+
+
+class AdvertisementStatus(BaseModel):
+    active: bool
 
 
 class StaffCreate(BaseModel):

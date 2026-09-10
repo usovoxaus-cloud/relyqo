@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import secrets
 from threading import Lock
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -27,6 +27,7 @@ from .ai import (
 )
 from .db import get_db
 from .models import (
+    Advertisement,
     AuditLog,
     AuthSession,
     Branch,
@@ -45,6 +46,8 @@ from .models import (
 )
 from .schemas import (
     AccountRecovery,
+    AdvertisementCreate,
+    AdvertisementStatus,
     BusinessApplicationDecision,
     BusinessOwnerRegister,
     BusinessProfileUpdate,
@@ -101,6 +104,7 @@ SERVICE_CATEGORIES = {
     "EDUCATION",
     "OTHER",
 }
+ADVERTISEMENT_PLACEMENTS = {"TOP_BANNER", "CORNER"}
 SERVICE_CATEGORY_GROUPS = {
     "FOOD": {"RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT", "FOOD"},
     "HOTEL": {"HOTEL"},
@@ -856,18 +860,34 @@ def business_profile_payload(user: User, db: Session) -> dict:
     }
 
 
+def consumer_html(filename: str) -> HTMLResponse:
+    """Add the shared ad surface only to consumer-facing pages."""
+    content = (static / filename).read_text(encoding="utf-8")
+    content = content.replace(
+        "</head>",
+        '<link rel="stylesheet" href="/static/ads.css?v=ads-1"></head>',
+        1,
+    )
+    content = content.replace(
+        "</body>",
+        '<script src="/static/ads.js?v=ads-1"></script></body>',
+        1,
+    )
+    return HTMLResponse(
+        content=content,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/", include_in_schema=False)
 def web():
-    return FileResponse(static / "index.html")
+    return consumer_html("index.html")
 
 
 @app.get("/consumer", include_in_schema=False)
 def consumer_entry_web():
     """Explicit consumer entrance, separate from protected workspaces."""
-    return FileResponse(
-        static / "index.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("index.html")
 
 
 @app.get("/owner", include_in_schema=False)
@@ -888,10 +908,7 @@ def business_web():
 
 @app.get("/nearby", include_in_schema=False)
 def nearby_web():
-    return FileResponse(
-        static / "nearby.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("nearby.html")
 
 
 @app.get("/terms", include_in_schema=False)
@@ -905,26 +922,17 @@ def legal_web():
 
 @app.get("/community-rate", include_in_schema=False)
 def community_rate_web():
-    return FileResponse(
-        static / "community-rate.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("community-rate.html")
 
 
 @app.get("/place", include_in_schema=False)
 def place_web():
-    return FileResponse(
-        static / "place.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("place.html")
 
 
 @app.get("/rankings", include_in_schema=False)
 def rankings_web():
-    return FileResponse(
-        static / "rankings.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("rankings.html")
 
 
 @app.get("/review", include_in_schema=False)
@@ -953,18 +961,12 @@ def recover_web():
 
 @app.get("/me", include_in_schema=False)
 def consumer_web():
-    return FileResponse(
-        static / "me.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("me.html")
 
 
 @app.get("/me/rating", include_in_schema=False)
 def consumer_rating_web():
-    return FileResponse(
-        static / "rating-detail.html",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return consumer_html("rating-detail.html")
 
 
 @app.get("/business-owner", include_in_schema=False)
@@ -1327,6 +1329,9 @@ def admin_dashboard(
             "open_owner_reviews": count_rows(
                 OwnerReview, OwnerReview.status == "PENDING"
             ),
+            "active_advertisements": count_rows(
+                Advertisement, Advertisement.active.is_(True)
+            ),
         },
         "recent_audit": [
             {
@@ -1349,6 +1354,184 @@ def admin_dashboard(
             "score_engine": "deterministic_weighted_ces_v1",
         },
     }
+
+
+def advertisement_payload(advertisement: Advertisement, *, public: bool) -> dict:
+    payload = {
+        "id": advertisement.id,
+        "sponsor_name": advertisement.sponsor_name,
+        "headline": advertisement.headline,
+        "message": advertisement.message,
+        "placement": advertisement.placement,
+        "active": advertisement.active,
+        "created_at": advertisement.created_at,
+        "updated_at": advertisement.updated_at,
+    }
+    if public:
+        payload["has_link"] = bool(advertisement.target_url)
+        payload["click_url"] = (
+            f"/v1/public/advertisements/{advertisement.id}/open"
+            if advertisement.target_url
+            else None
+        )
+    else:
+        payload.update(
+            target_url=advertisement.target_url,
+            impressions=advertisement.impressions,
+            clicks=advertisement.clicks,
+        )
+    return payload
+
+
+@app.get("/v1/admin/advertisements")
+def admin_advertisements(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    session_user(relyqo_session, db, ADMIN_ROLE)
+    rows = db.scalars(
+        select(Advertisement).order_by(
+            Advertisement.created_at.desc(), Advertisement.id.desc()
+        )
+    ).all()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "items": [advertisement_payload(row, public=False) for row in rows],
+        "count": len(rows),
+        "score_policy": "Advertising never changes RELYQO Score or ranking position",
+    }
+
+
+@app.post("/v1/admin/advertisements")
+def create_advertisement(
+    body: AdvertisementCreate,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+    if not body.sponsor_name.strip() or not body.headline.strip() or not body.message.strip():
+        raise HTTPException(422, "Заполните рекламодателя, заголовок и текст")
+    advertisement = Advertisement(
+        sponsor_name=body.sponsor_name.strip(),
+        headline=body.headline.strip(),
+        message=body.message.strip(),
+        target_url=str(body.target_url) if body.target_url else None,
+        placement=body.placement,
+        active=body.active,
+        created_by_user_id=admin.id,
+    )
+    db.add(advertisement)
+    db.flush()
+    db.add(
+        AuditLog(
+            actor_type=admin.role,
+            action="ADVERTISEMENT_CREATED",
+            entity_type="ADVERTISEMENT",
+            entity_id=advertisement.id,
+        )
+    )
+    db.commit()
+    return advertisement_payload(advertisement, public=False)
+
+
+@app.post("/v1/admin/advertisements/{advertisement_id}/status")
+def change_advertisement_status(
+    advertisement_id: str,
+    body: AdvertisementStatus,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+    advertisement = db.get(Advertisement, advertisement_id)
+    if not advertisement:
+        raise HTTPException(404, "Рекламная кампания не найдена")
+    advertisement.active = body.active
+    advertisement.updated_at = datetime.utcnow()
+    db.add_all(
+        [
+            advertisement,
+            AuditLog(
+                actor_type=admin.role,
+                action=(
+                    "ADVERTISEMENT_ACTIVATED"
+                    if body.active
+                    else "ADVERTISEMENT_PAUSED"
+                ),
+                entity_type="ADVERTISEMENT",
+                entity_id=advertisement.id,
+            ),
+        ]
+    )
+    db.commit()
+    return advertisement_payload(advertisement, public=False)
+
+
+@app.get("/v1/public/advertisements")
+def public_advertisements(
+    response: Response,
+    placement: str | None = None,
+    db: Session = Depends(get_db),
+):
+    normalized_placement = placement.strip().upper() if placement else None
+    if normalized_placement and normalized_placement not in ADVERTISEMENT_PLACEMENTS:
+        raise HTTPException(422, "Неизвестное место рекламного блока")
+    statement = select(Advertisement).where(Advertisement.active.is_(True))
+    if normalized_placement:
+        statement = statement.where(Advertisement.placement == normalized_placement)
+    rows = db.scalars(
+        statement.order_by(Advertisement.updated_at.desc(), Advertisement.id.desc())
+        .limit(20)
+    ).all()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "items": [advertisement_payload(row, public=True) for row in rows],
+        "count": len(rows),
+        "personal_tracking": False,
+        "affects_score_or_ranking": False,
+    }
+
+
+@app.post("/v1/public/advertisements/{advertisement_id}/impression", status_code=204)
+def record_advertisement_impression(
+    advertisement_id: str,
+    db: Session = Depends(get_db),
+):
+    result = db.execute(
+        update(Advertisement)
+        .where(
+            Advertisement.id == advertisement_id,
+            Advertisement.active.is_(True),
+        )
+        .values(impressions=Advertisement.impressions + 1)
+    )
+    if not result.rowcount:
+        raise HTTPException(404, "Активная реклама не найдена")
+    db.commit()
+    return Response(status_code=204)
+
+
+@app.get("/v1/public/advertisements/{advertisement_id}/open")
+def open_advertisement(
+    advertisement_id: str,
+    db: Session = Depends(get_db),
+):
+    advertisement = db.get(Advertisement, advertisement_id)
+    if not advertisement or not advertisement.active or not advertisement.target_url:
+        raise HTTPException(404, "Активная ссылка рекламы не найдена")
+    target = urlparse(advertisement.target_url)
+    if target.scheme not in {"http", "https"} or not target.netloc:
+        raise HTTPException(409, "Ссылка рекламной кампании недоступна")
+    db.execute(
+        update(Advertisement)
+        .where(
+            Advertisement.id == advertisement.id,
+            Advertisement.active.is_(True),
+        )
+        .values(clicks=Advertisement.clicks + 1)
+    )
+    db.commit()
+    return RedirectResponse(advertisement.target_url, status_code=302)
 
 
 @app.post("/v1/admin/business-applications/{organization_id}/decision")

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import (
+    Advertisement,
     AuditLog,
     AuthSession,
     Branch,
@@ -1553,6 +1554,98 @@ def test_admin_password_can_be_recovered_from_rotated_render_secret():
                 AuditLog.entity_id == admin_user_id,
             )
         )
+
+
+def test_admin_manages_ads_without_affecting_score_or_ranking():
+    Base.metadata.create_all(engine)
+    settings.admin_password = ADMIN_TEST_PASSWORD
+    with SessionLocal() as db:
+        protected_organization = Organization(
+            name=f"Ad invariant {uuid.uuid4().hex[:8]}",
+            score=73.5,
+            rating_count=9,
+        )
+        db.add(protected_organization)
+        db.commit()
+        protected_organization_id = protected_organization.id
+    assert TestClient(app).get("/v1/admin/advertisements").status_code == 401
+    admin = TestClient(app)
+    assert admin.post(
+        "/v1/auth/login",
+        json={"username": "relyqo-admin", "password": ADMIN_TEST_PASSWORD},
+    ).status_code == 200
+
+    created = admin.post(
+        "/v1/admin/advertisements",
+        json={
+            "sponsor_name": "Example Partner",
+            "headline": "Полезное предложение рядом",
+            "message": "Отдельный рекламный блок без влияния на оценки.",
+            "target_url": "https://example.com/offer",
+            "placement": "TOP_BANNER",
+            "active": True,
+        },
+    )
+    assert created.status_code == 200
+    advertisement_id = created.json()["id"]
+    assert created.json()["impressions"] == 0
+    assert created.json()["clicks"] == 0
+
+    public = TestClient(app)
+    page = public.get("/consumer")
+    assert page.status_code == 200
+    assert "/static/ads.css" in page.text
+    assert "/static/ads.js" in page.text
+    public_ads = public.get("/v1/public/advertisements?placement=TOP_BANNER")
+    assert public_ads.status_code == 200
+    assert public_ads.json()["personal_tracking"] is False
+    assert public_ads.json()["affects_score_or_ranking"] is False
+    public_ad = next(
+        item for item in public_ads.json()["items"] if item["id"] == advertisement_id
+    )
+    assert public_ad["has_link"] is True
+    assert "target_url" not in public_ad
+
+    assert public.post(
+        f"/v1/public/advertisements/{advertisement_id}/impression"
+    ).status_code == 204
+    opened = public.get(
+        f"/v1/public/advertisements/{advertisement_id}/open",
+        follow_redirects=False,
+    )
+    assert opened.status_code == 302
+    assert opened.headers["location"] == "https://example.com/offer"
+
+    campaigns = admin.get("/v1/admin/advertisements")
+    campaign = next(
+        item for item in campaigns.json()["items"] if item["id"] == advertisement_id
+    )
+    assert campaign["impressions"] == 1
+    assert campaign["clicks"] == 1
+    assert "never changes" in campaigns.json()["score_policy"]
+    with SessionLocal() as db:
+        assert db.get(Advertisement, advertisement_id)
+        unchanged = db.get(Organization, protected_organization_id)
+        assert unchanged.score == 73.5
+        assert unchanged.rating_count == 9
+        assert db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "ADVERTISEMENT_CREATED",
+                AuditLog.entity_id == advertisement_id,
+            )
+        )
+
+    paused = admin.post(
+        f"/v1/admin/advertisements/{advertisement_id}/status",
+        json={"active": False},
+    )
+    assert paused.status_code == 200
+    assert paused.json()["active"] is False
+    after_pause = public.get("/v1/public/advertisements?placement=TOP_BANNER")
+    assert all(item["id"] != advertisement_id for item in after_pause.json()["items"])
+    assert public.post(
+        f"/v1/public/advertisements/{advertisement_id}/impression"
+    ).status_code == 404
 
 
 def test_admin_publishes_business_profile_without_changing_score_or_ratings():
