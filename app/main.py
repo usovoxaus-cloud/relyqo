@@ -880,12 +880,12 @@ def consumer_html(filename: str) -> HTMLResponse:
     content = (static / filename).read_text(encoding="utf-8")
     content = content.replace(
         "</head>",
-        '<link rel="stylesheet" href="/static/ads.css?v=ads-2"></head>',
+        '<link rel="stylesheet" href="/static/ads.css?v=ads-3"></head>',
         1,
     )
     content = content.replace(
         "</body>",
-        '<script src="/static/ads.js?v=ads-2"></script></body>',
+        '<script src="/static/ads.js?v=ads-3"></script></body>',
         1,
     )
     return HTMLResponse(
