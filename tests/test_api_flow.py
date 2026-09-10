@@ -1693,6 +1693,40 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     assert campaign["campaign_name"] == "Local launch"
     assert campaign["max_impressions"] == 100
     assert "never changes" in campaigns.json()["score_policy"]
+
+    updated = admin.post(
+        f"/v1/admin/advertisements/{advertisement_id}",
+        json={
+            "campaign_name": "Local launch — September",
+            "sponsor_name": "Example Partner",
+            "headline": "Обновлённое предложение рядом",
+            "message": "Новый текст без потери статистики кампании.",
+            "cta_text": "Перейти",
+            "target_url": "https://example.com/september",
+            "placement": "TOP_BANNER",
+            "page_scope": "MAP",
+            "max_impressions": 250,
+            "active": False,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["campaign_name"] == "Local launch — September"
+    assert updated.json()["headline"] == "Обновлённое предложение рядом"
+    assert updated.json()["target_url"] == "https://example.com/september"
+    assert updated.json()["max_impressions"] == 250
+    assert updated.json()["impressions"] == 1
+    assert updated.json()["clicks"] == 1
+    assert updated.json()["active"] is True
+    assert updated.json()["media"]["kind"] == "PRESENTATION"
+
+    updated_public = public.get(
+        "/v1/public/advertisements?placement=TOP_BANNER&page=MAP"
+    ).json()["items"]
+    public_campaign = next(
+        item for item in updated_public if item["id"] == advertisement_id
+    )
+    assert public_campaign["headline"] == "Обновлённое предложение рядом"
+    assert public_campaign["cta_text"] == "Перейти"
     with SessionLocal() as db:
         assert db.get(Advertisement, advertisement_id)
         assert db.get(AdvertisementMedia, advertisement_id)
@@ -1702,6 +1736,12 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
         assert db.scalar(
             select(AuditLog).where(
                 AuditLog.action == "ADVERTISEMENT_CREATED",
+                AuditLog.entity_id == advertisement_id,
+            )
+        )
+        assert db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "ADVERTISEMENT_UPDATED",
                 AuditLog.entity_id == advertisement_id,
             )
         )

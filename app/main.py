@@ -1433,6 +1433,48 @@ def advertisement_is_available(advertisement: Advertisement) -> bool:
     )
 
 
+def normalized_advertisement_values(body: AdvertisementCreate) -> dict:
+    campaign_name = body.campaign_name.strip()
+    sponsor_name = body.sponsor_name.strip()
+    headline = body.headline.strip()
+    message = body.message.strip()
+    cta_text = body.cta_text.strip()
+    starts_at = utc_naive(body.starts_at)
+    ends_at = utc_naive(body.ends_at)
+    if not campaign_name or not sponsor_name or not headline or not message or not cta_text:
+        raise HTTPException(
+            422,
+            "Заполните название кампании, рекламодателя, заголовок, текст и кнопку",
+        )
+    if body.placement == "TOP_BANNER" and (
+        len(headline) > 55 or len(message) > 160
+    ):
+        raise HTTPException(
+            422,
+            "Для верхней панели: заголовок до 55, текст до 160 символов",
+        )
+    if body.placement == "CORNER" and (len(headline) > 80 or len(message) > 240):
+        raise HTTPException(
+            422,
+            "Для углового блока: заголовок до 80, текст до 240 символов",
+        )
+    if starts_at and ends_at and ends_at <= starts_at:
+        raise HTTPException(422, "Дата окончания должна быть позже даты начала")
+    return {
+        "campaign_name": campaign_name,
+        "sponsor_name": sponsor_name,
+        "headline": headline,
+        "message": message,
+        "cta_text": cta_text,
+        "target_url": str(body.target_url) if body.target_url else None,
+        "placement": body.placement,
+        "page_scope": body.page_scope,
+        "starts_at": starts_at,
+        "ends_at": ends_at,
+        "max_impressions": body.max_impressions,
+    }
+
+
 def validate_advertisement_media(content_type: str, raw: bytes) -> tuple[str, int]:
     specification = ADVERTISEMENT_MEDIA_TYPES.get(content_type)
     if not specification:
@@ -1490,44 +1532,8 @@ def create_advertisement(
     db: Session = Depends(get_db),
 ):
     admin = session_user(relyqo_session, db, ADMIN_ROLE)
-    campaign_name = body.campaign_name.strip()
-    sponsor_name = body.sponsor_name.strip()
-    headline = body.headline.strip()
-    message = body.message.strip()
-    cta_text = body.cta_text.strip()
-    starts_at = utc_naive(body.starts_at)
-    ends_at = utc_naive(body.ends_at)
-    if not campaign_name or not sponsor_name or not headline or not message or not cta_text:
-        raise HTTPException(
-            422,
-            "Заполните название кампании, рекламодателя, заголовок, текст и кнопку",
-        )
-    if body.placement == "TOP_BANNER" and (
-        len(headline) > 55 or len(message) > 160
-    ):
-        raise HTTPException(
-            422,
-            "Для верхней панели: заголовок до 55, текст до 160 символов",
-        )
-    if body.placement == "CORNER" and (len(headline) > 80 or len(message) > 240):
-        raise HTTPException(
-            422,
-            "Для углового блока: заголовок до 80, текст до 240 символов",
-        )
-    if starts_at and ends_at and ends_at <= starts_at:
-        raise HTTPException(422, "Дата окончания должна быть позже даты начала")
     advertisement = Advertisement(
-        campaign_name=campaign_name,
-        sponsor_name=sponsor_name,
-        headline=headline,
-        message=message,
-        cta_text=cta_text,
-        target_url=str(body.target_url) if body.target_url else None,
-        placement=body.placement,
-        page_scope=body.page_scope,
-        starts_at=starts_at,
-        ends_at=ends_at,
-        max_impressions=body.max_impressions,
+        **normalized_advertisement_values(body),
         active=body.active,
         created_by_user_id=admin.id,
     )
@@ -1540,6 +1546,35 @@ def create_advertisement(
             entity_type="ADVERTISEMENT",
             entity_id=advertisement.id,
         )
+    )
+    db.commit()
+    return advertisement_payload(advertisement, public=False)
+
+
+@app.post("/v1/admin/advertisements/{advertisement_id}")
+def update_advertisement(
+    advertisement_id: str,
+    body: AdvertisementCreate,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+    advertisement = db.get(Advertisement, advertisement_id)
+    if not advertisement:
+        raise HTTPException(404, "Рекламная кампания не найдена")
+    for field, value in normalized_advertisement_values(body).items():
+        setattr(advertisement, field, value)
+    advertisement.updated_at = datetime.utcnow()
+    db.add_all(
+        [
+            advertisement,
+            AuditLog(
+                actor_type=admin.role,
+                action="ADVERTISEMENT_UPDATED",
+                entity_type="ADVERTISEMENT",
+                entity_id=advertisement.id,
+            ),
+        ]
     )
     db.commit()
     return advertisement_payload(advertisement, public=False)
