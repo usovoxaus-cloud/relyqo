@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import base64
 import binascii
 import hmac
@@ -13,7 +13,7 @@ from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
@@ -106,6 +106,7 @@ SERVICE_CATEGORIES = {
     "OTHER",
 }
 ADVERTISEMENT_PLACEMENTS = {"TOP_BANNER", "CORNER"}
+ADVERTISEMENT_PAGE_SCOPES = {"ALL", "HOME", "MAP", "RANKINGS", "PROFILE"}
 ADVERTISEMENT_MEDIA_TYPES = {
     "image/jpeg": ("IMAGE", 5 * 1024 * 1024),
     "image/png": ("IMAGE", 5 * 1024 * 1024),
@@ -1373,10 +1374,15 @@ def admin_dashboard(
 def advertisement_payload(advertisement: Advertisement, *, public: bool) -> dict:
     payload = {
         "id": advertisement.id,
+        "campaign_name": advertisement.campaign_name if not public else None,
         "sponsor_name": advertisement.sponsor_name,
         "headline": advertisement.headline,
         "message": advertisement.message,
+        "cta_text": advertisement.cta_text,
         "placement": advertisement.placement,
+        "page_scope": advertisement.page_scope,
+        "starts_at": advertisement.starts_at,
+        "ends_at": advertisement.ends_at,
         "active": advertisement.active,
         "created_at": advertisement.created_at,
         "updated_at": advertisement.updated_at,
@@ -1393,6 +1399,7 @@ def advertisement_payload(advertisement: Advertisement, *, public: bool) -> dict
         ),
     }
     if public:
+        payload.pop("campaign_name")
         payload["has_link"] = bool(advertisement.target_url)
         payload["click_url"] = (
             f"/v1/public/advertisements/{advertisement.id}/open"
@@ -1404,8 +1411,26 @@ def advertisement_payload(advertisement: Advertisement, *, public: bool) -> dict
             target_url=advertisement.target_url,
             impressions=advertisement.impressions,
             clicks=advertisement.clicks,
+            max_impressions=advertisement.max_impressions,
         )
     return payload
+
+
+def utc_naive(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def advertisement_is_available(advertisement: Advertisement) -> bool:
+    now = datetime.utcnow()
+    return bool(
+        advertisement.active
+        and (advertisement.starts_at is None or advertisement.starts_at <= now)
+        and (advertisement.ends_at is None or advertisement.ends_at >= now)
+    )
 
 
 def validate_advertisement_media(content_type: str, raw: bytes) -> tuple[str, int]:
@@ -1465,14 +1490,44 @@ def create_advertisement(
     db: Session = Depends(get_db),
 ):
     admin = session_user(relyqo_session, db, ADMIN_ROLE)
-    if not body.sponsor_name.strip() or not body.headline.strip() or not body.message.strip():
-        raise HTTPException(422, "Заполните рекламодателя, заголовок и текст")
+    campaign_name = body.campaign_name.strip()
+    sponsor_name = body.sponsor_name.strip()
+    headline = body.headline.strip()
+    message = body.message.strip()
+    cta_text = body.cta_text.strip()
+    starts_at = utc_naive(body.starts_at)
+    ends_at = utc_naive(body.ends_at)
+    if not campaign_name or not sponsor_name or not headline or not message or not cta_text:
+        raise HTTPException(
+            422,
+            "Заполните название кампании, рекламодателя, заголовок, текст и кнопку",
+        )
+    if body.placement == "TOP_BANNER" and (
+        len(headline) > 55 or len(message) > 160
+    ):
+        raise HTTPException(
+            422,
+            "Для верхней панели: заголовок до 55, текст до 160 символов",
+        )
+    if body.placement == "CORNER" and (len(headline) > 80 or len(message) > 240):
+        raise HTTPException(
+            422,
+            "Для углового блока: заголовок до 80, текст до 240 символов",
+        )
+    if starts_at and ends_at and ends_at <= starts_at:
+        raise HTTPException(422, "Дата окончания должна быть позже даты начала")
     advertisement = Advertisement(
-        sponsor_name=body.sponsor_name.strip(),
-        headline=body.headline.strip(),
-        message=body.message.strip(),
+        campaign_name=campaign_name,
+        sponsor_name=sponsor_name,
+        headline=headline,
+        message=message,
+        cta_text=cta_text,
         target_url=str(body.target_url) if body.target_url else None,
         placement=body.placement,
+        page_scope=body.page_scope,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        max_impressions=body.max_impressions,
         active=body.active,
         created_by_user_id=admin.id,
     )
@@ -1625,14 +1680,34 @@ def change_advertisement_status(
 def public_advertisements(
     response: Response,
     placement: str | None = None,
+    page: str | None = None,
+    preview_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     normalized_placement = placement.strip().upper() if placement else None
     if normalized_placement and normalized_placement not in ADVERTISEMENT_PLACEMENTS:
         raise HTTPException(422, "Неизвестное место рекламного блока")
-    statement = select(Advertisement).where(Advertisement.active.is_(True))
+    normalized_page = page.strip().upper() if page else None
+    if normalized_page and normalized_page not in ADVERTISEMENT_PAGE_SCOPES - {"ALL"}:
+        raise HTTPException(422, "Неизвестная страница показа рекламы")
+    now = datetime.utcnow()
+    statement = select(Advertisement).where(
+        Advertisement.active.is_(True),
+        or_(Advertisement.starts_at.is_(None), Advertisement.starts_at <= now),
+        or_(Advertisement.ends_at.is_(None), Advertisement.ends_at >= now),
+        or_(
+            Advertisement.max_impressions.is_(None),
+            Advertisement.impressions < Advertisement.max_impressions,
+        ),
+    )
+    if preview_id:
+        statement = statement.where(Advertisement.id == preview_id)
     if normalized_placement:
         statement = statement.where(Advertisement.placement == normalized_placement)
+    if normalized_page and not preview_id:
+        statement = statement.where(
+            Advertisement.page_scope.in_({"ALL", normalized_page})
+        )
     rows = db.scalars(
         statement.order_by(Advertisement.updated_at.desc(), Advertisement.id.desc())
         .limit(20)
@@ -1651,11 +1726,18 @@ def record_advertisement_impression(
     advertisement_id: str,
     db: Session = Depends(get_db),
 ):
+    now = datetime.utcnow()
     result = db.execute(
         update(Advertisement)
         .where(
             Advertisement.id == advertisement_id,
             Advertisement.active.is_(True),
+            or_(Advertisement.starts_at.is_(None), Advertisement.starts_at <= now),
+            or_(Advertisement.ends_at.is_(None), Advertisement.ends_at >= now),
+            or_(
+                Advertisement.max_impressions.is_(None),
+                Advertisement.impressions < Advertisement.max_impressions,
+            ),
         )
         .values(impressions=Advertisement.impressions + 1)
     )
@@ -1671,7 +1753,11 @@ def advertisement_media(
     db: Session = Depends(get_db),
 ):
     advertisement = db.get(Advertisement, advertisement_id)
-    if not advertisement or not advertisement.active or not advertisement.media_kind:
+    if (
+        not advertisement
+        or not advertisement_is_available(advertisement)
+        or not advertisement.media_kind
+    ):
         raise HTTPException(404, "Активный медиафайл рекламы не найден")
     stored_media = db.get(AdvertisementMedia, advertisement.id)
     if not stored_media:
@@ -1704,7 +1790,11 @@ def open_advertisement(
     db: Session = Depends(get_db),
 ):
     advertisement = db.get(Advertisement, advertisement_id)
-    if not advertisement or not advertisement.active or not advertisement.target_url:
+    if (
+        not advertisement
+        or not advertisement_is_available(advertisement)
+        or not advertisement.target_url
+    ):
         raise HTTPException(404, "Активная ссылка рекламы не найдена")
     target = urlparse(advertisement.target_url)
     if target.scheme not in {"http", "https"} or not target.netloc:

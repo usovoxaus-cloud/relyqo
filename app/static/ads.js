@@ -1,5 +1,19 @@
 (() => {
   const placements = ["TOP_BANNER", "CORNER"];
+  const pageScopes = {
+    "/": "HOME",
+    "/nearby": "MAP",
+    "/rankings": "RANKINGS",
+    "/consumer": "PROFILE",
+    "/me": "PROFILE",
+  };
+
+  function currentPageScope() {
+    if (location.pathname.startsWith("/me") || location.pathname === "/consumer") {
+      return "PROFILE";
+    }
+    return pageScopes[location.pathname] || "HOME";
+  }
   const safeSession = {
     get(key) { try { return sessionStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { sessionStorage.setItem(key, value); } catch {} },
@@ -66,7 +80,11 @@
     );
     root.append(label, mediaElement(advertisement), copy);
     if (advertisement.has_link && advertisement.click_url) {
-      const action = element("a", "relyqo-ad-action", "Подробнее");
+      const action = element(
+        "a",
+        "relyqo-ad-action",
+        advertisement.cta_text || "Подробнее",
+      );
       action.href = advertisement.click_url;
       action.target = "_blank";
       action.rel = "noopener sponsored";
@@ -95,7 +113,13 @@
 
   async function load() {
     try {
-      const response = await fetch("/v1/public/advertisements", { cache: "no-store" });
+      const query = new URLSearchParams();
+      query.set("page", currentPageScope());
+      const previewId = new URLSearchParams(location.search).get("ad_preview");
+      if (previewId) query.set("preview_id", previewId);
+      const response = await fetch(`/v1/public/advertisements?${query}`, {
+        cache: "no-store",
+      });
       if (!response.ok) return;
       const data = await response.json();
       for (const placement of placements) {

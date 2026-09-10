@@ -1580,11 +1580,15 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     created = admin.post(
         "/v1/admin/advertisements",
         json={
+            "campaign_name": "Local launch",
             "sponsor_name": "Example Partner",
             "headline": "Полезное предложение рядом",
             "message": "Отдельный рекламный блок без влияния на оценки.",
+            "cta_text": "Открыть предложение",
             "target_url": "https://example.com/offer",
             "placement": "TOP_BANNER",
+            "page_scope": "MAP",
+            "max_impressions": 100,
             "active": True,
         },
     )
@@ -1627,7 +1631,9 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     assert page.status_code == 200
     assert "/static/ads.css" in page.text
     assert "/static/ads.js" in page.text
-    public_ads = public.get("/v1/public/advertisements?placement=TOP_BANNER")
+    public_ads = public.get(
+        "/v1/public/advertisements?placement=TOP_BANNER&page=MAP"
+    )
     assert public_ads.status_code == 200
     assert public_ads.json()["personal_tracking"] is False
     assert public_ads.json()["affects_score_or_ranking"] is False
@@ -1635,8 +1641,38 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
         item for item in public_ads.json()["items"] if item["id"] == advertisement_id
     )
     assert public_ad["has_link"] is True
+    assert public_ad["cta_text"] == "Открыть предложение"
+    assert public_ad["page_scope"] == "MAP"
+    assert "campaign_name" not in public_ad
     assert "target_url" not in public_ad
     assert public_ad["media"]["kind"] == "PRESENTATION"
+    hidden_on_home = public.get("/v1/public/advertisements?page=HOME").json()
+    assert all(item["id"] != advertisement_id for item in hidden_on_home["items"])
+    explicit_preview = public.get(
+        f"/v1/public/advertisements?page=HOME&preview_id={advertisement_id}"
+    ).json()
+    assert any(item["id"] == advertisement_id for item in explicit_preview["items"])
+
+    future = admin.post(
+        "/v1/admin/advertisements",
+        json={
+            "campaign_name": "Future campaign",
+            "sponsor_name": "Scheduled Partner",
+            "headline": "Предложение следующей недели",
+            "message": "Кампания ещё не должна показываться потребителям.",
+            "cta_text": "Узнать больше",
+            "target_url": "https://example.com/future",
+            "placement": "CORNER",
+            "page_scope": "ALL",
+            "starts_at": (datetime.utcnow() + timedelta(days=7)).isoformat(),
+            "ends_at": (datetime.utcnow() + timedelta(days=14)).isoformat(),
+            "active": True,
+        },
+    )
+    assert future.status_code == 200
+    future_id = future.json()["id"]
+    visible_now = public.get("/v1/public/advertisements?page=MAP").json()["items"]
+    assert all(item["id"] != future_id for item in visible_now)
 
     assert public.post(
         f"/v1/public/advertisements/{advertisement_id}/impression"
@@ -1654,6 +1690,8 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     )
     assert campaign["impressions"] == 1
     assert campaign["clicks"] == 1
+    assert campaign["campaign_name"] == "Local launch"
+    assert campaign["max_impressions"] == 100
     assert "never changes" in campaigns.json()["score_policy"]
     with SessionLocal() as db:
         assert db.get(Advertisement, advertisement_id)

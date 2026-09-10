@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 from pydantic import AnyHttpUrl, BaseModel, Field
 
@@ -159,11 +160,17 @@ class BusinessApplicationDecision(BaseModel):
 
 
 class AdvertisementCreate(BaseModel):
+    campaign_name: str = Field(min_length=2, max_length=80)
     sponsor_name: str = Field(min_length=2, max_length=120)
     headline: str = Field(min_length=3, max_length=120)
     message: str = Field(min_length=5, max_length=280)
+    cta_text: str = Field(default="Подробнее", min_length=2, max_length=32)
     target_url: AnyHttpUrl | None = None
     placement: Literal["TOP_BANNER", "CORNER"]
+    page_scope: Literal["ALL", "HOME", "MAP", "RANKINGS", "PROFILE"] = "ALL"
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+    max_impressions: int | None = Field(default=None, ge=100, le=100_000_000)
     active: bool = True
 
 

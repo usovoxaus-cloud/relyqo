@@ -215,11 +215,17 @@ class AuditLog(Base):
 class Advertisement(Base):
     __tablename__ = "advertisements"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    campaign_name: Mapped[str] = mapped_column(String(80), default="")
     sponsor_name: Mapped[str] = mapped_column(String(120))
     headline: Mapped[str] = mapped_column(String(120))
     message: Mapped[str] = mapped_column(String(280))
+    cta_text: Mapped[str] = mapped_column(String(32), default="Подробнее")
     target_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     placement: Mapped[str] = mapped_column(String(30), index=True)
+    page_scope: Mapped[str] = mapped_column(String(30), default="ALL", index=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    max_impressions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     media_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
     media_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
