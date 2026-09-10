@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import secrets
 from threading import Lock
-from urllib.parse import urlencode, urlparse
+from urllib.parse import unquote, urlencode, urlparse
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -28,6 +28,7 @@ from .ai import (
 from .db import get_db
 from .models import (
     Advertisement,
+    AdvertisementMedia,
     AuditLog,
     AuthSession,
     Branch,
@@ -105,6 +106,19 @@ SERVICE_CATEGORIES = {
     "OTHER",
 }
 ADVERTISEMENT_PLACEMENTS = {"TOP_BANNER", "CORNER"}
+ADVERTISEMENT_MEDIA_TYPES = {
+    "image/jpeg": ("IMAGE", 5 * 1024 * 1024),
+    "image/png": ("IMAGE", 5 * 1024 * 1024),
+    "image/webp": ("IMAGE", 5 * 1024 * 1024),
+    "video/mp4": ("VIDEO", 25 * 1024 * 1024),
+    "video/webm": ("VIDEO", 25 * 1024 * 1024),
+    "application/pdf": ("PRESENTATION", 15 * 1024 * 1024),
+    "application/vnd.ms-powerpoint": ("PRESENTATION", 15 * 1024 * 1024),
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": (
+        "PRESENTATION",
+        15 * 1024 * 1024,
+    ),
+}
 SERVICE_CATEGORY_GROUPS = {
     "FOOD": {"RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT", "FOOD"},
     "HOTEL": {"HOTEL"},
@@ -865,12 +879,12 @@ def consumer_html(filename: str) -> HTMLResponse:
     content = (static / filename).read_text(encoding="utf-8")
     content = content.replace(
         "</head>",
-        '<link rel="stylesheet" href="/static/ads.css?v=ads-1"></head>',
+        '<link rel="stylesheet" href="/static/ads.css?v=ads-2"></head>',
         1,
     )
     content = content.replace(
         "</body>",
-        '<script src="/static/ads.js?v=ads-1"></script></body>',
+        '<script src="/static/ads.js?v=ads-2"></script></body>',
         1,
     )
     return HTMLResponse(
@@ -1366,6 +1380,17 @@ def advertisement_payload(advertisement: Advertisement, *, public: bool) -> dict
         "active": advertisement.active,
         "created_at": advertisement.created_at,
         "updated_at": advertisement.updated_at,
+        "media": (
+            {
+                "kind": advertisement.media_kind,
+                "content_type": advertisement.media_content_type,
+                "filename": advertisement.media_filename,
+                "size_bytes": advertisement.media_size_bytes,
+                "url": f"/v1/public/advertisements/{advertisement.id}/media",
+            }
+            if advertisement.media_kind
+            else None
+        ),
     }
     if public:
         payload["has_link"] = bool(advertisement.target_url)
@@ -1381,6 +1406,36 @@ def advertisement_payload(advertisement: Advertisement, *, public: bool) -> dict
             clicks=advertisement.clicks,
         )
     return payload
+
+
+def validate_advertisement_media(content_type: str, raw: bytes) -> tuple[str, int]:
+    specification = ADVERTISEMENT_MEDIA_TYPES.get(content_type)
+    if not specification:
+        raise HTTPException(
+            415,
+            "Разрешены JPEG, PNG, WebP, MP4, WebM, PDF, PPT и PPTX",
+        )
+    media_kind, maximum_size = specification
+    if not raw:
+        raise HTTPException(422, "Медиафайл пуст")
+    if len(raw) > maximum_size:
+        limits = {"IMAGE": "5 МБ", "VIDEO": "25 МБ", "PRESENTATION": "15 МБ"}
+        raise HTTPException(413, f"Максимальный размер: {limits[media_kind]}")
+    valid_magic = {
+        "image/jpeg": raw.startswith(b"\xff\xd8\xff"),
+        "image/png": raw.startswith(b"\x89PNG\r\n\x1a\n"),
+        "image/webp": raw.startswith(b"RIFF") and raw[8:12] == b"WEBP",
+        "video/mp4": len(raw) >= 12 and raw[4:8] == b"ftyp",
+        "video/webm": raw.startswith(b"\x1aE\xdf\xa3"),
+        "application/pdf": raw.startswith(b"%PDF-"),
+        "application/vnd.ms-powerpoint": raw.startswith(b"\xd0\xcf\x11\xe0"),
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": raw.startswith(
+            b"PK\x03\x04"
+        ),
+    }[content_type]
+    if not valid_magic:
+        raise HTTPException(422, "Содержимое файла не соответствует его формату")
+    return media_kind, maximum_size
 
 
 @app.get("/v1/admin/advertisements")
@@ -1430,6 +1485,105 @@ def create_advertisement(
             entity_type="ADVERTISEMENT",
             entity_id=advertisement.id,
         )
+    )
+    db.commit()
+    return advertisement_payload(advertisement, public=False)
+
+
+@app.post("/v1/admin/advertisements/{advertisement_id}/media")
+async def upload_advertisement_media(
+    advertisement_id: str,
+    request: Request,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+    advertisement = db.get(Advertisement, advertisement_id)
+    if not advertisement:
+        raise HTTPException(404, "Рекламная кампания не найдена")
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    specification = ADVERTISEMENT_MEDIA_TYPES.get(content_type)
+    if not specification:
+        raise HTTPException(
+            415,
+            "Разрешены JPEG, PNG, WebP, MP4, WebM, PDF, PPT и PPTX",
+        )
+    maximum_size = specification[1]
+    advertised_length = request.headers.get("content-length")
+    try:
+        if advertised_length and int(advertised_length) > maximum_size:
+            raise HTTPException(413, "Медиафайл слишком большой")
+    except ValueError as exc:
+        raise HTTPException(400, "Некорректный размер медиафайла") from exc
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > maximum_size:
+            raise HTTPException(413, "Медиафайл слишком большой")
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    media_kind, _ = validate_advertisement_media(content_type, raw)
+    supplied_filename = unquote(request.headers.get("x-relyqo-filename", "media"))
+    filename = Path(supplied_filename).name.strip()[:180] or "media"
+    stored_media = db.get(AdvertisementMedia, advertisement.id)
+    if stored_media:
+        stored_media.media_data = raw
+        stored_media.created_at = datetime.utcnow()
+    else:
+        stored_media = AdvertisementMedia(
+            advertisement_id=advertisement.id,
+            media_data=raw,
+        )
+    advertisement.media_kind = media_kind
+    advertisement.media_content_type = content_type
+    advertisement.media_filename = filename
+    advertisement.media_size_bytes = len(raw)
+    advertisement.updated_at = datetime.utcnow()
+    db.add_all(
+        [
+            advertisement,
+            stored_media,
+            AuditLog(
+                actor_type=admin.role,
+                action="ADVERTISEMENT_MEDIA_UPLOADED",
+                entity_type="ADVERTISEMENT",
+                entity_id=advertisement.id,
+            ),
+        ]
+    )
+    db.commit()
+    return advertisement_payload(advertisement, public=False)
+
+
+@app.post("/v1/admin/advertisements/{advertisement_id}/media/remove")
+def remove_advertisement_media(
+    advertisement_id: str,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+    advertisement = db.get(Advertisement, advertisement_id)
+    if not advertisement:
+        raise HTTPException(404, "Рекламная кампания не найдена")
+    stored_media = db.get(AdvertisementMedia, advertisement.id)
+    if stored_media:
+        db.delete(stored_media)
+    advertisement.media_kind = None
+    advertisement.media_content_type = None
+    advertisement.media_filename = None
+    advertisement.media_size_bytes = None
+    advertisement.updated_at = datetime.utcnow()
+    db.add_all(
+        [
+            advertisement,
+            AuditLog(
+                actor_type=admin.role,
+                action="ADVERTISEMENT_MEDIA_REMOVED",
+                entity_type="ADVERTISEMENT",
+                entity_id=advertisement.id,
+            ),
+        ]
     )
     db.commit()
     return advertisement_payload(advertisement, public=False)
@@ -1509,6 +1663,39 @@ def record_advertisement_impression(
         raise HTTPException(404, "Активная реклама не найдена")
     db.commit()
     return Response(status_code=204)
+
+
+@app.get("/v1/public/advertisements/{advertisement_id}/media")
+def advertisement_media(
+    advertisement_id: str,
+    db: Session = Depends(get_db),
+):
+    advertisement = db.get(Advertisement, advertisement_id)
+    if not advertisement or not advertisement.active or not advertisement.media_kind:
+        raise HTTPException(404, "Активный медиафайл рекламы не найден")
+    stored_media = db.get(AdvertisementMedia, advertisement.id)
+    if not stored_media:
+        raise HTTPException(404, "Медиафайл рекламы не найден")
+    presentation_extensions = {
+        "application/pdf": "pdf",
+        "application/vnd.ms-powerpoint": "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    }
+    extension = presentation_extensions.get(advertisement.media_content_type, "file")
+    disposition = (
+        f'attachment; filename="relyqo-presentation.{extension}"'
+        if advertisement.media_kind == "PRESENTATION"
+        else "inline"
+    )
+    return Response(
+        content=stored_media.media_data,
+        media_type=advertisement.media_content_type,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Content-Disposition": disposition,
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/v1/public/advertisements/{advertisement_id}/open")

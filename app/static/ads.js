@@ -21,6 +21,37 @@
     return node;
   }
 
+  function mediaElement(advertisement) {
+    const container = element("div", "relyqo-ad-media");
+    if (!advertisement.media) {
+      container.classList.add("relyqo-ad-media-empty");
+      return container;
+    }
+    if (advertisement.media.kind === "IMAGE") {
+      const picture = document.createElement("img");
+      picture.src = advertisement.media.url;
+      picture.alt = `Рекламное изображение: ${advertisement.headline}`;
+      picture.loading = "lazy";
+      container.append(picture);
+    } else if (advertisement.media.kind === "VIDEO") {
+      const video = document.createElement("video");
+      video.src = advertisement.media.url;
+      video.controls = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "metadata";
+      video.setAttribute("aria-label", `Рекламное видео: ${advertisement.headline}`);
+      container.append(video);
+    } else {
+      const presentation = element("a", "relyqo-ad-presentation", "▤ Открыть презентацию");
+      presentation.href = advertisement.media.url;
+      presentation.target = "_blank";
+      presentation.rel = "noopener sponsored";
+      container.append(presentation);
+    }
+    return container;
+  }
+
   function render(advertisement) {
     const dismissedKey = `relyqo-ad-dismissed:${advertisement.id}`;
     if (safeSession.get(dismissedKey)) return;
@@ -33,7 +64,7 @@
       element("strong", "relyqo-ad-title", advertisement.headline),
       element("span", "relyqo-ad-message", advertisement.message),
     );
-    root.append(label, copy);
+    root.append(label, mediaElement(advertisement), copy);
     if (advertisement.has_link && advertisement.click_url) {
       const action = element("a", "relyqo-ad-action", "Подробнее");
       action.href = advertisement.click_url;

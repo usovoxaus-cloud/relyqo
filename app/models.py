@@ -221,11 +221,24 @@ class Advertisement(Base):
     target_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     placement: Mapped[str] = mapped_column(String(30), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    media_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    media_content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    media_filename: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    media_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     impressions: Mapped[int] = mapped_column(Integer, default=0)
     clicks: Mapped[int] = mapped_column(Integer, default=0)
     created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class AdvertisementMedia(Base):
+    __tablename__ = "advertisement_media"
+    advertisement_id: Mapped[str] = mapped_column(
+        ForeignKey("advertisements.id"), primary_key=True
+    )
+    media_data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
 class User(Base):

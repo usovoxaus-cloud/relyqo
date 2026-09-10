@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
+import base64
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import (
     Advertisement,
+    AdvertisementMedia,
     AuditLog,
     AuthSession,
     Branch,
@@ -1591,6 +1593,35 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     assert created.json()["impressions"] == 0
     assert created.json()["clicks"] == 0
 
+    media_samples = [
+        (
+            "image/png",
+            "offer.png",
+            base64.b64decode(TEST_PHOTO_DATA_URL.split(",", 1)[1]),
+            "IMAGE",
+        ),
+        ("video/mp4", "offer.mp4", b"\x00\x00\x00\x18ftypmp42" + b"0" * 24, "VIDEO"),
+        ("application/pdf", "offer.pdf", b"%PDF-1.4\n%%EOF", "PRESENTATION"),
+    ]
+    for content_type, filename, media_bytes, expected_kind in media_samples:
+        uploaded = admin.post(
+            f"/v1/admin/advertisements/{advertisement_id}/media",
+            content=media_bytes,
+            headers={
+                "Content-Type": content_type,
+                "X-RELYQO-Filename": filename,
+            },
+        )
+        assert uploaded.status_code == 200
+        assert uploaded.json()["media"]["kind"] == expected_kind
+        assert uploaded.json()["media"]["filename"] == filename
+        served = TestClient(app).get(
+            f"/v1/public/advertisements/{advertisement_id}/media"
+        )
+        assert served.status_code == 200
+        assert served.headers["content-type"] == content_type
+        assert served.content == media_bytes
+
     public = TestClient(app)
     page = public.get("/consumer")
     assert page.status_code == 200
@@ -1605,6 +1636,7 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     )
     assert public_ad["has_link"] is True
     assert "target_url" not in public_ad
+    assert public_ad["media"]["kind"] == "PRESENTATION"
 
     assert public.post(
         f"/v1/public/advertisements/{advertisement_id}/impression"
@@ -1625,6 +1657,7 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
     assert "never changes" in campaigns.json()["score_policy"]
     with SessionLocal() as db:
         assert db.get(Advertisement, advertisement_id)
+        assert db.get(AdvertisementMedia, advertisement_id)
         unchanged = db.get(Organization, protected_organization_id)
         assert unchanged.score == 73.5
         assert unchanged.rating_count == 9
@@ -1634,6 +1667,14 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
                 AuditLog.entity_id == advertisement_id,
             )
         )
+
+    removed_media = admin.post(
+        f"/v1/admin/advertisements/{advertisement_id}/media/remove"
+    )
+    assert removed_media.status_code == 200
+    assert removed_media.json()["media"] is None
+    with SessionLocal() as db:
+        assert db.get(AdvertisementMedia, advertisement_id) is None
 
     paused = admin.post(
         f"/v1/admin/advertisements/{advertisement_id}/status",
