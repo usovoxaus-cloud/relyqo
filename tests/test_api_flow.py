@@ -1205,6 +1205,8 @@ def test_recovery_page_is_not_cached():
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO RECOVERY" in response.text
+    assert "Следующий уровень защиты — SMS‑код" in response.text
+    assert "Сейчас работает только безопасный резервный код" in response.text
 
 
 def test_ai_insights_are_owner_only_read_only_and_optional(monkeypatch):
@@ -1486,7 +1488,13 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     admin_page = TestClient(app).get("/admin")
     assert admin_page.status_code == 200
     assert admin_page.headers["cache-control"] == "no-store, max-age=0"
-    assert "Заявки организаций" in admin_page.text
+    assert "Центр управления RELYQO" in admin_page.text
+    assert "Админ‑панель отделена от приложения потребителей" in admin_page.text
+    consumer_page = TestClient(app).get("/consumer")
+    assert consumer_page.status_code == 200
+    assert consumer_page.headers["cache-control"] == "no-store, max-age=0"
+    assert "Оцените место" in consumer_page.text
+    assert TestClient(app).get("/v1/admin/dashboard").status_code == 401
 
 
 def test_admin_publishes_business_profile_without_changing_score_or_ratings():
@@ -1521,6 +1529,20 @@ def test_admin_publishes_business_profile_without_changing_score_or_ratings():
     )
     assert logged_in.status_code == 200
     assert logged_in.json()["role"] == "RELYQO_ADMIN"
+    dashboard = admin.get("/v1/admin/dashboard")
+    assert dashboard.status_code == 200
+    assert dashboard.headers["cache-control"] == "no-store, max-age=0"
+    assert dashboard.json()["overview"]["pending_profiles"] >= 1
+    assert dashboard.json()["boundaries"] == {
+        "consumer_portal": "/consumer",
+        "admin_portal": "/admin",
+        "owner_review_portal": "/review",
+        "admin_can_create_ratings": False,
+        "admin_can_edit_ratings": False,
+        "admin_can_edit_score": False,
+        "admin_can_decide_owner_review": False,
+        "score_engine": "deterministic_weighted_ces_v1",
+    }
     queue = admin.get("/v1/admin/business-applications")
     assert queue.status_code == 200
     assert any(
@@ -1565,19 +1587,26 @@ def test_admin_publishes_business_profile_without_changing_score_or_ratings():
     visit = business.post("/v1/visits/verify-token", json={"token": token})
     assert visit.status_code == 200
     assert visit.json()["organization"]["category"] == "PROFESSIONAL_SERVICE"
-    rated = business.post(
+    rating_body = {
+        "visit_id": visit.json()["visit_id"],
+        "overall": 8,
+        "food": 8,
+        "service": 8,
+        "cleanliness": 8,
+        "value": 8,
+    }
+    forbidden_owner_rating = business.post("/v1/ratings", json=rating_body)
+    assert forbidden_owner_rating.status_code == 403
+    assert "только потребитель" in forbidden_owner_rating.json()["detail"]
+    consumer = TestClient(app)
+    register_consumer(consumer)
+    rated = consumer.post(
         "/v1/ratings",
-        json={
-            "visit_id": visit.json()["visit_id"],
-            "overall": 8,
-            "food": 8,
-            "service": 8,
-            "cleanliness": 8,
-            "value": 8,
-        },
+        json=rating_body,
     )
     assert rated.status_code == 200
     assert rated.json()["relyqo_score"] == 80.0
+    assert rated.json()["saved_to_consumer_history"] is True
     duplicate = business.post(
         "/v1/business-owner/visit-token",
         json={"transaction_reference": receipt},

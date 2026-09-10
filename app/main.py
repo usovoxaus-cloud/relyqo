@@ -827,6 +827,15 @@ def web():
     return FileResponse(static / "index.html")
 
 
+@app.get("/consumer", include_in_schema=False)
+def consumer_entry_web():
+    """Explicit consumer entrance, separate from protected workspaces."""
+    return FileResponse(
+        static / "index.html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+
 @app.get("/owner", include_in_schema=False)
 def owner_web():
     return FileResponse(
@@ -1235,6 +1244,75 @@ def business_applications(
             "edit_score": False,
             "decide_rating_review": False,
             "publish_profile": True,
+        },
+    }
+
+
+@app.get("/v1/admin/dashboard")
+def admin_dashboard(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    """Read-only operational overview for the isolated administrator role."""
+    admin = session_user(relyqo_session, db, ADMIN_ROLE)
+
+    def count_rows(model, *conditions) -> int:
+        statement = select(func.count()).select_from(model)
+        if conditions:
+            statement = statement.where(*conditions)
+        return int(db.scalar(statement) or 0)
+
+    recent_events = db.scalars(
+        select(AuditLog)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(12)
+    ).all()
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return {
+        "admin": {"username": admin.username, "role": admin.role},
+        "overview": {
+            "pending_profiles": count_rows(
+                Organization, Organization.profile_status == "SELF_REGISTERED"
+            ),
+            "published_waiting_qr": count_rows(
+                Organization, Organization.profile_status == "PUBLISHED"
+            ),
+            "verified_partners": count_rows(
+                Organization, Organization.profile_status == "VERIFIED_PARTNER"
+            ),
+            "consumers": count_rows(
+                User, User.role == CONSUMER_ROLE, User.active.is_(True)
+            ),
+            "business_accounts": count_rows(
+                User, User.role == BUSINESS_OWNER_ROLE, User.active.is_(True)
+            ),
+            "verified_ratings": count_rows(Rating),
+            "community_ratings": count_rows(CommunityRating),
+            "consumer_places": count_rows(ManualPlace, ManualPlace.active.is_(True)),
+            "open_owner_reviews": count_rows(
+                OwnerReview, OwnerReview.status == "PENDING"
+            ),
+        },
+        "recent_audit": [
+            {
+                "actor_type": event.actor_type,
+                "action": event.action,
+                "entity_type": event.entity_type,
+                "entity_id": event.entity_id,
+                "created_at": event.created_at,
+            }
+            for event in recent_events
+        ],
+        "boundaries": {
+            "consumer_portal": "/consumer",
+            "admin_portal": "/admin",
+            "owner_review_portal": "/review",
+            "admin_can_create_ratings": False,
+            "admin_can_edit_ratings": False,
+            "admin_can_edit_score": False,
+            "admin_can_decide_owner_review": False,
+            "score_engine": "deterministic_weighted_ces_v1",
         },
     }
 
@@ -3362,6 +3440,15 @@ def rate(
     db: Session = Depends(get_db),
 ):
     normalized_photo = normalize_rating_photo(body.photo_data_url)
+    consumer = None
+    if relyqo_session:
+        signed_in_user = session_user(relyqo_session, db)
+        if signed_in_user.role != CONSUMER_ROLE:
+            raise HTTPException(
+                403,
+                "Оценку может отправить только потребитель RELYQO",
+            )
+        consumer = signed_in_user
     visit = db.get(Visit, body.visit_id)
     if not visit:
         raise HTTPException(404, "Посещение не найдено")
@@ -3373,12 +3460,6 @@ def rate(
     pending_reason = review_reason(
         body.overall, body.food, body.service, body.cleanliness, body.value
     )
-    consumer = None
-    if relyqo_session:
-        try:
-            consumer = session_user(relyqo_session, db, CONSUMER_ROLE)
-        except HTTPException:
-            consumer = None
     rating = Rating(
         **body.model_dump(exclude={"photo_data_url"}),
         organization_id=org.id,
