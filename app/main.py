@@ -367,12 +367,46 @@ def authenticate(username: str, password: str, db: Session) -> User | None:
         verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
     now = datetime.utcnow()
+    password_matches = verify_password(password, user.password_hash)
+    admin_secret_matches = bool(
+        user.active
+        and user.username == "relyqo-admin"
+        and user.role == ADMIN_ROLE
+        and settings.admin_password
+        and hmac.compare_digest(
+            password.encode("utf-8"), settings.admin_password.encode("utf-8")
+        )
+    )
+    admin_needs_recovery = bool(
+        admin_secret_matches
+        and (
+            not password_matches
+            or (user.locked_until is not None and user.locked_until > now)
+        )
+    )
+    if admin_needs_recovery:
+        user.password_hash = password_hash(password)
+        user.failed_login_attempts = 0
+        user.locked_until = None
+        revoke_user_sessions(user.id, db)
+        db.add_all(
+            [
+                user,
+                AuditLog(
+                    actor_type=ADMIN_ROLE,
+                    action="AUTH_ADMIN_RECOVERED_FROM_ENV",
+                    entity_type="USER",
+                    entity_id=user.id,
+                ),
+            ]
+        )
+        password_matches = True
     if user.locked_until and user.locked_until > now:
         raise HTTPException(
             429,
             "Слишком много попыток входа. Повторите через 15 минут",
         )
-    if not user.active or not verify_password(password, user.password_hash):
+    if not user.active or not password_matches:
         user.failed_login_attempts += 1
         if user.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
             user.locked_until = now + timedelta(minutes=LOGIN_LOCK_MINUTES)

@@ -4,6 +4,8 @@ from sqlalchemy import select
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import (
+    AuditLog,
+    AuthSession,
     Branch,
     CommunityRating,
     ManualPlace,
@@ -1495,6 +1497,62 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert consumer_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Оцените место" in consumer_page.text
     assert TestClient(app).get("/v1/admin/dashboard").status_code == 401
+
+
+def test_admin_password_can_be_recovered_from_rotated_render_secret():
+    Base.metadata.create_all(engine)
+    previous_password = "previous-admin-password-123"
+    rotated_password = "rotated-admin-password-456"
+    raw_session = f"admin-old-session-{uuid.uuid4().hex}"
+    with SessionLocal() as db:
+        admin_user = db.scalar(select(User).where(User.username == "relyqo-admin"))
+        if admin_user is None:
+            admin_user = User(
+                username="relyqo-admin",
+                password_hash=password_hash(previous_password),
+                role="RELYQO_ADMIN",
+            )
+            db.add(admin_user)
+            db.flush()
+        else:
+            admin_user.password_hash = password_hash(previous_password)
+            admin_user.role = "RELYQO_ADMIN"
+            admin_user.active = True
+        admin_user.failed_login_attempts = 5
+        admin_user.locked_until = datetime.utcnow() + timedelta(minutes=15)
+        db.add(
+            AuthSession(
+                user_id=admin_user.id,
+                token_hash=token_hash(raw_session),
+                expires_at=datetime.utcnow() + timedelta(hours=1),
+            )
+        )
+        db.commit()
+        admin_user_id = admin_user.id
+
+    old_session = TestClient(app)
+    old_session.cookies.set("relyqo_session", raw_session)
+    assert old_session.get("/v1/auth/me").status_code == 200
+
+    settings.admin_password = rotated_password
+    recovered = TestClient(app).post(
+        "/v1/auth/login",
+        json={"username": "relyqo-admin", "password": rotated_password},
+    )
+    assert recovered.status_code == 200
+    assert recovered.json()["role"] == "RELYQO_ADMIN"
+    assert old_session.get("/v1/auth/me").status_code == 401
+    with SessionLocal() as db:
+        admin_user = db.get(User, admin_user_id)
+        assert verify_password(rotated_password, admin_user.password_hash)
+        assert admin_user.failed_login_attempts == 0
+        assert admin_user.locked_until is None
+        assert db.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "AUTH_ADMIN_RECOVERED_FROM_ENV",
+                AuditLog.entity_id == admin_user_id,
+            )
+        )
 
 
 def test_admin_publishes_business_profile_without_changing_score_or_ratings():
