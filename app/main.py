@@ -878,6 +878,12 @@ def business_profile_payload(user: User, db: Session) -> dict:
 def consumer_html(filename: str) -> HTMLResponse:
     """Add the shared ad surface only to consumer-facing pages."""
     content = (static / filename).read_text(encoding="utf-8")
+    if filename == "index.html" and not settings.demo_mode:
+        content = content.replace(
+            'id="demo" class="secondary"',
+            'id="demo" class="secondary hidden" disabled aria-hidden="true"',
+            1,
+        )
     content = content.replace(
         "</head>",
         '<link rel="stylesheet" href="/static/ads.css?v=ads-3"></head>',
