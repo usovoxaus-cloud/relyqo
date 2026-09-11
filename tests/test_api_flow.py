@@ -167,6 +167,20 @@ def test_demo_visit_url():
     assert "?token=" in response.json()["visit_url"]
 
 
+def test_demo_button_is_hidden_when_demo_mode_is_disabled():
+    previous = settings.demo_mode
+    settings.demo_mode = False
+    try:
+        response = TestClient(app).get("/")
+        assert response.status_code == 200
+        assert (
+            'id="demo" class="secondary hidden" disabled aria-hidden="true"'
+            in response.text
+        )
+    finally:
+        settings.demo_mode = previous
+
+
 def test_fregat_qr_redirect():
     Base.metadata.create_all(engine)
     response = TestClient(app).get("/fregat", follow_redirects=False)
