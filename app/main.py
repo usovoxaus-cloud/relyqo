@@ -139,6 +139,12 @@ SERVICE_CATEGORY_ALIASES = {
     "ГОСТИНИЦА": "HOTEL",
     "ОБРАЗОВАНИЕ": "EDUCATION",
 }
+CITY_NAME_ALIASES = {
+    "tashkent": "Tashkent",
+    "toshkent": "Tashkent",
+    "ташкент": "Tashkent",
+    "тоshkent": "Tashkent",
+}
 TOP_ORGANIZATION_LIMIT = 3
 TOP_ORGANIZATION_MIN_RATINGS = 3
 
@@ -151,6 +157,11 @@ def service_category_group(value: str | None) -> str:
         if normalized in categories:
             return group
     return "OTHER"
+
+
+def normalize_city_name(value: str | None) -> str:
+    cleaned = " ".join((value or "").split())
+    return CITY_NAME_ALIASES.get(cleaned.casefold(), cleaned)
 
 
 def normalize_rating_photo(data_url: str | None) -> tuple[bytes, str, str] | None:
@@ -829,7 +840,7 @@ def normalize_business_profile(body: BusinessOwnerRegister | BusinessProfileUpda
         "category": body.category,
         "description": " ".join(body.description.split()),
         "address": " ".join(body.address.split()),
-        "city": " ".join(body.city.split()),
+        "city": normalize_city_name(body.city),
         "country_code": body.country_code.strip().upper(),
         "phone": " ".join((body.phone or "").split()) or None,
         "website": website,
@@ -859,7 +870,7 @@ def business_profile_payload(user: User, db: Session) -> dict:
         "website": organization.website,
         "profile_status": organization.profile_status,
         "address": branch.address or branch.name,
-        "city": branch.city or organization.city,
+        "city": normalize_city_name(branch.city or organization.city),
         "country_code": branch.country_code,
         "latitude": branch.latitude,
         "longitude": branch.longitude,
@@ -1282,7 +1293,7 @@ def business_applications(
                 "phone": organization.phone,
                 "website": organization.website,
                 "address": branch.address or branch.name,
-                "city": branch.city or organization.city,
+                "city": normalize_city_name(branch.city or organization.city),
                 "country_code": branch.country_code,
                 "latitude": branch.latitude,
                 "longitude": branch.longitude,
@@ -3037,7 +3048,7 @@ def manual_place_item(
         "category": place.category,
         "description": place.description,
         "address": place.address,
-        "city": place.city,
+        "city": normalize_city_name(place.city),
         "country_code": place.country_code,
         "latitude": place.latitude,
         "longitude": place.longitude,
@@ -3063,7 +3074,7 @@ def create_manual_place(
 ):
     name = " ".join(body.name.split())
     address = " ".join(body.address.split())
-    city = " ".join(body.city.split())
+    city = normalize_city_name(body.city)
     description = " ".join(body.description.split())
     country_code = body.country_code.strip().upper()
     google_place_id = (
@@ -3321,7 +3332,7 @@ def public_rated_organizations(
                 "verified_partner": organization.profile_status
                 == "VERIFIED_PARTNER",
                 "address": branch.address or branch.name,
-                "city": branch.city or organization.city,
+                "city": normalize_city_name(branch.city or organization.city),
                 "country_code": (branch.country_code or "").upper(),
                 "latitude": branch.latitude,
                 "longitude": branch.longitude,
@@ -3378,7 +3389,7 @@ def public_rated_organizations(
     }
     query = q.strip().casefold()
     selected_country = country_code.strip().upper()
-    selected_city = city.strip().casefold()
+    selected_city = normalize_city_name(city).casefold()
 
     def selected_score(item: dict) -> float:
         if score_type == "VERIFIED":
