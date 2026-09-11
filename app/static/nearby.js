@@ -591,8 +591,35 @@ function criteriaNode(item) {
   return box;
 }
 
+function hasMapLocation(item) {
+  if ([item.latitude, item.longitude].some((value) => value == null || String(value).trim() === "")) {
+    return false;
+  }
+  const latitude = Number(item.latitude);
+  const longitude = Number(item.longitude);
+  return Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180;
+}
+
 function mapLinkFor(item) {
-  return item.mapsUri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${item.latitude},${item.longitude}`)}`;
+  if (item.mapsUri) return item.mapsUri;
+  if (!hasMapLocation(item)) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${item.latitude},${item.longitude}`)}`;
+}
+
+function appendMapLink(actions, item, label) {
+  const href = mapLinkFor(item);
+  if (!href) return;
+  const mapLink = document.createElement("a");
+  mapLink.href = href;
+  mapLink.target = "_blank";
+  mapLink.rel = "noopener";
+  mapLink.textContent = label;
+  actions.append(mapLink);
 }
 
 function addMeta(meta, values) {
@@ -626,12 +653,8 @@ function internalActions(item, favorites) {
   rate.className = "rateLink";
   rate.href = ratingUrl(item);
   rate.textContent = "Оценить в RELYQO";
-  const mapLink = document.createElement("a");
-  mapLink.href = mapLinkFor(item);
-  mapLink.target = "_blank";
-  mapLink.rel = "noopener";
-  mapLink.textContent = "Открыть на карте";
-  actions.append(details, favorite, rate, mapLink);
+  actions.append(details, favorite, rate);
+  appendMapLink(actions, item, "Открыть на карте");
   if (item.kind === "partner" && item.verified_partner) {
     const verified = document.createElement("a");
     verified.href = "/";
@@ -678,12 +701,8 @@ function externalActions(item) {
   save.className = "importButton";
   save.textContent = "Сохранить в RELYQO";
   save.addEventListener("click", () => openManualDialog(item));
-  const mapLink = document.createElement("a");
-  mapLink.href = mapLinkFor(item);
-  mapLink.target = "_blank";
-  mapLink.rel = "noopener";
-  mapLink.textContent = "Открыть на Google Карте";
-  actions.append(rate, save, mapLink);
+  actions.append(rate, save);
+  appendMapLink(actions, item, "Открыть на Google Карте");
   return actions;
 }
 
