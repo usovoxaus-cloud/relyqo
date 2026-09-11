@@ -355,6 +355,10 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "ratedCatalogHasMore" in script.text
     assert "ТОП ОРГАНИЗАЦИЙ" in script.text
     assert "topOrganization" in script.text
+    assert "function hasMapLocation(item)" in script.text
+    assert "value == null" in script.text
+    assert "if (!hasMapLocation(item)) return null;" in script.text
+    assert 'appendMapLink(actions, item, "Открыть на карте")' in script.text
     assert "public-ai-advisor-1" in page.text
     assert "AI‑ПОМОЩНИК RELYQO" in page.text
     assert 'id="advisorForm"' in page.text
