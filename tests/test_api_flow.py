@@ -798,6 +798,14 @@ def test_public_nearby_branches_accepts_radius_above_fifty_kilometers():
     assert response.json()["radius_km"] == 250
 
 
+def test_tashkent_city_aliases_are_normalized():
+    assert main_module.normalize_city_name(" Tashkent ") == "Tashkent"
+    assert main_module.normalize_city_name("Toshkent") == "Tashkent"
+    assert main_module.normalize_city_name("Ташкент") == "Tashkent"
+    assert main_module.normalize_city_name("Тоshkent") == "Tashkent"
+    assert main_module.normalize_city_name("Самарканд") == "Самарканд"
+
+
 def test_manual_place_is_saved_listed_and_community_rateable():
     Base.metadata.create_all(engine)
     client = TestClient(app)
@@ -809,7 +817,7 @@ def test_manual_place_is_saved_listed_and_community_rateable():
             "category": "CAFE",
             "description": "Небольшое пользовательское кафе с кофе и выпечкой.",
             "address": "Community street 7",
-            "city": "Tashkent",
+            "city": "Тоshkent",
             "country_code": "uz",
             "latitude": 41.31,
             "longitude": 69.28,
@@ -820,6 +828,7 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert item["source"] == "MANUAL"
     assert item["verified"] is False
     assert item["category"] == "CAFE"
+    assert item["city"] == "Tashkent"
     assert item["description"].startswith("Небольшое")
     repeated = client.post(
         "/v1/public/manual-places",
@@ -837,6 +846,7 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert repeated.status_code == 200
     assert repeated.json()["status"] == "COMMUNITY_PLACE_EXISTS"
     assert repeated.json()["item"]["id"] == item["id"]
+    assert repeated.json()["item"]["city"] == "Tashkent"
     nearby = client.post(
         "/v1/public/manual-places/nearby",
         json={"latitude": 41.31, "longitude": 69.28, "radius_km": 2},
@@ -888,6 +898,7 @@ def test_manual_place_is_saved_listed_and_community_rateable():
     assert "UZ" in rated_catalog.json()["facets"]["countries"]
     catalog_item = rated_catalog.json()["items"][0]
     assert catalog_item["id"] == item["id"]
+    assert catalog_item["city"] == "Tashkent"
     assert catalog_item["score_type"] == "COMMUNITY"
     assert catalog_item["display_score"] == 84.0
     assert rated_catalog.json()["top_policy"]["paid_placement"] is False
