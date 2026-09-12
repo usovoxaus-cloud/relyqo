@@ -317,23 +317,31 @@ function viewRows() {
 }
 
 async function advisorCandidateRows() {
-  let rows = viewRows().filter((item) => item.kind !== "external" && hasRelyqoRatings(item));
-  if (!rows.length) {
+  const visibleRows = viewRows().filter((item) => item.kind !== "external" && hasRelyqoRatings(item));
+  let catalogRows = [];
+  try {
     const response = await fetch("/v1/public/rated-organizations?limit=40&sort=rating", { cache: "no-store" });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Не удалось загрузить оценки RELYQO");
-    rows = (data.items || []).map((item) => ({
+    catalogRows = (data.items || []).map((item) => ({
       ...item,
       title: item.organization || item.name,
       distance: currentCenter && item.latitude != null && item.longitude != null
         ? distanceKm(currentCenter, { lat: Number(item.latitude), lng: Number(item.longitude) })
         : null,
     })).filter(hasRelyqoRatings);
+  } catch (error) {
+    if (!visibleRows.length) throw error;
   }
   const unique = new Map();
-  for (const item of rows) {
+  for (const item of catalogRows) {
     const key = objectKey(item);
     if (!unique.has(key)) unique.set(key, item);
+  }
+  for (const item of visibleRows) {
+    const key = objectKey(item);
+    const existing = unique.get(key);
+    unique.set(key, existing ? { ...existing, ...item, distance: item.distance ?? existing.distance } : item);
   }
   return [...unique.values()].slice(0, 40);
 }
@@ -357,12 +365,15 @@ function renderAdvisorResult(data) {
       name.textContent = `${item.position}. ${item.name}`;
       const score = document.createElement("span");
       score.className = "advisorChoiceScore";
-      score.textContent = `${Number(item.score).toFixed(1)}/100`;
+      score.textContent = data.priority?.key === "distance" && item.distance_km != null
+        ? `${Number(item.distance_km).toFixed(1)} км`
+        : `${item.metric_label}: ${Number(item.metric_score ?? item.score).toFixed(1)}/100`;
       top.append(name, score);
       const meta = document.createElement("p");
       meta.className = "advisorChoiceMeta";
       const distance = item.distance_km == null ? "расстояние не определено" : `${Number(item.distance_km).toFixed(1)} км`;
-      meta.textContent = `${item.rating_count} оценок · ${distance} · ${item.confidence_label}`;
+      const scoreType = section.score_type === "VERIFIED" ? "Verified Score" : "Community Score";
+      meta.textContent = `${item.selection_reason} ${item.rating_count} оценок · ${distance} · ${item.confidence_label}. ${scoreType}: ${Number(item.score).toFixed(1)}/100.`;
       const actions = document.createElement("div");
       actions.className = "advisorChoiceActions";
       const details = document.createElement("a");
@@ -379,9 +390,14 @@ function renderAdvisorResult(data) {
   }
   $("#advisorDisclaimer").textContent = data.disclaimer;
   $("#advisorResult").classList.remove("hidden");
-  $("#advisorStatus").textContent = data.ai_generated
-    ? "ИИ объяснил выбор по данным RELYQO. Рейтинг рассчитан без участия ИИ."
-    : "Показан надёжный автоматический совет по данным RELYQO; AI‑сервис сейчас не понадобился.";
+  const category = data.priority?.category_label ? ` · ${data.priority.category_label}` : "";
+  if (data.ai_status === "OPENAI") {
+    $("#advisorStatus").textContent = `OpenAI активен · сравнено вариантов: ${data.candidate_count}${category}. Рейтинг рассчитан без участия AI.`;
+  } else if (data.ai_status === "FALLBACK_TEMPORARY_ERROR") {
+    $("#advisorStatus").textContent = `OpenAI временно не ответил. Показан точный автоматический подбор RELYQO по тем же данным${category}.`;
+  } else {
+    $("#advisorStatus").textContent = `Показан автоматический подбор RELYQO${category}; OpenAI не настроен.`;
+  }
 }
 
 async function askPublicAdvisor(question) {

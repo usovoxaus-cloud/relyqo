@@ -3,6 +3,7 @@ import base64
 import binascii
 import hmac
 import json
+import logging
 import math
 from pathlib import Path
 import re
@@ -78,6 +79,8 @@ from .security import (
     verify_password,
     verify_signature,
 )
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RELYQO API", version="1.1.0")
 app.add_middleware(
@@ -328,7 +331,7 @@ _ai_cache: dict[str, dict] = {}
 _ai_last_request: dict[str, datetime] = {}
 _ai_lock = Lock()
 _consumer_ai_last_request: dict[str, datetime] = {}
-PUBLIC_AI_COOLDOWN_SECONDS = 20
+PUBLIC_AI_COOLDOWN_SECONDS = 3
 _public_ai_cache: dict[str, dict] = {}
 _public_ai_last_request: dict[str, datetime] = {}
 
@@ -550,6 +553,52 @@ PUBLIC_ADVISOR_PRIORITIES = (
     ("distance", "близость", ("рядом", "близк", "недалеко")),
 )
 
+PUBLIC_ADVISOR_CATEGORY_INTENTS = (
+    (
+        "FOOD",
+        "рестораны и кафе",
+        SERVICE_CATEGORY_GROUPS["FOOD"],
+        (
+            "ресторан", "кафе", "кофейн", "пекар", "бар", "фуд-корт",
+            "еда", "поесть", "завтрак", "обед", "ужин",
+        ),
+    ),
+    (
+        "HOTEL", "гостиницы", SERVICE_CATEGORY_GROUPS["HOTEL"],
+        ("гостиниц", "отел", "hotel", "хостел"),
+    ),
+    (
+        "BEAUTY", "красота и уход", SERVICE_CATEGORY_GROUPS["BEAUTY"],
+        ("красот", "салон", "парикмах", "барбер", "спа"),
+    ),
+    (
+        "HEALTH", "здоровье", SERVICE_CATEGORY_GROUPS["HEALTH"],
+        ("здоров", "клиник", "врач", "стомат", "аптек", "медицин"),
+    ),
+    (
+        "ENTERTAINMENT", "развлечения", SERVICE_CATEGORY_GROUPS["ENTERTAINMENT"],
+        ("развлеч", "кино", "музе", "парк", "караоке"),
+    ),
+    (
+        "RETAIL", "магазины", SERVICE_CATEGORY_GROUPS["RETAIL"],
+        ("магазин", "покупк", "супермаркет", "торгов"),
+    ),
+    (
+        "AUTO_SERVICE", "автоуслуги", SERVICE_CATEGORY_GROUPS["AUTO_SERVICE"],
+        ("авто", "машин", "шиномонтаж", "заправ", "мойк"),
+    ),
+    (
+        "PROFESSIONAL_SERVICE",
+        "профессиональные услуги",
+        SERVICE_CATEGORY_GROUPS["PROFESSIONAL_SERVICE"],
+        ("юрист", "консульт", "агентств", "профессиональн"),
+    ),
+    (
+        "EDUCATION", "образование", SERVICE_CATEGORY_GROUPS["EDUCATION"],
+        ("образован", "университет", "школ", "обучен", "курс"),
+    ),
+)
+
 
 def public_advisor_priority(question: str) -> tuple[str, str]:
     normalized = question.casefold()
@@ -559,24 +608,51 @@ def public_advisor_priority(question: str) -> tuple[str, str]:
     return "overall", "общая оценка"
 
 
-def public_advisor_fallback(priority_label: str, sections: list[dict]) -> str:
-    leaders = [section["items"][0] for section in sections if section["items"]]
-    if not leaders:
+def public_advisor_category(
+    question: str,
+) -> tuple[str | None, str | None, set[str] | None]:
+    normalized = question.casefold()
+    for key, label, categories, words in PUBLIC_ADVISOR_CATEGORY_INTENTS:
+        if any(word in normalized for word in words):
+            return key, label, categories
+    return None, None, None
+
+
+def public_advisor_fallback(priority: dict, sections: list[dict]) -> str:
+    if not any(section["items"] for section in sections):
         return "Пока недостаточно оценок RELYQO для уверенного совета."
-    parts = []
-    for item in leaders:
-        parts.append(
-            f'{item["name"]}: {item["score"]:.1f}/100, '
-            f'{item["rating_count"]} оценок ({item["confidence_label"]})'
-        )
+    section_parts = []
+    for section in sections:
+        choices = []
+        for item in section["items"]:
+            metric_score = (
+                item["metric_score"]
+                if item["metric_score"] is not None
+                else item["score"]
+            )
+            if priority["key"] == "distance" and item["distance_km"] is not None:
+                criterion = f'{item["distance_km"]:.1f} км'
+            else:
+                criterion = f'{metric_score:.1f}/100 по критерию «{priority["label"]}»'
+            choices.append(
+                f'{item["name"]} — {criterion}, {item["rating_count"]} оценок'
+            )
+        if choices:
+            section_parts.append(f'{section["score_type"]}: ' + "; ".join(choices))
+    category = (
+        f' среди категории «{priority["category_label"]}»'
+        if priority.get("category_label")
+        else ""
+    )
     return (
-        f'По критерию «{priority_label}» лидируют: ' + "; ".join(parts) + ". "
-        "Перед посещением проверьте адрес, профиль и актуальные условия услуги."
+        f'Сравнение{category}: ' + ". ".join(section_parts) + ". "
+        "Данных пока мало, поэтому перед посещением проверьте адрес и актуальные условия услуги."
     )
 
 
 def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict, list[dict]]:
     priority_key, priority_label = public_advisor_priority(body.question)
+    category_key, category_label, requested_categories = public_advisor_category(body.question)
     distances: dict[str, float | None] = {}
     for candidate in body.candidates:
         current = distances.get(candidate.object_key)
@@ -793,6 +869,14 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
             }
         )
 
+    if requested_categories:
+        verified_items = [
+            item for item in verified_items if item["category"] in requested_categories
+        ]
+        community_items = [
+            item for item in community_items if item["category"] in requested_categories
+        ]
+
     def ranking_key(item: dict):
         distance = item["distance_km"]
         if priority_key == "distance":
@@ -819,16 +903,42 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
         selected = sorted(items, key=ranking_key)[:3]
         for position, item in enumerate(selected, 1):
             item["position"] = position
-            item["confidence_label"] = (
-                "достаточно подтверждений"
-                if item["rating_count"] >= 20
-                else "ранний сигнал — данных пока мало"
-            )
+            if item["rating_count"] >= 20:
+                item["confidence_label"] = "достаточно подтверждений"
+            elif item["rating_count"] >= 5:
+                item["confidence_label"] = "ограниченная выборка"
+            else:
+                item["confidence_label"] = "ранний сигнал — данных пока мало"
+            item["metric_label"] = priority_label
+            if priority_key == "distance" and item["distance_km"] is not None:
+                item["selection_reason"] = (
+                    f'Расстояние {item["distance_km"]:.1f} км; затем учтён '
+                    f'{score_type.title()} Score.'
+                )
+            elif priority_key == "distance":
+                item["selection_reason"] = (
+                    "Геолокация недоступна; порядок определён по рейтингу и числу оценок."
+                )
+            else:
+                metric_score = (
+                    item["metric_score"]
+                    if item["metric_score"] is not None
+                    else item["score"]
+                )
+                item["selection_reason"] = (
+                    f'{priority_label.capitalize()}: {metric_score:.1f}/100; '
+                    f'{score_type.title()} Score: {item["score"]:.1f}/100.'
+                )
         if selected:
             sections.append(
                 {"score_type": score_type, "label": label, "items": selected}
             )
-    return {"key": priority_key, "label": priority_label}, sections
+    return {
+        "key": priority_key,
+        "label": priority_label,
+        "category_key": category_key,
+        "category_label": category_label,
+    }, sections
 
 
 def normalize_business_profile(body: BusinessOwnerRegister | BusinessProfileUpdate) -> dict:
@@ -3690,11 +3800,16 @@ def public_advisor(
                     {
                         "position": item["position"],
                         "name": item["name"],
+                        "category": item["category"],
+                        "address": item["address"],
+                        "description": item["description"],
                         "score": item["score"],
+                        "metric": item["metric_label"],
                         "selected_metric_score": item["metric_score"],
                         "rating_count": item["rating_count"],
                         "confidence": item["confidence_label"],
                         "distance_km": item["distance_km"],
+                        "selection_reason": item["selection_reason"],
                     }
                     for item in section["items"]
                 ],
@@ -3727,18 +3842,35 @@ def public_advisor(
                 )
         _public_ai_last_request[rater_key] = now
     ai_generated = False
-    answer = public_advisor_fallback(priority["label"], sections)
+    ai_status = "FALLBACK_NOT_CONFIGURED"
+    answer = public_advisor_fallback(priority, sections)
     if settings.openai_api_key:
         try:
             answer = generate_public_advice(ai_context)
             ai_generated = True
-        except (AIUnavailableError, AIServiceError):
-            pass
+            ai_status = "OPENAI"
+        except AIUnavailableError:
+            ai_status = "FALLBACK_NOT_CONFIGURED"
+        except AIServiceError:
+            ai_status = "FALLBACK_TEMPORARY_ERROR"
+            logger.warning(
+                "OpenAI public advisor request failed; deterministic fallback used"
+            )
+            with _ai_lock:
+                _public_ai_last_request.pop(rater_key, None)
     result = {
         "answer": answer,
         "ai_generated": ai_generated,
+        "ai_status": ai_status,
         "priority": priority,
         "sections": sections,
+        "candidate_count": len(
+            {
+                item["object_key"]
+                for section in sections
+                for item in section["items"]
+            }
+        ),
         "generated_at": now.isoformat() + "Z",
         "cached": False,
         "read_only": True,
@@ -3749,13 +3881,14 @@ def public_advisor(
             "Verified и Community не смешиваются."
         ),
     }
-    with _ai_lock:
-        if len(_public_ai_cache) >= 200:
-            _public_ai_cache.clear()
-        _public_ai_cache[signature] = {
-            "expires_at": now + timedelta(minutes=AI_CACHE_MINUTES),
-            "response": result,
-        }
+    if ai_generated:
+        with _ai_lock:
+            if len(_public_ai_cache) >= 200:
+                _public_ai_cache.clear()
+            _public_ai_cache[signature] = {
+                "expires_at": now + timedelta(minutes=AI_CACHE_MINUTES),
+                "response": result,
+            }
     return result
 
 
