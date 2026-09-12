@@ -548,7 +548,11 @@ def consumer_object_info(object_key: str, source: str, db: Session) -> dict:
 PUBLIC_ADVISOR_PRIORITIES = (
     ("cleanliness", "чистота и состояние", ("чист", "поряд", "санитар")),
     ("service", "сервис", ("сервис", "обслуж", "персонал")),
-    ("value", "цена и ценность", ("цен", "дешев", "бюдж", "выгод")),
+    (
+        "value",
+        "цена и ценность",
+        ("цена", "цене", "цены", "цену", "стоимост", "дешев", "бюдж", "выгод"),
+    ),
     ("quality", "качество", ("качеств", "вкус", "еда", "результат")),
     ("distance", "близость", ("рядом", "близк", "недалеко")),
 )
@@ -912,8 +916,7 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
             item["metric_label"] = priority_label
             if priority_key == "distance" and item["distance_km"] is not None:
                 item["selection_reason"] = (
-                    f'Расстояние {item["distance_km"]:.1f} км; затем учтён '
-                    f'{score_type.title()} Score.'
+                    f'Расстояние: {item["distance_km"]:.1f} км.'
                 )
             elif priority_key == "distance":
                 item["selection_reason"] = (
@@ -926,8 +929,7 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
                     else item["score"]
                 )
                 item["selection_reason"] = (
-                    f'{priority_label.capitalize()}: {metric_score:.1f}/100; '
-                    f'{score_type.title()} Score: {item["score"]:.1f}/100.'
+                    f'{priority_label.capitalize()}: {metric_score:.1f}/100.'
                 )
         if selected:
             sections.append(
