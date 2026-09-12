@@ -622,6 +622,18 @@ def public_advisor_category(
     return None, None, None
 
 
+def rating_count_label(count: int) -> str:
+    remainder_100 = count % 100
+    remainder_10 = count % 10
+    if remainder_10 == 1 and remainder_100 != 11:
+        word = "оценка"
+    elif 2 <= remainder_10 <= 4 and not 12 <= remainder_100 <= 14:
+        word = "оценки"
+    else:
+        word = "оценок"
+    return f"{count} {word}"
+
+
 def public_advisor_fallback(priority: dict, sections: list[dict]) -> str:
     if not any(section["items"] for section in sections):
         return "Пока недостаточно оценок RELYQO для уверенного совета."
@@ -639,7 +651,7 @@ def public_advisor_fallback(priority: dict, sections: list[dict]) -> str:
             else:
                 criterion = f'{metric_score:.1f}/100 по критерию «{priority["label"]}»'
             choices.append(
-                f'{item["name"]} — {criterion}, {item["rating_count"]} оценок'
+                f'{item["name"]} — {criterion}, {item["rating_count_label"]}'
             )
         if choices:
             section_parts.append(f'{section["score_type"]}: ' + "; ".join(choices))
@@ -913,6 +925,7 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
                 item["confidence_label"] = "ограниченная выборка"
             else:
                 item["confidence_label"] = "ранний сигнал — данных пока мало"
+            item["rating_count_label"] = rating_count_label(item["rating_count"])
             item["metric_label"] = priority_label
             if priority_key == "distance" and item["distance_km"] is not None:
                 item["selection_reason"] = (
@@ -3809,6 +3822,7 @@ def public_advisor(
                         "metric": item["metric_label"],
                         "selected_metric_score": item["metric_score"],
                         "rating_count": item["rating_count"],
+                        "rating_count_label": item["rating_count_label"],
                         "confidence": item["confidence_label"],
                         "distance_km": item["distance_km"],
                         "selection_reason": item["selection_reason"],

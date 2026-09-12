@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlsplit
 from types import SimpleNamespace
 import sys
 import app.main as main_module
-from app.ai import generate_business_insight
+from app.ai import generate_business_insight, generate_public_advice
 
 OWNER_TEST_PASSWORD = "owner-test-password-123"
 REVIEW_TEST_PASSWORD = "review-test-password-123"
@@ -359,7 +359,9 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "value == null" in script.text
     assert "if (!hasMapLocation(item)) return null;" in script.text
     assert 'appendMapLink(actions, item, "Открыть на карте")' in script.text
-    assert "public-ai-advisor-2" in page.text
+    assert "public-ai-advisor-3" in page.text
+    assert "ratingCountLabel" in script.text
+    assert "progressTimer" in script.text
     assert "AI‑ПОМОЩНИК RELYQO" in page.text
     assert 'id="advisorForm"' in page.text
     assert "/v1/public/advisor" in script.text
@@ -439,6 +441,21 @@ def test_public_advisor_understands_metric_and_service_category_separately():
     assert category_key == "FOOD"
     assert category_label == "рестораны и кафе"
     assert {"RESTAURANT", "CAFE", "COFFEE_SHOP"}.issubset(categories)
+
+
+def test_rating_count_label_uses_correct_russian_forms():
+    expected = {
+        0: "0 оценок",
+        1: "1 оценка",
+        2: "2 оценки",
+        4: "4 оценки",
+        5: "5 оценок",
+        11: "11 оценок",
+        21: "21 оценка",
+        22: "22 оценки",
+        25: "25 оценок",
+    }
+    assert {count: main_module.rating_count_label(count) for count in expected} == expected
 
 
 def test_public_ai_advisor_uses_real_scores_and_keeps_score_types_separate(monkeypatch):
@@ -550,6 +567,7 @@ def test_public_ai_advisor_uses_real_scores_and_keeps_score_types_separate(monke
     ]
     assert data["sections"][0]["items"][0]["score"] == 86.4
     assert data["sections"][0]["items"][0]["metric_score"] == 100.0
+    assert data["sections"][0]["items"][0]["rating_count_label"] == "1 оценка"
     assert data["sections"][0]["items"][0]["metric_label"] == "чистота и состояние"
     assert "Чистота и состояние: 100.0/100" in data["sections"][0]["items"][0]["selection_reason"]
     assert data["sections"][1]["items"][0]["score"] == 78.0
@@ -1392,6 +1410,40 @@ def test_openai_request_is_aggregate_only_and_not_stored(monkeypatch):
     assert captured["text"] == {"verbosity": "low"}
     assert "test-secret" not in captured["input"]
     assert "не изменяй RELYQO Score" in captured["instructions"]
+
+
+def test_public_openai_advisor_uses_fast_stateless_mode(monkeypatch):
+    captured = {}
+
+    class FakeResponses:
+        def create(self, **kwargs):
+            captured["request"] = kwargs
+            return SimpleNamespace(output_text="Короткое сравнение")
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+            self.responses = FakeResponses()
+
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setattr(settings, "openai_api_key", "test-secret")
+    monkeypatch.setattr(settings, "openai_model", "gpt-5.6-luna")
+    result = generate_public_advice(
+        {"question": "Где лучше?", "recommendations": []}
+    )
+    assert result == "Короткое сравнение"
+    assert captured["client"] == {
+        "api_key": "test-secret",
+        "timeout": 20.0,
+        "max_retries": 0,
+    }
+    request = captured["request"]
+    assert request["model"] == "gpt-5.6-luna"
+    assert request["max_output_tokens"] == 240
+    assert request["reasoning"] == {"effort": "none"}
+    assert request["store"] is False
+    assert request["text"] == {"verbosity": "low"}
+    assert "test-secret" not in request["input"]
 
 
 def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
