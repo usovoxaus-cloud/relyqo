@@ -51,6 +51,22 @@ const categoryNames = {
   OTHER: "Другая услуга",
 };
 
+function russianCount(count, forms) {
+  const value = Number(count) || 0;
+  const remainder100 = value % 100;
+  const remainder10 = value % 10;
+  const form = remainder10 === 1 && remainder100 !== 11
+    ? forms[0]
+    : remainder10 >= 2 && remainder10 <= 4 && !(remainder100 >= 12 && remainder100 <= 14)
+      ? forms[1]
+      : forms[2];
+  return `${value} ${form}`;
+}
+
+function ratingCountLabel(count) {
+  return russianCount(count, ["оценка", "оценки", "оценок"]);
+}
+
 const googlePlaceTypes = {
   ALL: [
     "restaurant", "cafe", "coffee_shop", "bakery", "bar", "food_court",
@@ -373,7 +389,8 @@ function renderAdvisorResult(data) {
       meta.className = "advisorChoiceMeta";
       const distance = item.distance_km == null ? "расстояние не определено" : `${Number(item.distance_km).toFixed(1)} км`;
       const scoreType = section.score_type === "VERIFIED" ? "Verified Score" : "Community Score";
-      meta.textContent = `${item.selection_reason} ${item.rating_count} оценок · ${distance} · ${item.confidence_label}. ${scoreType}: ${Number(item.score).toFixed(1)}/100.`;
+      const countLabel = item.rating_count_label || ratingCountLabel(item.rating_count);
+      meta.textContent = `${item.selection_reason} ${countLabel} · ${distance} · ${item.confidence_label}. ${scoreType}: ${Number(item.score).toFixed(1)}/100.`;
       const actions = document.createElement("div");
       actions.className = "advisorChoiceActions";
       const details = document.createElement("a");
@@ -392,7 +409,8 @@ function renderAdvisorResult(data) {
   $("#advisorResult").classList.remove("hidden");
   const category = data.priority?.category_label ? ` · ${data.priority.category_label}` : "";
   if (data.ai_status === "OPENAI") {
-    $("#advisorStatus").textContent = `OpenAI активен · сравнено вариантов: ${data.candidate_count}${category}. Рейтинг рассчитан без участия AI.`;
+    const candidateLabel = russianCount(data.candidate_count, ["вариант", "варианта", "вариантов"]);
+    $("#advisorStatus").textContent = `OpenAI активен · сравнено: ${candidateLabel}${category}. Рейтинг рассчитан без участия AI.`;
   } else if (data.ai_status === "FALLBACK_TEMPORARY_ERROR") {
     $("#advisorStatus").textContent = `OpenAI временно не ответил. Показан точный автоматический подбор RELYQO по тем же данным${category}.`;
   } else {
@@ -405,6 +423,9 @@ async function askPublicAdvisor(question) {
   submit.disabled = true;
   $("#advisorResult").classList.add("hidden");
   $("#advisorStatus").textContent = "Сравниваем реальные оценки RELYQO…";
+  const progressTimer = window.setTimeout(() => {
+    $("#advisorStatus").textContent = "OpenAI анализирует варианты. Обычно ответ готов за несколько секунд…";
+  }, 5000);
   try {
     const rows = await advisorCandidateRows();
     if (!rows.length) throw new Error("Пока нет организаций с оценками RELYQO для сравнения");
@@ -426,6 +447,7 @@ async function askPublicAdvisor(question) {
   } catch (error) {
     $("#advisorStatus").textContent = error.message || "Помощник временно недоступен";
   } finally {
+    window.clearTimeout(progressTimer);
     submit.disabled = false;
   }
 }
@@ -784,7 +806,7 @@ function renderList(rows) {
     meta.className = "meta";
     const ratingMeta = item.kind === "partner"
       ? `${Number(item.verified_rating_count) || 0} Verified · ${Number(item.community_rating_count) || 0} Community`
-      : item.kind === "manual" ? `${Number(item.community_rating_count) || 0} Community оценок`
+      : item.kind === "manual" ? `Community · ${ratingCountLabel(item.community_rating_count)}`
         : "Данные показываются без сохранения";
     addMeta(meta, [
       item.distance != null && Number.isFinite(Number(item.distance)) ? `${Number(item.distance).toFixed(1)} км` : [item.city, item.country_code].filter(Boolean).join(" · ") || "Общий каталог",
