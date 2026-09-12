@@ -141,15 +141,15 @@ def generate_public_advice(context: dict) -> str:
 
         client = OpenAI(
             api_key=settings.openai_api_key,
-            timeout=30.0,
-            max_retries=1,
+            timeout=20.0,
+            max_retries=0,
         )
         response = client.responses.create(
             model=settings.openai_model,
             instructions=PUBLIC_ADVISOR_INSTRUCTIONS,
             input=json.dumps(context, ensure_ascii=False, sort_keys=True),
-            max_output_tokens=350,
-            reasoning={"effort": "low"},
+            max_output_tokens=240,
+            reasoning={"effort": "none"},
             store=False,
             text={"verbosity": "low"},
         )
