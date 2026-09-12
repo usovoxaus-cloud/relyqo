@@ -427,6 +427,12 @@ def test_public_advisor_understands_metric_and_service_category_separately():
         None,
         None,
     )
+    assert main_module.public_advisor_priority(
+        "Какой ресторан лучше по реальным оценкам?"
+    ) == ("overall", "общая оценка")
+    assert main_module.public_advisor_priority(
+        "Где лучше цена и качество?"
+    ) == ("value", "цена и ценность")
     category_key, category_label, categories = main_module.public_advisor_category(
         "Какой ресторан или кафе лучше?"
     )
