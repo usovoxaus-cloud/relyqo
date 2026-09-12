@@ -359,7 +359,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "value == null" in script.text
     assert "if (!hasMapLocation(item)) return null;" in script.text
     assert 'appendMapLink(actions, item, "Открыть на карте")' in script.text
-    assert "public-ai-advisor-1" in page.text
+    assert "public-ai-advisor-2" in page.text
     assert "AI‑ПОМОЩНИК RELYQO" in page.text
     assert 'id="advisorForm"' in page.text
     assert "/v1/public/advisor" in script.text
@@ -415,6 +415,24 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
         "result_limit": 200,
         "location_storage": "none",
     }
+
+
+def test_public_advisor_understands_metric_and_service_category_separately():
+    assert main_module.public_advisor_priority("Где лучше сервис?") == (
+        "service",
+        "сервис",
+    )
+    assert main_module.public_advisor_category("Где лучше сервис?") == (
+        None,
+        None,
+        None,
+    )
+    category_key, category_label, categories = main_module.public_advisor_category(
+        "Какой ресторан или кафе лучше?"
+    )
+    assert category_key == "FOOD"
+    assert category_label == "рестораны и кафе"
+    assert {"RESTAURANT", "CAFE", "COFFEE_SHOP"}.issubset(categories)
 
 
 def test_public_ai_advisor_uses_real_scores_and_keeps_score_types_separate(monkeypatch):
@@ -514,19 +532,74 @@ def test_public_ai_advisor_uses_real_scores_and_keeps_score_types_separate(monke
     assert response.status_code == 200
     data = response.json()
     assert data["ai_generated"] is True
-    assert data["priority"] == {"key": "cleanliness", "label": "чистота и состояние"}
+    assert data["priority"] == {
+        "key": "cleanliness",
+        "label": "чистота и состояние",
+        "category_key": None,
+        "category_label": None,
+    }
     assert [section["score_type"] for section in data["sections"]] == [
         "VERIFIED",
         "COMMUNITY",
     ]
     assert data["sections"][0]["items"][0]["score"] == 86.4
     assert data["sections"][0]["items"][0]["metric_score"] == 100.0
+    assert data["sections"][0]["items"][0]["metric_label"] == "чистота и состояние"
+    assert "Чистота и состояние: 100.0/100" in data["sections"][0]["items"][0]["selection_reason"]
     assert data["sections"][1]["items"][0]["score"] == 78.0
+    assert data["ai_status"] == "OPENAI"
+    assert data["candidate_count"] == 2
     assert data["consumer_is_only_rating_author"] is True
     assert data["score_changed"] is False
     assert captured["policy"]["external_ratings_used"] is False
+    assert captured["recommendations"][0]["items"][0]["category"] == "CAFE"
+    assert captured["recommendations"][0]["items"][0]["metric"] == "чистота и состояние"
+    assert captured["recommendations"][0]["items"][0]["address"] == "Advisor street 1"
     assert "latitude" not in str(captured)
     assert "longitude" not in str(captured)
+
+    main_module._public_ai_last_request.clear()
+    restaurant = TestClient(app).post(
+        "/v1/public/advisor",
+        json={
+            "question": "Какой ресторан или кафе лучше?",
+            "candidates": [
+                {"object_key": partner_key, "distance_km": 1.2},
+                {"object_key": manual_key, "distance_km": 0.7},
+            ],
+        },
+    )
+    assert restaurant.status_code == 200
+    restaurant_data = restaurant.json()
+    assert restaurant_data["priority"]["category_key"] == "FOOD"
+    assert restaurant_data["priority"]["category_label"] == "рестораны и кафе"
+    assert restaurant_data["candidate_count"] == 1
+    assert [section["score_type"] for section in restaurant_data["sections"]] == [
+        "VERIFIED"
+    ]
+    assert restaurant_data["sections"][0]["items"][0]["name"].startswith(
+        "Advisor Partner"
+    )
+
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    main_module._public_ai_cache.clear()
+    main_module._public_ai_last_request.clear()
+    fallback = TestClient(app).post(
+        "/v1/public/advisor",
+        json={
+            "question": "Где выше чистота?",
+            "candidates": [
+                {"object_key": partner_key, "distance_km": 1.2},
+                {"object_key": manual_key, "distance_km": 0.7},
+            ],
+        },
+    )
+    assert fallback.status_code == 200
+    fallback_data = fallback.json()
+    assert fallback_data["ai_generated"] is False
+    assert fallback_data["ai_status"] == "FALLBACK_NOT_CONFIGURED"
+    assert "Advisor Partner" in fallback_data["answer"]
+    assert "Advisor Community" in fallback_data["answer"]
 
 
 def test_community_rating_requires_consumer_and_stays_separate_from_score():
