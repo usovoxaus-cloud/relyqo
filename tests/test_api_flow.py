@@ -359,7 +359,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "value == null" in script.text
     assert "if (!hasMapLocation(item)) return null;" in script.text
     assert 'appendMapLink(actions, item, "Открыть на карте")' in script.text
-    assert "public-ai-advisor-3" in page.text
+    assert "map-recovery-4" in page.text
     assert "ratingCountLabel" in script.text
     assert "progressTimer" in script.text
     assert "AI‑ПОМОЩНИК RELYQO" in page.text

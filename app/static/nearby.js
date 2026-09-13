@@ -16,6 +16,9 @@ let showRatedOnly = false;
 let googleMap = null;
 let googleMarkers = [];
 let mapLoadPromise = null;
+let mapLoadError = "";
+const mapFallbackMarkup = $("#map").innerHTML;
+const mapTimeoutMs = 12000;
 let remoteSearchQuery = "";
 let remoteSearchIds = new Set();
 let pendingManualLocation = null;
@@ -482,20 +485,53 @@ function focusPlace(id) {
 async function loadGoogleMap() {
   if (googleMap) return true;
   if (mapLoadPromise) return mapLoadPromise;
+  mapLoadError = "";
   mapLoadPromise = (async () => {
     try {
-      const response = await fetch("/v1/public/maps-config", { cache: "no-store" });
+      const response = await fetch("/v1/public/maps-config", {
+        cache: "no-store", signal: AbortSignal.timeout(mapTimeoutMs),
+      });
+      if (!response.ok) throw new Error("Не удалось получить настройки карты");
       const config = await response.json();
-      if (!response.ok || !config.configured || !config.browser_key) return false;
+      if (!config.configured || !config.browser_key) {
+        throw new Error("Google Maps не настроена: отсутствует ключ карты на сервере");
+      }
       await new Promise((resolve, reject) => {
-        window.relyqoGoogleMapReady = resolve;
+        let settled = false;
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.browser_key)}&libraries=places&callback=relyqoGoogleMapReady&v=weekly`;
+        const finish = (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          script.onerror = null;
+          if (error) {
+            script.remove();
+            reject(error);
+          } else resolve();
+        };
+        const timer = setTimeout(() => finish(new Error("Превышено время ожидания Google Maps")), mapTimeoutMs);
+        window.relyqoGoogleMapReady = () => finish();
+        window.gm_authFailure = () => {
+          const error = new Error("Google Maps отклонила доступ: проверьте ключ, разрешённый домен, API и биллинг");
+          mapLoadError = error.message;
+          googleMap = null;
+          googleMarkers = [];
+          mapLoadPromise = null;
+          $("#map").classList.remove("googleReady");
+          $("#map").innerHTML = mapFallbackMarkup;
+          finish(error);
+          renderAll();
+          showError(`${mapLoadError}. Каталог RELYQO доступен.`);
+        };
+        if (window.google?.maps?.Map) {
+          finish();
+          return;
+        }
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.browser_key)}&libraries=places&callback=relyqoGoogleMapReady&loading=async&v=weekly`;
         script.async = true;
-        script.onerror = () => reject(new Error("Google Карта временно недоступна"));
+        script.onerror = () => finish(new Error("Google Карта временно недоступна"));
         document.head.append(script);
       });
-      $("#map").classList.add("googleReady");
       googleMap = new google.maps.Map($("#map"), {
         center: currentCenter,
         zoom: 13,
@@ -503,13 +539,21 @@ async function loadGoogleMap() {
         streetViewControl: false,
         fullscreenControl: true,
       });
+      $("#map").classList.add("googleReady");
       return true;
-    } catch {
-      mapLoadPromise = null;
+    } catch (error) {
+      mapLoadError = error.name === "TimeoutError" ? "Превышено время ожидания настроек карты" : error.message;
+      googleMap = null;
+      $("#map").classList.remove("googleReady");
+      $("#map").innerHTML = mapFallbackMarkup;
       return false;
     }
   })();
-  return mapLoadPromise;
+  try {
+    return await mapLoadPromise;
+  } finally {
+    mapLoadPromise = null;
+  }
 }
 
 function googleZoom() {
@@ -932,6 +976,7 @@ async function fetchNearby(url) {
     }),
     cache: "no-store",
   });
+  if (!response.ok) throw new Error(`Каталог RELYQO временно недоступен (HTTP ${response.status})`);
   const data = await response.json();
   if (!response.ok) throw new Error(data.detail || "Не удалось загрузить каталог RELYQO");
   return data.items || [];
@@ -1100,12 +1145,14 @@ async function refreshCatalog() {
   clearError();
   updateSearchScope();
   $("#status").textContent = "Ищем организации рядом…";
-  const mapReady = await loadGoogleMap();
+  const mapLoading = loadGoogleMap();
   [lastPartners, lastManualPlaces] = await Promise.all([
     fetchNearby("/v1/public/branches/nearby"),
     fetchNearby("/v1/public/manual-places/nearby"),
   ]);
   lastExternalPlaces = [];
+  renderAll();
+  const mapReady = await mapLoading;
   if (mapReady) {
     try {
       lastExternalPlaces = await fetchExternalPlaces();
@@ -1113,7 +1160,7 @@ async function refreshCatalog() {
       showError(`Google Places пока не ответил: ${error.message || "проверьте доступ Places API (New)"}. Объекты RELYQO показаны ниже.`);
     }
   } else {
-    showError("Google Карта не загрузилась. Объекты собственного каталога RELYQO всё равно показаны ниже.");
+    showError(`${mapLoadError || "Google Карта не загрузилась"}. Объекты собственного каталога RELYQO показаны ниже.`);
   }
   renderAll();
   $("#status").textContent = `Готово: ${lastPartners.length + lastManualPlaces.length} объектов RELYQO и ${lastExternalPlaces.length} организаций найдено на карте.`;
