@@ -53,10 +53,10 @@
     @media(max-width:620px){.shell{padding:14px}.top{align-items:flex-start}.brand{font-size:13px}.top a{max-width:120px;text-align:right;font-size:12px}.hero{padding:20px}.hero h1{font-size:36px}.heroPrinciples{display:none}.rankControls{padding:13px}.scopeButton{min-height:44px;font-size:13px}.filters{grid-template-columns:1fr}.load{grid-column:auto}.explain{align-items:flex-start;flex-direction:column}.explain a{width:100%;text-align:center}.row{grid-template-columns:50px 1fr}.score{grid-column:2;text-align:left}}
   </style>
 </head>
-<body>
+<body class="ui-audit page-rankings">
   <main class="shell">
     <header class="top"><div class="brand"><span class="mark">R</span><span>RELYQO RANKINGS</span></div><a href="/nearby">Перейти к оценке →</a></header>
-    <section class="hero"><p class="eyebrow">ПОДТВЕРЖДЁННЫЕ РЕЙТИНГИ</p><h1>Лучшие организации</h1><p>Сравнивайте качество услуг по оценкам реальных посетителей. Место попадает в официальный рейтинг после 20 оценок, подтверждённых одноразовым QR.</p><div class="heroPrinciples" aria-label="Принципы рейтинга"><span>Подтверждённые посещения</span><span>Детерминированный Score</span><span>Без влияния бизнеса</span></div></section>
+    <section class="hero"><p class="eyebrow">ПОДТВЕРЖДЁННЫЕ РЕЙТИНГИ</p><h1>Лучшие организации</h1><details class="rankingHelp"><summary>Как формируется рейтинг</summary><p>Сравнивайте качество услуг по оценкам реальных посетителей. Место попадает в официальный рейтинг после 20 оценок, подтверждённых одноразовым QR.</p><div class="heroPrinciples" aria-label="Принципы рейтинга"><span>Подтверждённые посещения</span><span>Детерминированный Score</span><span>Без влияния бизнеса</span></div></details></section>
     <section class="rankControls" aria-labelledby="rankingScaleTitle">
       <p id="rankingScaleTitle" class="controlTitle">Выберите масштаб рейтинга</p>
       <nav id="scopeTabs" class="scopeTabs" aria-label="Масштаб рейтинга"><a class="scopeButton active" data-scope="city" href="/rankings?scope=city">Город</a><a class="scopeButton" data-scope="country" href="/rankings?scope=country">Страна</a><a class="scopeButton" data-scope="world" href="/rankings?scope=world">Мир</a></nav>
@@ -68,11 +68,12 @@
       </form>
       <p id="scopeStatus" class="scopeStatus" aria-live="polite"></p>
     </section>
-    <div class="explain"><span><strong>Почему список пока небольшой?</strong><br>Официальный рейтинг содержит только подключённые организации RELYQO. Пользовательские места остаются в собственном каталоге и не смешиваются с Verified Score.</span><a href="/nearby">Все организации рядом</a></div>
-    <div class="summary"><span id="scopeLabel" class="pill">Город</span><span id="geographyCount" class="pill">Загружаем географию…</span><span id="rankedCount" class="pill">0 в рейтинге</span><span id="provisionalCount" class="pill">0 предварительных</span></div>
+
+
     <div id="error" class="error hidden"></div>
     <section class="list"><h2 id="resultsTitle">Официальные позиции</h2><div id="results"><div class="empty">Загружаем рейтинг…</div></div></section>
-    <p class="note">При одинаковом Verified Score выше находится организация с большим числом подтверждённых оценок, затем применяется алфавитный порядок. Community Score не влияет на официальные позиции. Business остаётся в режиме только для чтения; спорные подтверждённые оценки рассматривает RELYQO Owner Review.</p>
+    <div class="summary"><span id="scopeLabel" class="pill">Город</span><span id="geographyCount" class="pill">Загружаем географию…</span><span id="rankedCount" class="pill">0 в рейтинге</span><span id="provisionalCount" class="pill">0 предварительных</span></div>
+    <div class="explain"><span><strong>Почему список пока небольшой?</strong><br>Официальный рейтинг содержит только подключённые организации RELYQO. Пользовательские места остаются в собственном каталоге и не смешиваются с Verified Score.</span><a href="/nearby">Все организации рядом</a></div>    <p class="note">При одинаковом Verified Score выше находится организация с большим числом подтверждённых оценок, затем применяется алфавитный порядок. Community Score не влияет на официальные позиции. Business остаётся в режиме только для чтения; спорные подтверждённые оценки рассматривает RELYQO Owner Review.</p>
   </main>
   <script>
     const $=id=>document.getElementById(id);const labels={world:'Мир',country:'Страна',city:'Город'};const categoryLabels={RESTAURANT:'Ресторан',CAFE:'Кафе',COFFEE_SHOP:'Кофейня',BAKERY:'Пекарня',BAR:'Бар',FOOD_COURT:'Фуд-корт',HOTEL:'Гостиница',BEAUTY:'Красота и уход',HEALTH:'Здоровье',ENTERTAINMENT:'Развлечения',RETAIL:'Магазин',AUTO_SERVICE:'Автоуслуги',PROFESSIONAL_SERVICE:'Профессиональные услуги',EDUCATION:'Образование и образовательные учреждения',OTHER:'Другие услуги'};const initialParams=new URLSearchParams(location.search);const requestedCountry=(initialParams.get('country_code')||'UZ').toUpperCase();const requestedCity=initialParams.get('city')||'Tashkent';const regionNames=typeof Intl.DisplayNames==='function'?new Intl.DisplayNames(['ru'],{type:'region'}):null;let activeScope=['city','country','world'].includes(initialParams.get('scope'))?initialParams.get('scope'):'city';let locationDirectory=[];
