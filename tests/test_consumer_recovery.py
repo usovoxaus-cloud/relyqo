@@ -78,10 +78,15 @@ def test_consumer_recovery_ui_is_visible():
     client = TestClient(app)
     page = client.get("/me")
     recover = client.get("/recover")
+    community = client.get("/community-rate?object_key=manual:test-place&source=MANUAL&name=Test&address=Test&category=OTHER")
     assert page.status_code == 200
     assert recover.status_code == 200
+    assert community.status_code == 200
     assert "Восстановить пароль по резервному коду" in page.text
     assert 'id="recoveryCodeForm"' in page.text
     assert 'id="newRecoveryNotice"' in page.text
     assert "Войти в Мой RELYQO" in recover.text
     assert "Для потребителя резервный код показывается при регистрации" in recover.text
+    assert 'id="inlineRecovery"' in community.text
+    assert 'id="continueInlineRecovery"' in community.text
+    assert "data.recovery_code" in community.text
