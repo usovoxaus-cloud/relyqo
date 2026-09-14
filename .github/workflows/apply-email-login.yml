@@ -14,7 +14,9 @@ jobs:
           ref: relyqo-email-login-2026-09-14
           fetch-depth: 0
       - name: Implement
-        run: python .github/apply_email_login.py
+        run: |
+          python .github/apply_email_login.py
+          python .github/fix_stale_tests.py
       - name: Validate
         run: |
           git diff --check
@@ -22,7 +24,7 @@ jobs:
           python -m pytest -q
       - name: Commit
         run: |
-          rm -f .github/apply_email_login.py .github/workflows/apply-email-login.yml
+          rm -f .github/apply_email_login.py .github/fix_stale_tests.py .github/workflows/apply-email-login.yml
           git add -A
           git diff --cached --check
           git config user.name "RELYQO Bot"
