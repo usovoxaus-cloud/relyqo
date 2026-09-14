@@ -393,9 +393,13 @@ def bootstrap_user(username: str, password: str, db: Session) -> User | None:
 
 
 def authenticate(username: str, password: str, db: Session) -> User | None:
-    user = db.scalar(select(User).where(User.username == username))
+    login_identifier = username.strip().lower()
+    lookup_username = login_identifier
+    if settings.owner_email and login_identifier == settings.owner_email:
+        lookup_username = "fregat-owner"
+    user = db.scalar(select(User).where(User.username == lookup_username))
     if not user:
-        user = bootstrap_user(username, password, db)
+        user = bootstrap_user(lookup_username, password, db)
     if not user:
         verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
@@ -1255,13 +1259,18 @@ def register_business_owner(
     db: Session = Depends(get_db),
 ):
     username = body.username.strip().lower()
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
+    valid_username = re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username)
+    valid_email = re.fullmatch(
+        r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+",
+        username,
+    )
+    if not (valid_username or valid_email):
         raise HTTPException(
             422,
-            "Имя: латинские буквы, цифры, точка, дефис или подчёркивание",
+            "Введите корректный e-mail или имя пользователя",
         )
     if db.scalar(select(User).where(User.username == username)):
-        raise HTTPException(409, "Это имя пользователя уже занято")
+        raise HTTPException(409, "Этот e-mail или имя пользователя уже заняты")
     profile = normalize_business_profile(body)
     organization = Organization(
         name=profile["organization_name"],

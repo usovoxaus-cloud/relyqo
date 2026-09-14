@@ -19,6 +19,7 @@ class Settings:
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.qr_secret = os.getenv("QR_SECRET", "development-secret-change-me-32chars")
         self.owner_password = os.getenv("OWNER_PASSWORD") or None
+        self.owner_email = (os.getenv("OWNER_EMAIL") or "").strip().lower() or None
         self.review_password = os.getenv("REVIEW_PASSWORD") or None
         self.admin_password = os.getenv("ADMIN_PASSWORD") or None
         self.openai_api_key = os.getenv("OPENAI_API_KEY") or None
