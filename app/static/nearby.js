@@ -850,7 +850,7 @@ function updateCatalogMode() {
   $("#catalogTitle").textContent = showRatedOnly ? "Оценённые в RELYQO" : "Каталог рядом";
   $("#catalogHint").textContent = showRatedOnly
     ? "Общий каталог работает без геолокации. Ищите по названию, сфере, адресу или городу."
-    : "Введите название и нажмите «Найти» или Enter. Пустое поле показывает все места рядом.";
+    : "Нажмите «Найти» или Enter для поиска.";
 }
 
 function renderAll() {
@@ -1170,6 +1170,9 @@ $("#favoritesFilter").addEventListener("click", () => {
 });
 $("#allOrganizationsTab").addEventListener("click", () => {
   showRatedOnly = false;
+  clearError();
+  $("#status").textContent = currentCenter ? "Каталог рядом с вами" : "Разрешите геолокацию для поиска рядом или откройте каталог с оценками.";
+  updateSearchScope();
   renderAll();
 });
 $("#ratedOrganizationsTab").addEventListener("click", async () => {
@@ -1177,6 +1180,8 @@ $("#ratedOrganizationsTab").addEventListener("click", async () => {
   try {
     await loadRatedCatalog();
     showRatedOnly = true;
+    $("#status").textContent = "Каталог с оценками загружен";
+    $("#scopeHint").textContent = "Этот каталог доступен без геолокации.";
     if ($("#sortMode").value === "distance") $("#sortMode").value = "rating";
     renderAll();
   } catch (error) {
