@@ -16,6 +16,11 @@ class Settings:
         self.database_url = postgres_url(
             os.getenv("DATABASE_URL", "sqlite:///./relyqo.db")
         )
+        self.resend_api_key = os.getenv("RESEND_API_KEY", "")
+        self.recovery_email_from = os.getenv("RECOVERY_EMAIL_FROM", "")
+        self.recovery_allow_local_urls = (
+            os.getenv("RECOVERY_ALLOW_LOCAL_URLS", "false").lower() == "true"
+        )
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.qr_secret = os.getenv("QR_SECRET", "development-secret-change-me-32chars")
         self.owner_password = os.getenv("OWNER_PASSWORD") or None

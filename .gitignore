@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 demo_visit_qr.png
 *.db
+
+.env.*
+!.env.example

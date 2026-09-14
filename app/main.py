@@ -18,6 +18,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
+from .password_recovery import register_recovery_routes
 from .ai import (
     AIServiceError,
     AIUnavailableError,
@@ -4563,3 +4564,6 @@ def fregat_ai_insights(
             "response": result,
         }
     return result
+
+# Consumer recovery extends the same users, password hashes and session revocation.
+register_recovery_routes(app, session_user, revoke_user_sessions)

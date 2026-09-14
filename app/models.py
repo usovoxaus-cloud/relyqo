@@ -284,3 +284,28 @@ class ConsumerFavorite(Base):
     object_key: Mapped[str] = mapped_column(String(320), index=True)
     source: Mapped[str] = mapped_column(String(30))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class ConsumerEmail(Base):
+    __tablename__ = "consumer_emails"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class PasswordRecoveryToken(Base):
+    __tablename__ = "password_recovery_tokens"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(20))
+    email: Mapped[str] = mapped_column(String(254))
+    password_fingerprint: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class RecoveryRateLimit(Base):
+    __tablename__ = "recovery_rate_limits"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)

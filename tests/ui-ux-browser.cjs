@@ -45,8 +45,8 @@ const paths = ['/', '/nearby', '/me', '/rankings', '/community-rate', '/admin', 
       assert.equal(await page.locator('#authGate').isVisible(),true);
       assert.equal(await page.locator('input[type=range]').first().inputValue(),'8');
       await page.goto(base+'/me');
-      await page.locator('.accessHelp summary').click();
-      assert.match(await page.locator('.accessHelp').innerText(),/Автоматический сброс пароля потребителя пока недоступен/);
+      await page.locator('.accessHelp a').click();
+      assert.equal(new URL(page.url()).pathname,'/forgot-password');
       await page.goto(base+'/review');
       let loginRequests=0;
       await page.route('**/v1/auth/login',r=>{loginRequests++;return r.fulfill({status:401,json:{detail:'Тест: неверный пароль'}})});
