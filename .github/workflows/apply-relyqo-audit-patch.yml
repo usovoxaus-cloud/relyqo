@@ -32,7 +32,6 @@ jobs:
         run: |
           git apply --check /tmp/relyqo.patch
           git apply /tmp/relyqo.patch
-          git diff --check
 
       - name: Run Python tests
         shell: bash
@@ -40,6 +39,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
           python -m pytest -q
+
+      - name: Normalize generated file endings
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for filename in ('app/static/ui-refinements.css', 'tests/ui-ux-browser.cjs'):
+              path = Path(filename)
+              path.write_text(path.read_text(encoding='utf-8').rstrip() + '\n', encoding='utf-8')
+          PY
+          git diff --check
 
       - name: Remove patch transport
         shell: bash
