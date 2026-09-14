@@ -1,0 +1,550 @@
+/* RELYQO premium Consumer layer — personal cabinet + shared polish */
+
+body:has(#registerForm) {
+  --premium-panel: rgba(11, 31, 47, .86);
+  --premium-panel-2: rgba(9, 24, 38, .92);
+  --premium-line: rgba(151, 190, 205, .16);
+  --premium-line-strong: rgba(114, 231, 191, .36);
+  --premium-text: #f5fbfc;
+  --premium-muted: #93aebb;
+  --premium-mint: #72e7bf;
+  --premium-mint-2: #b9f7df;
+  --premium-violet: #b4a2ff;
+  --premium-gold: #ffd27b;
+  --premium-shadow: 0 28px 80px rgba(0, 0, 0, .28);
+}
+
+body:has(#registerForm) .shell {
+  width: min(1180px, 100%) !important;
+  padding: 18px 18px 90px !important;
+}
+
+body:has(#registerForm) .top {
+  min-height: 64px;
+  margin: 0 0 18px !important;
+  padding: 10px 12px 10px 14px !important;
+  border: 1px solid var(--premium-line) !important;
+  border-radius: 20px !important;
+  background: rgba(6, 17, 29, .78) !important;
+  box-shadow: 0 14px 45px rgba(0, 0, 0, .20) !important;
+}
+
+body:has(#registerForm) .brand {
+  gap: 11px !important;
+  font-size: 13px;
+  letter-spacing: .06em !important;
+}
+
+body:has(#registerForm) .mark {
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 13px !important;
+  font-size: 20px !important;
+  background: linear-gradient(135deg, #78eac3, #a8f1d9) !important;
+  box-shadow: 0 8px 24px rgba(114, 231, 191, .16);
+}
+
+body:has(#registerForm) .nav {
+  gap: 6px !important;
+}
+
+body:has(#registerForm) .nav a {
+  padding: 9px 13px !important;
+  border: 1px solid transparent;
+  border-radius: 999px !important;
+  color: #bcd2da !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+}
+
+body:has(#registerForm) .nav a:hover {
+  border-color: var(--premium-line-strong);
+  background: rgba(114, 231, 191, .08) !important;
+  color: var(--premium-mint-2) !important;
+}
+
+body:has(#registerForm) .hero {
+  position: relative;
+  overflow: hidden;
+  min-height: 310px;
+  padding: clamp(28px, 4.5vw, 54px) !important;
+  border: 1px solid rgba(114, 231, 191, .20) !important;
+  border-radius: 30px !important;
+  background:
+    radial-gradient(circle at 82% 16%, rgba(180, 162, 255, .22), transparent 34%),
+    radial-gradient(circle at 12% 100%, rgba(114, 231, 191, .17), transparent 40%),
+    linear-gradient(135deg, rgba(12, 44, 49, .96), rgba(12, 25, 51, .96)) !important;
+  box-shadow: var(--premium-shadow) !important;
+}
+
+body:has(#registerForm) .hero::before {
+  content: "RELYQO";
+  position: absolute;
+  right: 28px;
+  top: 28px;
+  color: rgba(255, 255, 255, .035);
+  font-size: clamp(62px, 10vw, 132px);
+  font-weight: 1000;
+  letter-spacing: -.065em;
+  line-height: 1;
+  pointer-events: none;
+}
+
+body:has(#registerForm) .hero::after {
+  content: "Verified • Community • AI";
+  position: absolute;
+  right: 34px;
+  bottom: 30px;
+  padding: 8px 11px;
+  border: 1px solid rgba(114, 231, 191, .24);
+  border-radius: 999px;
+  background: rgba(5, 23, 31, .52);
+  color: #a9d8ca;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .04em;
+}
+
+body:has(#registerForm) .hero .eyebrow {
+  color: var(--premium-violet) !important;
+  letter-spacing: .17em !important;
+}
+
+body:has(#registerForm) .hero h1 {
+  max-width: 780px;
+  margin: 12px 0 15px !important;
+  font-size: clamp(42px, 6.2vw, 72px) !important;
+  line-height: .98 !important;
+  letter-spacing: -.055em !important;
+}
+
+body:has(#registerForm) .hero .lead {
+  max-width: 720px;
+  margin: 0;
+  color: #9fb7c2 !important;
+  font-size: 14px;
+  line-height: 1.7 !important;
+}
+
+body:has(#registerForm) .authGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+  margin-top: 18px !important;
+}
+
+body:has(#registerForm) .authCard {
+  position: relative;
+  overflow: hidden;
+  min-height: 330px;
+  padding: 28px !important;
+  border: 1px solid var(--premium-line) !important;
+  border-radius: 26px !important;
+  background: linear-gradient(155deg, rgba(12, 35, 52, .96), rgba(8, 23, 36, .95)) !important;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, .20) !important;
+}
+
+body:has(#registerForm) .authCard::before {
+  position: absolute;
+  right: 22px;
+  top: 18px;
+  color: rgba(255,255,255,.055);
+  font-size: 54px;
+  font-weight: 1000;
+  letter-spacing: -.06em;
+}
+
+body:has(#registerForm) .authCard:first-child::before { content: "01"; }
+body:has(#registerForm) .authCard:nth-child(2)::before { content: "02"; }
+
+body:has(#registerForm) .authCard h2 {
+  margin: 0 0 7px !important;
+  font-size: 25px;
+  letter-spacing: -.03em;
+}
+
+body:has(#registerForm) .authCard .lead {
+  margin: 0 0 20px;
+  font-size: 12px;
+  color: var(--premium-muted) !important;
+}
+
+body:has(#registerForm) .field {
+  gap: 7px !important;
+  margin-top: 12px !important;
+  color: #a8bec8 !important;
+  font-size: 10px !important;
+  letter-spacing: .02em;
+}
+
+body:has(#registerForm) .field input {
+  height: 52px !important;
+  border: 1px solid rgba(151, 190, 205, .22) !important;
+  border-radius: 14px !important;
+  padding: 0 15px !important;
+  background: rgba(4, 17, 28, .80) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .02);
+}
+
+body:has(#registerForm) .field input:focus {
+  border-color: rgba(114, 231, 191, .58) !important;
+  box-shadow: 0 0 0 3px rgba(114, 231, 191, .08) !important;
+}
+
+body:has(#registerForm) .authCard .button {
+  min-height: 50px;
+  margin-top: 18px !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, #72e7bf, #a6efd7) !important;
+  box-shadow: 0 12px 28px rgba(114, 231, 191, .14);
+}
+
+body:has(#registerForm) .authCard .button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(114, 231, 191, .19);
+}
+
+body:has(#registerForm) #authError {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 158, 170, .26);
+  border-radius: 14px !important;
+  background: rgba(80, 28, 39, .72) !important;
+}
+
+body:has(#registerForm) #dashboard {
+  animation: rqFadeIn .26s ease both;
+}
+
+@keyframes rqFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+body:has(#registerForm) .accountBar {
+  position: sticky;
+  top: 88px;
+  z-index: 24;
+  margin-top: 18px !important;
+  padding: 13px 14px 13px 16px !important;
+  border: 1px solid rgba(114, 231, 191, .20) !important;
+  border-radius: 17px !important;
+  background: rgba(8, 36, 33, .82) !important;
+  box-shadow: 0 12px 38px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(18px);
+}
+
+body:has(#registerForm) .accountBar span {
+  color: #a9c4bd;
+  font-size: 12px;
+}
+
+body:has(#registerForm) .accountBar b {
+  color: #e6fff6;
+}
+
+body:has(#registerForm) .accountBar .secondary {
+  padding: 10px 13px !important;
+  border: 1px solid var(--premium-line) !important;
+  background: #132d3c !important;
+}
+
+body:has(#registerForm) .dashboardGrid {
+  grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr) !important;
+  gap: 18px !important;
+  margin-top: 18px !important;
+}
+
+body:has(#registerForm) .section,
+body:has(#registerForm) .photos,
+body:has(#registerForm) .assistant,
+body:has(#registerForm) .principle {
+  padding: 24px !important;
+  border: 1px solid var(--premium-line) !important;
+  border-radius: 24px !important;
+  background: linear-gradient(155deg, rgba(12, 34, 50, .92), rgba(8, 24, 37, .92)) !important;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, .18) !important;
+}
+
+body:has(#registerForm) .section h2,
+body:has(#registerForm) .photos h2,
+body:has(#registerForm) .assistant h2 {
+  margin: 5px 0 8px !important;
+  font-size: 24px;
+  letter-spacing: -.035em;
+}
+
+body:has(#registerForm) .section .eyebrow,
+body:has(#registerForm) .photos .eyebrow,
+body:has(#registerForm) .assistant .eyebrow {
+  color: var(--premium-violet) !important;
+}
+
+body:has(#registerForm) .historyTools {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  margin-top: 15px !important;
+}
+
+body:has(#registerForm) .historyTools select {
+  height: 44px !important;
+  border: 1px solid rgba(151, 190, 205, .20) !important;
+  border-radius: 12px !important;
+  background: rgba(5, 20, 31, .82) !important;
+}
+
+body:has(#registerForm) .item {
+  padding: 14px !important;
+  border: 1px solid rgba(151, 190, 205, .13) !important;
+  border-radius: 16px !important;
+  background: rgba(8, 28, 42, .78) !important;
+  box-shadow: none !important;
+}
+
+body:has(#registerForm) .item:hover {
+  border-color: rgba(114, 231, 191, .25) !important;
+  background: rgba(10, 36, 48, .88) !important;
+}
+
+body:has(#registerForm) .item h3 {
+  margin: 6px 0 4px !important;
+  font-size: 15px !important;
+}
+
+body:has(#registerForm) .item p,
+body:has(#registerForm) .itemDate {
+  color: #8fa9b5 !important;
+  font-size: 11px !important;
+}
+
+body:has(#registerForm) .itemActions a,
+body:has(#registerForm) .itemActions button {
+  border: 1px solid rgba(151, 190, 205, .14) !important;
+  border-radius: 10px !important;
+  background: #112f3f !important;
+}
+
+body:has(#registerForm) .score {
+  color: var(--premium-mint-2) !important;
+  font-size: 19px !important;
+}
+
+body:has(#registerForm) .typeBadge {
+  border: 1px solid rgba(180, 162, 255, .20);
+  background: rgba(55, 44, 104, .66) !important;
+  color: #ddd7ff !important;
+}
+
+body:has(#registerForm) .typeBadge.verified {
+  border-color: rgba(114, 231, 191, .22);
+  background: rgba(15, 79, 61, .68) !important;
+  color: #a9f2da !important;
+}
+
+body:has(#registerForm) .photos {
+  margin-top: 18px !important;
+}
+
+body:has(#registerForm) .photoGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+}
+
+body:has(#registerForm) .photoCard {
+  overflow: hidden;
+  border: 1px solid rgba(151, 190, 205, .14) !important;
+  border-radius: 18px !important;
+  background: rgba(7, 24, 37, .80) !important;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .14) !important;
+}
+
+body:has(#registerForm) .photoCard img {
+  height: 210px !important;
+}
+
+body:has(#registerForm) .photoCopy {
+  padding: 14px !important;
+}
+
+body:has(#registerForm) .photoHead h3 {
+  font-size: 15px !important;
+}
+
+body:has(#registerForm) .photoAnalysis {
+  border: 1px solid rgba(180, 162, 255, .16);
+  background: rgba(31, 28, 67, .72) !important;
+  color: #dcd8ff !important;
+}
+
+body:has(#registerForm) .assistant {
+  position: relative;
+  overflow: hidden;
+  margin-top: 18px !important;
+  border-color: rgba(180, 162, 255, .26) !important;
+  background:
+    radial-gradient(circle at 95% 0, rgba(180, 162, 255, .18), transparent 36%),
+    linear-gradient(135deg, rgba(15, 32, 55, .96), rgba(34, 25, 68, .92)) !important;
+}
+
+body:has(#registerForm) .assistant::after {
+  content: "AI";
+  position: absolute;
+  right: 22px;
+  top: 10px;
+  color: rgba(255,255,255,.035);
+  font-size: 86px;
+  font-weight: 1000;
+  line-height: 1;
+}
+
+body:has(#registerForm) .skillList {
+  gap: 8px !important;
+}
+
+body:has(#registerForm) .skillButton {
+  padding: 9px 12px !important;
+  border: 1px solid rgba(180, 162, 255, .24) !important;
+  background: rgba(41, 33, 82, .72) !important;
+  color: #ded9ff !important;
+}
+
+body:has(#registerForm) .skillButton:hover {
+  border-color: rgba(114, 231, 191, .34) !important;
+  background: rgba(26, 58, 62, .70) !important;
+  color: var(--premium-mint-2) !important;
+}
+
+body:has(#registerForm) .assistantForm textarea {
+  min-height: 82px !important;
+  border: 1px solid rgba(180, 162, 255, .24) !important;
+  border-radius: 14px !important;
+  background: rgba(5, 18, 31, .76) !important;
+}
+
+body:has(#registerForm) .answer {
+  border: 1px solid rgba(114, 231, 189, .16);
+  background: rgba(8, 44, 40, .72) !important;
+}
+
+body:has(#registerForm) .principle {
+  margin-top: 18px !important;
+  border-color: rgba(180, 162, 255, .22) !important;
+  background: rgba(24, 24, 57, .76) !important;
+  color: #c9c7df !important;
+  font-size: 12px;
+}
+
+body:has(#registerForm) .empty {
+  min-height: 96px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(151, 190, 205, .18) !important;
+  border-radius: 14px !important;
+  background: rgba(5, 20, 31, .42);
+  color: #839da9 !important;
+}
+
+@media (max-width: 980px) {
+  body:has(#registerForm) .photoGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  body:has(#registerForm) .shell {
+    padding: 10px 10px 86px !important;
+  }
+
+  body:has(#registerForm) .top {
+    position: sticky;
+    top: 8px;
+    align-items: center !important;
+    margin-bottom: 12px !important;
+  }
+
+  body:has(#registerForm) .nav {
+    gap: 2px !important;
+  }
+
+  body:has(#registerForm) .nav a {
+    padding: 8px 9px !important;
+    font-size: 10px !important;
+  }
+
+  body:has(#registerForm) .hero {
+    min-height: 0;
+    padding: 28px 22px 76px !important;
+    border-radius: 24px !important;
+  }
+
+  body:has(#registerForm) .hero::before {
+    right: 14px;
+    top: 18px;
+    font-size: 70px;
+  }
+
+  body:has(#registerForm) .hero::after {
+    left: 22px;
+    right: auto;
+    bottom: 20px;
+  }
+
+  body:has(#registerForm) .hero h1 {
+    font-size: clamp(38px, 12vw, 54px) !important;
+  }
+
+  body:has(#registerForm) .authGrid,
+  body:has(#registerForm) .dashboardGrid,
+  body:has(#registerForm) .historyTools,
+  body:has(#registerForm) .photoGrid {
+    grid-template-columns: 1fr !important;
+  }
+
+  body:has(#registerForm) .authCard {
+    min-height: 0;
+    padding: 22px !important;
+  }
+
+  body:has(#registerForm) .accountBar {
+    top: 80px;
+  }
+
+  body:has(#registerForm) .section,
+  body:has(#registerForm) .photos,
+  body:has(#registerForm) .assistant,
+  body:has(#registerForm) .principle {
+    padding: 20px !important;
+    border-radius: 20px !important;
+  }
+
+  body:has(#registerForm) .assistantForm {
+    grid-template-columns: 1fr !important;
+  }
+
+  body:has(#registerForm) .photoCard img {
+    height: 220px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  body:has(#registerForm) .brand span:last-child {
+    font-size: 11px;
+  }
+
+  body:has(#registerForm) .nav a {
+    padding: 7px 8px !important;
+    font-size: 9px !important;
+  }
+
+  body:has(#registerForm) .hero {
+    padding-left: 18px !important;
+    padding-right: 18px !important;
+  }
+
+  body:has(#registerForm) .hero::after {
+    left: 18px;
+    font-size: 9px;
+  }
+
+  body:has(#registerForm) .item {
+    align-items: flex-start !important;
+  }
+}
