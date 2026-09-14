@@ -1,0 +1,33 @@
+name: Apply email login support
+on:
+  push:
+    branches: [relyqo-email-login-2026-09-14]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[email-login-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: relyqo-email-login-2026-09-14
+          fetch-depth: 0
+      - name: Apply patch
+        run: |
+          git apply --check .github/email-login.patch
+          git apply .github/email-login.patch
+          git diff --check
+      - name: Test
+        run: |
+          python -m pip install -e '.[dev]'
+          python -m pytest -q
+      - name: Cleanup and commit
+        run: |
+          rm -f .github/email-login.patch .github/workflows/apply-email-login.yml
+          git add -A
+          git diff --cached --check
+          git config user.name "RELYQO Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Support Business Owner login by email [email-login-applied]"
+          git push origin HEAD:relyqo-email-login-2026-09-14
