@@ -96,4 +96,4 @@ def test_legacy_owner_can_login_with_configured_email_alias(monkeypatch):
     assert response.json()["role"] == "FREGAT_OWNER"
 '''
 if "test_business_owner_can_register_and_login_with_email_identifier" not in test_text:
-    tests.write_text(test_text.rstrip() + addition + "\n", encoding="utf-8")
+    tests.write_text((test_text.rstrip() + addition).rstrip() + "\n", encoding="utf-8")
