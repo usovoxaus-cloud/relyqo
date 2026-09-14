@@ -1,0 +1,59 @@
+name: Apply RELYQO UI UX audit patch
+
+on:
+  push:
+    branches:
+      - relyqo-ui-ux-audit-2121e1c
+
+permissions:
+  contents: write
+
+jobs:
+  apply-audit-patch:
+    if: github.event.head_commit.message == 'Transport RELYQO UI UX audit patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: relyqo-ui-ux-audit-2121e1c
+          fetch-depth: 0
+
+      - name: Reconstruct and verify uploaded patch
+        shell: bash
+        run: |
+          cat .github/relyqo-patch-parts/* > /tmp/relyqo.patch.gz.b64
+          base64 --decode /tmp/relyqo.patch.gz.b64 | gzip -d > /tmp/relyqo.patch
+          test "$(sha256sum /tmp/relyqo.patch | awk '{print $1}')" = "9d405ddcf4d14a095406e0d144a79523b632e8f391e933236cb0335fd3938f97"
+          test "$(wc -c < /tmp/relyqo.patch)" -eq 103954
+
+      - name: Validate and apply patch
+        shell: bash
+        run: |
+          git apply --check /tmp/relyqo.patch
+          git apply /tmp/relyqo.patch
+          git diff --check
+
+      - name: Run Python tests
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pytest -q
+
+      - name: Remove patch transport
+        shell: bash
+        run: |
+          rm -rf .github/relyqo-patch-parts
+          rm -f .github/relyqo-patch-ready
+          rm -f .github/workflows/apply-relyqo-audit-patch.yml
+
+      - name: Commit audited UI UX changes
+        shell: bash
+        run: |
+          git add -A
+          git diff --cached --check
+          git config user.name "RELYQO Audit Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "fix: improve RELYQO UI UX after audit"
+          git push origin HEAD:relyqo-ui-ux-audit-2121e1c
