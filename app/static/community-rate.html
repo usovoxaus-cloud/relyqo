@@ -43,6 +43,13 @@
           </form>
         </div>
         <div id="authError" class="authError hidden" role="alert"></div>
+        <div id="inlineRecovery" class="authForm hidden" aria-live="polite">
+          <h3>Сохраните резервный код</h3>
+          <p class="lead">Он понадобится, если вы забудете пароль. Код показывается только сейчас — сохраните его перед отправкой оценки.</p>
+          <code id="inlineRecoveryValue" style="display:block;margin:12px 0;overflow-wrap:anywhere;color:#b8f8e4"></code>
+          <button id="copyInlineRecovery" class="authButton secondary" type="button">Копировать код</button>
+          <button id="continueInlineRecovery" class="authButton" type="button">Я сохранил код — отправить оценку</button>
+        </div>
         <a id="loginLink" class="authFallback" href="/me">Открыть полный кабинет RELYQO →</a>
       </section>
       <p class="fine">Можно сначала выставить оценку. Аккаунт потребителя потребуется только при отправке. Бизнес, сотрудники RELYQO, Review и AI не участвуют в выставлении оценок.</p>
@@ -85,6 +92,9 @@
     const authStatus=document.querySelector('#authStatus');
     const authError=document.querySelector('#authError');
     const loginLink=document.querySelector('#loginLink');
+    const authGrid=document.querySelector('#authGate .authGrid');
+    const inlineRecovery=document.querySelector('#inlineRecovery');
+    const inlineRecoveryValue=document.querySelector('#inlineRecoveryValue');
     let photoDataUrl=null;
     let consumerAuthenticated=false;
     let pendingSubmission=false;
@@ -150,6 +160,13 @@
         if(!response.ok)throw new Error(data.detail||'Не удалось выполнить вход');
         if(data.role!=='CONSUMER')throw new Error('Этот аккаунт предназначен для другой панели RELYQO');
         consumerAuthenticated=true;
+        if(data.recovery_code){
+          authGrid.classList.add('hidden');
+          inlineRecoveryValue.textContent=data.recovery_code;
+          inlineRecovery.classList.remove('hidden');
+          authStatus.textContent='Аккаунт создан. Сначала сохраните резервный код восстановления.';
+          return;
+        }
         authGate.classList.add('hidden');
         authStatus.textContent=`Вход выполнен как ${data.username}. Отправляем оценку…`;
         if(pendingSubmission){pendingSubmission=false;await submitRating()}
@@ -177,6 +194,8 @@
       if(!consumerAuthenticated){pendingSubmission=true;revealAuthGate();return}
       submitRating();
     });
+    document.querySelector('#copyInlineRecovery').addEventListener('click',async()=>{const button=document.querySelector('#copyInlineRecovery');try{await navigator.clipboard.writeText(inlineRecoveryValue.textContent);const original=button.textContent;button.textContent='Скопировано ✓';setTimeout(()=>button.textContent=original,1400)}catch{showAuthError('Не удалось скопировать автоматически. Выделите код и скопируйте его вручную.')}});
+    document.querySelector('#continueInlineRecovery').addEventListener('click',async()=>{inlineRecovery.classList.add('hidden');authGrid.classList.remove('hidden');authGate.classList.add('hidden');authStatus.textContent='Резервный код сохранён. Отправляем оценку…';if(pendingSubmission){pendingSubmission=false;await submitRating()}});
     document.querySelector('#registerInline').addEventListener('submit',event=>{event.preventDefault();authenticateInline(event.currentTarget,'/v1/consumer/register')});
     document.querySelector('#loginInline').addEventListener('submit',event=>{event.preventDefault();authenticateInline(event.currentTarget,'/v1/auth/login')});
   </script>

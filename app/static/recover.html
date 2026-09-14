@@ -15,16 +15,16 @@
     <section class="card">
       <p class="eyebrow">ВОССТАНОВЛЕНИЕ ДОСТУПА</p>
       <h1>Установить новый пароль</h1>
-      <p class="lead">Используйте резервный код, который был заранее создан в защищённой панели. После восстановления код и все старые сеансы станут недействительными.</p>
+      <p class="lead">Используйте резервный код RELYQO, сохранённый при регистрации или созданный в разделе безопасности аккаунта. После восстановления код и все старые сеансы станут недействительными.</p>
       <div id="form" class="fields">
-        <label>Имя пользователя<input id="username" autocomplete="username" placeholder="fregat-owner или relyqo-reviewer"></label>
+        <label>Имя пользователя<input id="username" autocomplete="username" placeholder="Ваше имя пользователя RELYQO"></label>
         <label>Резервный код<input id="recoveryCode" autocomplete="off" placeholder="relyqo-..."></label>
         <label>Новый пароль<input id="newPassword" type="password" autocomplete="new-password" placeholder="Минимум 10 символов"></label>
         <button id="recover">Восстановить доступ</button>
       </div>
       <p id="error" class="error"></p>
-      <div id="success" class="success hidden">Пароль изменён. Резервный код использован и больше не действует.<div class="links"><a href="/owner">Войти как владелец</a><a href="/review">Открыть RELYQO Review</a></div></div>
-      <div class="note">Для сотрудника Fregat пароль сбрасывает владелец в панели Owner. Резервный код предназначен только для владельца и независимого RELYQO Review.</div>
+      <div id="success" class="success hidden">Пароль изменён. Резервный код использован и больше не действует.<div class="links"><a href="/me">Войти в Мой RELYQO</a><a href="/owner">Войти как владелец</a><a href="/review">Открыть RELYQO Review</a></div></div>
+      <div class="note">Для потребителя резервный код показывается при регистрации и может быть заменён в Мой RELYQO → Безопасность. Для сотрудника Fregat пароль по-прежнему сбрасывает владелец в панели Owner.</div>
       <div class="future"><b>Следующий уровень защиты — SMS‑код</b>После подключения SMS‑провайдера здесь появится восстановление по заранее подтверждённому номеру. Код будет одноразовым, ограниченным по времени и числу попыток. Сейчас работает только безопасный резервный код — неработающей SMS‑кнопки нет.</div>
     </section>
   </main>

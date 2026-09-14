@@ -1210,6 +1210,9 @@ def register_consumer(
         db.rollback()
         raise HTTPException(409, "Это имя пользователя уже занято")
     raw_token = secrets.token_urlsafe(32)
+    raw_recovery_code = f"relyqo-{secrets.token_urlsafe(32)}"
+    user.recovery_code_hash = token_hash(raw_recovery_code)
+    user.recovery_code_created_at = datetime.utcnow()
     db.add_all(
         [
             AuthSession(
@@ -1236,7 +1239,12 @@ def register_consumer(
         samesite="strict",
         path="/",
     )
-    return {"username": user.username, "role": user.role}
+    return {
+        "username": user.username,
+        "role": user.role,
+        "recovery_code": raw_recovery_code,
+        "recovery_code_warning": "SAVE_NOW_SHOWN_ONCE",
+    }
 
 
 @app.post("/v1/business-owner/register")
@@ -2629,7 +2637,7 @@ def create_recovery_code(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    user = session_user(relyqo_session, db, {OWNER_ROLE, REVIEWER_ROLE})
+    user = session_user(relyqo_session, db, {OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
     if not verify_password(body.current_password, user.password_hash):
         db.add(
             AuditLog(
@@ -2669,7 +2677,7 @@ def recover_account(body: AccountRecovery, response: Response, db: Session = Dep
     username = body.username.strip().lower()
     user = db.scalar(select(User).where(User.username == username))
     supplied_hash = token_hash(body.recovery_code.strip())
-    valid_role = bool(user and user.role in {OWNER_ROLE, REVIEWER_ROLE})
+    valid_role = bool(user and user.role in {OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
     valid_code = bool(
         valid_role
         and user.recovery_code_hash
