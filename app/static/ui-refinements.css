@@ -130,4 +130,3 @@ body.ui-audit:has(#registerForm) .nav a { font-size:13px!important; }
 .page-rankings .list h2 { font-size:22px!important; }
 @media(max-width:720px) { .page-rankings .filters .field:nth-child(3) { grid-column:1/-1; } }
 .page-rankings .scopeStatus { padding:8px!important; font-size:12px!important; }
-

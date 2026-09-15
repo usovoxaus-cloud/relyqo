@@ -394,9 +394,13 @@ def bootstrap_user(username: str, password: str, db: Session) -> User | None:
 
 
 def authenticate(username: str, password: str, db: Session) -> User | None:
-    user = db.scalar(select(User).where(User.username == username))
+    login_identifier = username.strip().lower()
+    lookup_username = login_identifier
+    if settings.owner_email and login_identifier == settings.owner_email:
+        lookup_username = "fregat-owner"
+    user = db.scalar(select(User).where(User.username == lookup_username))
     if not user:
-        user = bootstrap_user(username, password, db)
+        user = bootstrap_user(lookup_username, password, db)
     if not user:
         verify_password(password, _DUMMY_PASSWORD_HASH)
         return None
@@ -1211,6 +1215,9 @@ def register_consumer(
         db.rollback()
         raise HTTPException(409, "Это имя пользователя уже занято")
     raw_token = secrets.token_urlsafe(32)
+    raw_recovery_code = f"relyqo-{secrets.token_urlsafe(32)}"
+    user.recovery_code_hash = token_hash(raw_recovery_code)
+    user.recovery_code_created_at = datetime.utcnow()
     db.add_all(
         [
             AuthSession(
@@ -1237,7 +1244,12 @@ def register_consumer(
         samesite="strict",
         path="/",
     )
-    return {"username": user.username, "role": user.role}
+    return {
+        "username": user.username,
+        "role": user.role,
+        "recovery_code": raw_recovery_code,
+        "recovery_code_warning": "SAVE_NOW_SHOWN_ONCE",
+    }
 
 
 @app.post("/v1/business-owner/register")
@@ -1248,13 +1260,18 @@ def register_business_owner(
     db: Session = Depends(get_db),
 ):
     username = body.username.strip().lower()
-    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
+    valid_username = re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username)
+    valid_email = re.fullmatch(
+        r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+",
+        username,
+    )
+    if not (valid_username or valid_email):
         raise HTTPException(
             422,
-            "Имя: латинские буквы, цифры, точка, дефис или подчёркивание",
+            "Введите корректный e-mail или имя пользователя",
         )
     if db.scalar(select(User).where(User.username == username)):
-        raise HTTPException(409, "Это имя пользователя уже занято")
+        raise HTTPException(409, "Этот e-mail или имя пользователя уже заняты")
     profile = normalize_business_profile(body)
     organization = Organization(
         name=profile["organization_name"],
@@ -2630,7 +2647,7 @@ def create_recovery_code(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    user = session_user(relyqo_session, db, {OWNER_ROLE, REVIEWER_ROLE})
+    user = session_user(relyqo_session, db, {OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
     if not verify_password(body.current_password, user.password_hash):
         db.add(
             AuditLog(
@@ -2670,7 +2687,7 @@ def recover_account(body: AccountRecovery, response: Response, db: Session = Dep
     username = body.username.strip().lower()
     user = db.scalar(select(User).where(User.username == username))
     supplied_hash = token_hash(body.recovery_code.strip())
-    valid_role = bool(user and user.role in {OWNER_ROLE, REVIEWER_ROLE})
+    valid_role = bool(user and user.role in {OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
     valid_code = bool(
         valid_role
         and user.recovery_code_hash

@@ -45,8 +45,11 @@ const paths = ['/', '/nearby', '/me', '/rankings', '/community-rate', '/admin', 
       assert.equal(await page.locator('#authGate').isVisible(),true);
       assert.equal(await page.locator('input[type=range]').first().inputValue(),'8');
       await page.goto(base+'/me');
+      await page.locator('.backupAccessHelp summary').click();
+      assert.equal(await page.locator('a[href="/recover?account=consumer"]').isVisible(),true);
       await page.locator('.accessHelp a').click();
       assert.equal(new URL(page.url()).pathname,'/forgot-password');
+
       await page.goto(base+'/review');
       let loginRequests=0;
       await page.route('**/v1/auth/login',r=>{loginRequests++;return r.fulfill({status:401,json:{detail:'Тест: неверный пароль'}})});
@@ -83,4 +86,3 @@ const paths = ['/', '/nearby', '/me', '/rankings', '/community-rate', '/admin', 
     }
   } finally { await browser.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1});
-

@@ -1074,7 +1074,7 @@ def test_education_institutions_are_supported_across_relyqo():
 
     assert '<option value="EDUCATION">Образование и образовательные учреждения</option>' in nearby_page.text
     assert '<option value="EDUCATION">Образование и образовательные учреждения</option>' in rankings_page.text
-    assert "['EDUCATION','Образование и образовательные учреждения']" in owner_page.text
+    assert "['EDUCATION','Образование']" in owner_page.text
     assert 'EDUCATION: "Образование и образовательные учреждения"' in nearby_script.text
     assert '"university"' in nearby_script.text
     assert '"educational_institution"' in nearby_script.text
@@ -1646,7 +1646,7 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     page = TestClient(app).get("/business-owner")
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
-    assert "Добавьте свою организацию" in page.text
+    assert "Управляйте профилем. Не рейтингом." in page.text
     assert "fill(event.currentTarget" not in page.text
     assert "const form=event.currentTarget" in page.text
     assert TestClient(app).get("/v1/business-owner/profile").status_code == 401
@@ -2116,3 +2116,58 @@ def test_admin_can_reject_business_profile_and_cannot_decide_twice():
         f"/v1/admin/business-applications/{organization_id}/decision",
         json={"decision": "PUBLISH"},
     ).status_code == 409
+
+
+def test_business_owner_can_register_and_login_with_email_identifier():
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    suffix = uuid.uuid4().hex[:8]
+    email = f"owner-{suffix}@example.com"
+    password = "business-password-123"
+    registered = client.post(
+        "/v1/business-owner/register",
+        json={
+            "username": email,
+            "password": password,
+            "organization_name": f"Email Service {suffix}",
+            "category": "PROFESSIONAL_SERVICE",
+            "description": "Проверка регистрации и входа владельца бизнеса по e-mail.",
+            "address": "Email street 10",
+            "city": "Tashkent",
+            "country_code": "UZ",
+            "phone": "+998 90 100 10 10",
+            "website": "https://example.com",
+            "latitude": 41.3,
+            "longitude": 69.25,
+        },
+    )
+    assert registered.status_code == 200
+    assert client.post("/v1/auth/logout").status_code == 200
+    logged_in = client.post(
+        "/v1/auth/login", json={"username": email.upper(), "password": password}
+    )
+    assert logged_in.status_code == 200
+    assert logged_in.json()["role"] == "BUSINESS_OWNER"
+    assert logged_in.json()["username"] == email
+
+
+def test_legacy_owner_can_login_with_configured_email_alias(monkeypatch):
+    Base.metadata.create_all(engine)
+    alias = "legacy-owner@example.com"
+    monkeypatch.setattr(settings, "owner_email", alias)
+    monkeypatch.setattr(settings, "owner_password", OWNER_TEST_PASSWORD)
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == "fregat-owner"))
+        if user:
+            user.password_hash = password_hash(OWNER_TEST_PASSWORD)
+            user.active = True
+            user.role = "FREGAT_OWNER"
+            db.add(user)
+            db.commit()
+    response = TestClient(app).post(
+        "/v1/auth/login",
+        json={"username": alias.upper(), "password": OWNER_TEST_PASSWORD},
+    )
+    assert response.status_code == 200
+    assert response.json()["username"] == "fregat-owner"
+    assert response.json()["role"] == "FREGAT_OWNER"
