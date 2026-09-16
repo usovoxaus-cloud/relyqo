@@ -1336,8 +1336,8 @@ def test_recovery_page_is_not_cached():
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO RECOVERY" in response.text
-    assert "Следующий уровень защиты — SMS‑код" in response.text
-    assert "Сейчас работает только безопасный резервный код" in response.text
+    assert 'href="/forgot-password"' in response.text
+    assert "Восстановление по SMS пока недоступно" in response.text
 
 
 def test_ai_insights_are_owner_only_read_only_and_optional(monkeypatch):

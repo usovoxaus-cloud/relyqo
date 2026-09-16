@@ -5,6 +5,8 @@ import logging
 import re
 import secrets
 import json
+import hashlib
+import hmac
 from urllib.request import Request as MailRequest, HTTPRedirectHandler, build_opener
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -27,7 +29,9 @@ from .security import password_hash, token_hash, verify_password
 
 logger = logging.getLogger(__name__)
 GENERIC = "Если адрес подтверждён в RELYQO, на него придёт письмо. Проверьте входящие и папку «Спам»."
-INVALID = "Код или ссылка недействительны либо срок действия истёк. Запросите новое письмо."
+INVALID = (
+    "Код или ссылка недействительны либо срок действия истёк. Запросите новое письмо."
+)
 EMAIL_RECOVERY_ROLES = {
     "CONSUMER",
     "BUSINESS_OWNER",
@@ -65,7 +69,7 @@ class TokenRequest(BaseModel):
 class ResetPassword(BaseModel):
     token: str | None = Field(default=None, min_length=40, max_length=100)
     email: str | None = Field(default=None, min_length=3, max_length=254)
-    code: str | None = Field(default=None, pattern=r"^\d{6}$")
+    code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
     new_password: str = Field(min_length=10, max_length=200)
     confirm_password: str = Field(min_length=10, max_length=200)
 
@@ -79,6 +83,8 @@ class ResetPassword(BaseModel):
     @model_validator(mode="after")
     def require_code_or_legacy_token(self):
         if self.token:
+            if self.email or self.code:
+                raise ValueError("Используйте код или ссылку, но не оба способа сразу")
             return self
         if not self.email or not self.code:
             raise ValueError("Введите email и шестизначный код из письма")
@@ -179,16 +185,27 @@ def ip_limit(db, request):
         )
 
 
+def password_fingerprint(user):
+    return token_hash(f"{user.role}:{user.password_hash}")
+
+
+def code_digest(challenge, email, code):
+    # A database copy must not permit an offline search of the million OTP values.
+    message = f"relyqo-password-reset:{challenge}:{email}:{code}".encode()
+    return hmac.new(settings.qr_secret.encode(), message, hashlib.sha256).hexdigest()
+
+
 def issue_email(user_id, email, purpose, fingerprint=None):
     """Run after the uniform HTTP response. Tokens never enter logs or API responses."""
     with SessionLocal() as db:
         user = (
-            db.get(User, user_id)
+            db.scalar(select(User).where(User.id == user_id).with_for_update())
             if user_id
             else db.scalar(
                 select(User)
                 .join(ConsumerEmail, ConsumerEmail.user_id == User.id)
                 .where(ConsumerEmail.email == email)
+                .with_for_update()
             )
         )
         if not user or not user.active or user.role not in EMAIL_RECOVERY_ROLES:
@@ -205,14 +222,21 @@ def issue_email(user_id, email, purpose, fingerprint=None):
             if purpose == "reset"
             else secrets.token_urlsafe(32)
         )
-        stored_token = f"{email}:{raw}" if purpose == "reset" else raw
+        challenge = (
+            token_hash(secrets.token_urlsafe(32))
+            if purpose == "reset"
+            else token_hash(raw)
+        )
         token = PasswordRecoveryToken(
-            token_hash=token_hash(stored_token),
+            token_hash=challenge,
+            code_hash=code_digest(challenge, email, raw)
+            if purpose == "reset"
+            else None,
             user_id=user.id,
             email=email,
             purpose=purpose,
-            password_fingerprint=token_hash(user.password_hash),
-            expires_at=now + timedelta(minutes=30),
+            password_fingerprint=password_fingerprint(user),
+            expires_at=now + timedelta(minutes=10 if purpose == "reset" else 30),
         )
         db.execute(
             delete(PasswordRecoveryToken).where(
@@ -238,8 +262,6 @@ def issue_email(user_id, email, purpose, fingerprint=None):
                 f"Ваш одноразовый код: {raw}\n\n"
                 f"Введите его на {recovery_origin()}/reset-password в течение 10 минут."
             )
-            token.expires_at = now + timedelta(minutes=10)
-            db.commit()
         else:
             link = f"{recovery_origin()}/verify-email#token={raw}"
             instructions = f"Откройте ссылку в течение 30 минут:\n{link}"
@@ -272,13 +294,27 @@ def notify_reset(email):
 
 def consume_token(db, raw, purpose, email=None):
     now = datetime.utcnow()
-    lookup = f"{email}:{raw}" if purpose == "reset" and email else raw
-    token = db.get(PasswordRecoveryToken, token_hash(lookup))
+    if email:
+        token = db.scalar(
+            select(PasswordRecoveryToken)
+            .where(
+                PasswordRecoveryToken.email == email,
+                PasswordRecoveryToken.purpose == purpose,
+                PasswordRecoveryToken.code_hash.is_not(None),
+                PasswordRecoveryToken.consumed_at.is_(None),
+                PasswordRecoveryToken.expires_at > now,
+            )
+            .order_by(PasswordRecoveryToken.expires_at.desc())
+            .limit(1)
+        )
+    else:
+        token = db.get(PasswordRecoveryToken, token_hash(raw))
     if (
         not token
         or token.purpose != purpose
         or token.consumed_at
         or token.expires_at <= now
+        or (not email and token.code_hash is not None)
     ):
         raise HTTPException(400, INVALID)
     user = db.scalar(select(User).where(User.id == token.user_id).with_for_update())
@@ -286,9 +322,36 @@ def consume_token(db, raw, purpose, email=None):
         not user
         or not user.active
         or user.role not in EMAIL_RECOVERY_ROLES
-        or token.password_fingerprint != token_hash(user.password_hash)
+        or not (
+            token.password_fingerprint == password_fingerprint(user)
+            or (
+                token.code_hash is None
+                and user.role == "CONSUMER"
+                and token.password_fingerprint == token_hash(user.password_hash)
+            )
+        )
     ):
         raise HTTPException(400, INVALID)
+    if email:
+        result = db.execute(
+            update(PasswordRecoveryToken)
+            .where(
+                PasswordRecoveryToken.token_hash == token.token_hash,
+                PasswordRecoveryToken.consumed_at.is_(None),
+                PasswordRecoveryToken.expires_at > now,
+                PasswordRecoveryToken.attempts < 5,
+            )
+            .values(attempts=PasswordRecoveryToken.attempts + 1)
+        )
+        if result.rowcount != 1:
+            db.rollback()
+            raise HTTPException(400, INVALID)
+        if not hmac.compare_digest(
+            token.code_hash, code_digest(token.token_hash, email, raw)
+        ):
+            # Persist failed attempts across workers and hour boundaries.
+            db.commit()
+            raise HTTPException(400, INVALID)
     result = db.execute(
         update(PasswordRecoveryToken)
         .where(

@@ -102,7 +102,9 @@ def test_every_interactive_role_can_bind_and_verify_recovery_email(setup, role):
     )
     assert response.status_code == 202
     token = last_token(mailbox)
-    assert client.post("/v1/auth/verify-email", json={"token": token}).status_code == 200
+    assert (
+        client.post("/v1/auth/verify-email", json={"token": token}).status_code == 200
+    )
     assert client.get("/v1/auth/recovery-email").json() == {
         "email": "role@example.test",
         "verified": True,
@@ -147,10 +149,21 @@ def test_complete_recovery_uses_existing_login_and_revokes_every_session(setup):
     saved_cookie = client.cookies.get("relyqo_session")
     token = reset_code(setup)
     with factory() as db:
-        saved = db.get(
-            PasswordRecoveryToken, token_hash(f"person@example.test:{token}")
+        saved = db.scalar(
+            select(PasswordRecoveryToken).where(
+                PasswordRecoveryToken.purpose == "reset"
+            )
         )
         assert saved and saved.token_hash != token and token not in str(saved.__dict__)
+        assert saved.code_hash == recovery.code_digest(
+            saved.token_hash, saved.email, token
+        )
+        assert saved.code_hash != token_hash(f"person@example.test:{token}")
+        assert (
+            timedelta(minutes=9)
+            < saved.expires_at - datetime.utcnow()
+            <= timedelta(minutes=10)
+        )
     assert reset(client, token).status_code == 200
     assert client.get("/v1/auth/me").status_code == 401
     with TestClient(app) as other:
@@ -252,11 +265,11 @@ def test_expired_wrong_purpose_and_password_mismatch_do_not_change_password(setu
         == 422
     )
     with factory() as db:
-        db.get(
-            PasswordRecoveryToken, token_hash(f"person@example.test:{token}")
-        ).expires_at = (
-            datetime.utcnow() - timedelta(seconds=1)
-        )
+        db.scalar(
+            select(PasswordRecoveryToken).where(
+                PasswordRecoveryToken.purpose == "reset"
+            )
+        ).expires_at = datetime.utcnow() - timedelta(seconds=1)
         db.commit()
     assert reset(client, token).status_code == 400
     assert reset(client, "000000").status_code == 400
@@ -523,3 +536,110 @@ def test_binding_bad_password_attempts_are_limited_per_user(setup):
         assert client.post("/v1/auth/recovery-email", json=body).status_code == 401
     assert client.post("/v1/auth/recovery-email", json=body).status_code == 429
     assert mailbox == []
+
+
+def test_five_attempts_exhaust_code_and_resend_replaces_it(setup, monkeypatch):
+    client, factory, _, uid = verified(setup)
+    monkeypatch.setattr(recovery.secrets, "randbelow", lambda _: 123456)
+    code = reset_code(setup)
+    for _ in range(5):
+        assert reset(client, "000000").status_code == 400
+    assert reset(client, code).status_code == 400
+    with factory() as db:
+        saved = db.scalar(
+            select(PasswordRecoveryToken).where(
+                PasswordRecoveryToken.purpose == "reset"
+            )
+        )
+        assert saved.attempts == 5
+        assert verify_password(PASSWORD, db.get(User, uid).password_hash)
+    # Even a repeated random number creates a new challenge without a PK collision.
+    assert reset_code(setup) == code
+    assert reset(client, code).status_code == 200
+
+
+def test_fifth_attempt_can_succeed(setup):
+    client, _, _, _ = verified(setup)
+    code = reset_code(setup)
+    wrong = "000000" if code != "000000" else "999999"
+    for _ in range(4):
+        assert reset(client, wrong).status_code == 400
+    assert reset(client, code).status_code == 200
+
+
+def test_resend_invalidates_previous_code(setup, monkeypatch):
+    client, _, _, _ = verified(setup)
+    values = iter([123456, 654321])
+    monkeypatch.setattr(recovery.secrets, "randbelow", lambda _: next(values))
+    old_code = reset_code(setup)
+    new_code = reset_code(setup)
+    assert reset(client, old_code).status_code == 400
+    assert reset(client, new_code).status_code == 200
+
+
+def test_role_change_invalidates_pending_code(setup):
+    client, factory, _, uid = verified(setup)
+    code = reset_code(setup)
+    with factory() as db:
+        db.get(User, uid).role = "RELYQO_ADMIN"
+        db.commit()
+    assert reset(client, code).status_code == 400
+
+
+def test_old_consumer_reset_link_still_works(setup):
+    client, factory, _, uid = verified(setup)
+    raw = "legacy-token-with-at-least-forty-random-characters"
+    with factory() as db:
+        user = db.get(User, uid)
+        db.add(
+            PasswordRecoveryToken(
+                token_hash=token_hash(raw),
+                user_id=uid,
+                purpose="reset",
+                email="person@example.test",
+                password_fingerprint=token_hash(user.password_hash),
+                expires_at=datetime.utcnow() + timedelta(minutes=10),
+            )
+        )
+        db.commit()
+    body = {
+        "token": raw,
+        "new_password": NEW_PASSWORD,
+        "confirm_password": NEW_PASSWORD,
+    }
+    assert client.post("/v1/auth/reset-password", json=body).status_code == 200
+    assert client.post("/v1/auth/reset-password", json=body).status_code == 400
+
+
+@pytest.mark.parametrize("role", sorted(recovery.EMAIL_RECOVERY_ROLES))
+def test_code_recovery_for_every_role(setup, role):
+    client, factory, _, uid = verified(setup)
+    with factory() as db:
+        db.get(User, uid).role = role
+        db.commit()
+    assert reset(client, reset_code(setup)).status_code == 200
+
+
+def test_existing_0020_tokens_survive_upgrade(tmp_path, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+
+    database_url = f"sqlite:///{tmp_path / '0020-schema.db'}"
+    monkeypatch.setattr(settings, "database_url", database_url)
+    config = Config("alembic.ini")
+    command.upgrade(config, "0020")
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO password_recovery_tokens (token_hash,user_id,purpose,email,password_fingerprint,expires_at) VALUES (:hash,'existing-user','reset','legacy@example.test','fingerprint','2099-01-01')"
+            ),
+            {"hash": "a" * 64},
+        )
+    command.upgrade(config, "head")
+    with engine.connect() as conn:
+        assert conn.execute(
+            text("SELECT code_hash,attempts FROM password_recovery_tokens")
+        ).one() == (None, 0)
+    engine.dispose()
