@@ -40,6 +40,15 @@ class Organization(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class ServiceCategory(Base):
+    __tablename__ = "service_categories"
+    code: Mapped[str] = mapped_column(String(40), primary_key=True)
+    label: Mapped[str] = mapped_column(String(80))
+    label_key: Mapped[str] = mapped_column(String(80), unique=True)
+    group_code: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class Branch(Base):
     __tablename__ = "branches"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -112,7 +121,7 @@ class Visit(Base):
     __tablename__ = "visits"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"))
-    verified_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
     verification_score: Mapped[float] = mapped_column(Float, default=0.95)
 
 
@@ -136,7 +145,7 @@ class Rating(Base):
     trust_weight: Mapped[float] = mapped_column(Float)
     included: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(30), default="ACCEPTED")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
 
 class CommunityRating(Base):
@@ -159,7 +168,7 @@ class CommunityRating(Base):
     cleanliness: Mapped[int] = mapped_column(Integer)
     value: Mapped[int] = mapped_column(Integer)
     community_score: Mapped[float] = mapped_column(Float)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
 
 class RatingPhoto(Base):

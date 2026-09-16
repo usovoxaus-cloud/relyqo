@@ -158,6 +158,8 @@ function searchPreferencesChanged() {
 
 function categoryGroup(value) {
   const normalized = String(value || "").toUpperCase();
+  const customGroup = window.relyqoCategoryGroup?.(normalized);
+  if (customGroup) return customGroup;
   if (foodCategories.has(normalized) || ["РЕСТОРАН", "КАФЕ", "КОФЕЙНЯ"].includes(normalized)) return "FOOD";
   if (normalized === "ГОСТИНИЦА") return "HOTEL";
   if (normalized === "ОБРАЗОВАНИЕ") return "EDUCATION";
@@ -170,7 +172,7 @@ function categoryGroup(value) {
 
 function matchesCategory(item) {
   const selected = $("#serviceCategory").value;
-  return selected === "ALL" || categoryGroup(item.category) === selected;
+  return selected === "ALL" || item.category === selected || categoryGroup(item.category) === selected;
 }
 
 function ratedFilterValue(id) {
@@ -185,7 +187,7 @@ function matchesRatedFilters(item) {
   const minimum = Math.max(0, Math.min(100, Number($("#ratedMinScore")?.value) || 0));
   if (country !== "ALL" && String(item.country_code || "").toUpperCase() !== country) return false;
   if (city !== "ALL" && String(item.city || "") !== city) return false;
-  if (category !== "ALL" && categoryGroup(item.category) !== category) return false;
+  if (category !== "ALL" && item.category !== category && categoryGroup(item.category) !== category) return false;
   if (scoreType === "VERIFIED" && Number(item.verified_rating_count) <= 0) return false;
   if (scoreType === "COMMUNITY" && Number(item.community_rating_count) <= 0) return false;
   const filteredScore = scoreType === "VERIFIED"
@@ -1304,3 +1306,5 @@ restoreSearchPreferences();
 updateSearchScope();
 updatePersonalMode();
 locate();
+
+Promise.resolve(window.relyqoCategoriesReady).then(items => {for (const item of items || []) categoryNames[item.code] = item.label; restoreSearchPreferences(); renderAll();});

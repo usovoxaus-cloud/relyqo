@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Аналитика потребителей — RELYQO Admin</title><link rel="stylesheet" href="/static/admin-analytics.css"><script src="/static/admin-analytics.js" defer></script></head>
+<body><main class="shell">
+<header class="top"><a class="brand" href="/admin"><span class="logo">R</span> RELYQO <small>ADMIN</small></a><a href="/admin">← Центр управления</a></header>
+<section class="hero"><p class="eyebrow">ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА</p><h1>Потребители.<br>Опыт. Статистика.</h1><p>Посещения, оценки и сферы услуг — в одном отчёте. ИИ помогает понять, что требует внимания.</p></section>
+<p id="pageStatus" role="status" aria-live="polite">Проверяем доступ…</p>
+<section id="locked" class="panel" hidden><h2>Войдите как администратор</h2><p>Эти данные доступны только в административном аккаунте RELYQO.</p><a class="button" href="/admin">Войти в админку</a></section>
+<div id="content" hidden>
+<form id="filters" class="panel filters">
+<label>Период<select id="period"><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option><option value="custom">Свой период</option></select></label>
+<label>С даты (UTC)<input id="start" type="date" required></label><label>По дату (UTC)<input id="end" type="date" required></label>
+<label>Источник оценок<select id="source"><option value="verified">Подтверждённые по QR</option><option value="community">Community — оценки потребителей</option></select></label>
+<label>Сфера услуг<select id="category"><option value="">Все сферы</option></select></label>
+<label>Организация<select id="entity"><option value="">Все организации</option></select></label><button id="apply" type="submit">Показать статистику</button>
+</form>
+<p id="error" role="alert"></p>
+<section class="stats" aria-label="Основные показатели">
+<article class="stat"><span>Подтверждённые посещения</span><b id="visits">—</b><small>Зафиксированные через RELYQO</small></article>
+<article class="stat"><span>Потребители с оценками</span><b id="respondents">—</b><small>Уникальные аккаунты за период</small></article>
+<article class="stat"><span>Учтённые оценки</span><b id="ratings">—</b><small id="coverage">—</small></article>
+<article class="stat accent"><span>Доля довольных по оценкам</span><b id="satisfaction">—</b><small>Общая оценка 8–10 из 10</small></article>
+</section>
+<p class="note">Учитываются только события в RELYQO. Реальное число клиентов организации может быть больше. Безымянные оценки не считаются уникальными потребителями.</p>
+<div class="columns">
+<section class="panel"><div class="panelHead"><h2>Динамика по дням</h2><span id="periodLabel" class="muted"></span></div><div class="legend"><span>● Учтённые оценки</span><span class="violet" id="visitsLegend">● Подтверждённые посещения</span></div><svg id="trend" viewBox="0 0 720 180" role="img" aria-label="Динамика оценок и посещений"></svg><details><summary>Посмотреть числа по дням</summary><div class="tableScroll"><table><thead><tr><th>Дата</th><th>Оценки</th><th>Посещения</th><th>Довольны</th></tr></thead><tbody id="trendRows"></tbody></table></div></details></section>
+<section class="panel"><h2>Удовлетворённость</h2><p class="muted">По общей оценке, среди учтённых отзывов</p><svg id="satisfactionBar" viewBox="0 0 400 32" role="img" aria-label="Распределение удовлетворённости"></svg><div id="satisfactionRows" class="breakdown"></div><p id="sampleNote" class="note"></p></section>
+</div>
+<div class="columns"><section class="panel"><h2>Сферы услуг</h2><p class="muted">Количество учтённых оценок</p><div id="sectors"></div></section><section class="panel"><h2>Что оценивают потребители</h2><p class="muted">Средняя оценка по шкале 1–10</p><div id="dimensions"></div></section></div>
+<section class="panel ai"><div class="panelHead"><div><p class="eyebrow">ИИ-АНАЛИТИК</p><h2>Что говорят данные</h2></div><button id="analyze" type="button">Получить выводы ИИ</button></div><p id="aiStatus" class="muted" role="status"></p><div id="aiText" class="analysis" aria-live="polite"></div><p class="note">Выводы ИИ — рекомендации для вашей проверки. Показатели рассчитываются из данных; ИИ не изменяет оценки.</p></section>
+<section class="panel"><div class="panelHead"><h2>По организациям</h2><span id="organizationCount" class="muted"></span></div><div class="tableScroll"><table><thead><tr><th>Организация / сфера</th><th>Посещения</th><th>Потребители с оценками</th><th>Оценки</th><th>Довольны, 8–10</th><th>Нейтрально, 5–7</th><th>Недовольны, 1–4</th></tr></thead><tbody id="organizations"></tbody></table></div></section>
+<section class="panel"><p class="eyebrow">УПРАВЛЕНИЕ КАТЕГОРИЯМИ</p><h2>Добавить сферу услуг</h2><p class="muted">Новая категория появится в регистрации организаций, добавлении мест и фильтрах сайта. Создавать категории может только администратор.</p><form id="categoryForm" class="categoryForm"><label>Название категории<input id="categoryName" minlength="2" maxlength="80" placeholder="Например, ветеринарные клиники" required></label><label>Группа для поиска<select id="categoryGroup"><option value="OTHER">Другие услуги</option></select></label><button id="saveCategory" type="submit">Добавить категорию</button></form><p id="categoryStatus" role="status" aria-live="polite"></p><div id="categoryList" class="tags"></div></section>
+<details class="panel"><summary>Как считаются показатели</summary><div id="methodology"></div></details>
+</div></main></body></html>
