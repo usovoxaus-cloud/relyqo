@@ -1,4 +1,4 @@
-"""Email recovery for existing CONSUMER accounts; uses the normal users and sessions."""
+"""Verified-email recovery for every interactive RELYQO account role."""
 
 from datetime import datetime, timedelta
 import logging
@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from fastapi import BackgroundTasks, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -27,7 +27,15 @@ from .security import password_hash, token_hash, verify_password
 
 logger = logging.getLogger(__name__)
 GENERIC = "Если адрес подтверждён в RELYQO, на него придёт письмо. Проверьте входящие и папку «Спам»."
-INVALID = "Ссылка недействительна или срок её действия истёк. Запросите новое письмо."
+INVALID = "Код или ссылка недействительны либо срок действия истёк. Запросите новое письмо."
+EMAIL_RECOVERY_ROLES = {
+    "CONSUMER",
+    "BUSINESS_OWNER",
+    "FREGAT_OWNER",
+    "FREGAT_STAFF",
+    "RELYQO_REVIEWER",
+    "RELYQO_ADMIN",
+}
 
 
 class EmailRequest(BaseModel):
@@ -54,9 +62,27 @@ class TokenRequest(BaseModel):
     token: str = Field(min_length=40, max_length=100)
 
 
-class ResetPassword(TokenRequest):
+class ResetPassword(BaseModel):
+    token: str | None = Field(default=None, min_length=40, max_length=100)
+    email: str | None = Field(default=None, min_length=3, max_length=254)
+    code: str | None = Field(default=None, pattern=r"^\d{6}$")
     new_password: str = Field(min_length=10, max_length=200)
     confirm_password: str = Field(min_length=10, max_length=200)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_optional_email(cls, value):
+        if value is None:
+            return value
+        return EmailRequest.normalize_email(value)
+
+    @model_validator(mode="after")
+    def require_code_or_legacy_token(self):
+        if self.token:
+            return self
+        if not self.email or not self.code:
+            raise ValueError("Введите email и шестизначный код из письма")
+        return self
 
 
 def recovery_origin():
@@ -165,7 +191,7 @@ def issue_email(user_id, email, purpose, fingerprint=None):
                 .where(ConsumerEmail.email == email)
             )
         )
-        if not user or not user.active or user.role != "CONSUMER":
+        if not user or not user.active or user.role not in EMAIL_RECOVERY_ROLES:
             return
         if fingerprint and token_hash(user.password_hash) != fingerprint:
             return
@@ -174,9 +200,14 @@ def issue_email(user_id, email, purpose, fingerprint=None):
             if not verified or verified.email != email:
                 return
         now = datetime.utcnow()
-        raw = secrets.token_urlsafe(32)
+        raw = (
+            f"{secrets.randbelow(1_000_000):06d}"
+            if purpose == "reset"
+            else secrets.token_urlsafe(32)
+        )
+        stored_token = f"{email}:{raw}" if purpose == "reset" else raw
         token = PasswordRecoveryToken(
-            token_hash=token_hash(raw),
+            token_hash=token_hash(stored_token),
             user_id=user.id,
             email=email,
             purpose=purpose,
@@ -188,18 +219,35 @@ def issue_email(user_id, email, purpose, fingerprint=None):
                 PasswordRecoveryToken.expires_at < now - timedelta(days=1)
             )
         )
+        db.execute(
+            update(PasswordRecoveryToken)
+            .where(
+                PasswordRecoveryToken.user_id == user.id,
+                PasswordRecoveryToken.purpose == purpose,
+                PasswordRecoveryToken.consumed_at.is_(None),
+            )
+            .values(consumed_at=now)
+        )
         db.add(token)
         db.commit()
-        route = "reset-password" if purpose == "reset" else "verify-email"
         title = (
             "Сброс пароля RELYQO" if purpose == "reset" else "Подтвердите email RELYQO"
         )
-        link = f"{recovery_origin()}/{route}#token={raw}"
+        if purpose == "reset":
+            instructions = (
+                f"Ваш одноразовый код: {raw}\n\n"
+                f"Введите его на {recovery_origin()}/reset-password в течение 10 минут."
+            )
+            token.expires_at = now + timedelta(minutes=10)
+            db.commit()
+        else:
+            link = f"{recovery_origin()}/verify-email#token={raw}"
+            instructions = f"Откройте ссылку в течение 30 минут:\n{link}"
         try:
             send_email(
                 email,
                 title,
-                f"{title}\n\nОткройте ссылку в течение 30 минут:\n{link}\n\nЕсли вы не запрашивали это письмо, проигнорируйте его. Никому не передавайте ссылку.",
+                f"{title}\n\n{instructions}\n\nЕсли вы не запрашивали это письмо, проигнорируйте его. Никому не передавайте код или ссылку.",
             )
         except Exception:
             db.execute(
@@ -222,9 +270,10 @@ def notify_reset(email):
         logger.error("Password change notification delivery failed")
 
 
-def consume_token(db, raw, purpose):
+def consume_token(db, raw, purpose, email=None):
     now = datetime.utcnow()
-    token = db.get(PasswordRecoveryToken, token_hash(raw))
+    lookup = f"{email}:{raw}" if purpose == "reset" and email else raw
+    token = db.get(PasswordRecoveryToken, token_hash(lookup))
     if (
         not token
         or token.purpose != purpose
@@ -236,7 +285,7 @@ def consume_token(db, raw, purpose):
     if (
         not user
         or not user.active
-        or user.role != "CONSUMER"
+        or user.role not in EMAIL_RECOVERY_ROLES
         or token.password_fingerprint != token_hash(user.password_hash)
     ):
         raise HTTPException(400, INVALID)
@@ -275,7 +324,7 @@ def register_recovery_routes(app, session_user, revoke_user_sessions):
         relyqo_session: str | None = Cookie(default=None),
         db: Session = Depends(get_db),
     ):
-        user = session_user(relyqo_session, db, "CONSUMER")
+        user = session_user(relyqo_session, db, EMAIL_RECOVERY_ROLES)
         email = db.get(ConsumerEmail, user.id)
         response.headers["Cache-Control"] = "no-store"
         return {"email": email.email if email else None, "verified": bool(email)}
@@ -289,7 +338,7 @@ def register_recovery_routes(app, session_user, revoke_user_sessions):
         relyqo_session: str | None = Cookie(default=None),
         db: Session = Depends(get_db),
     ):
-        user = session_user(relyqo_session, db, "CONSUMER")
+        user = session_user(relyqo_session, db, EMAIL_RECOVERY_ROLES)
         require_mail_configuration()
         ip_limit(db, request)
         if limited(db, "bind-user", user.id, 3):
@@ -364,7 +413,17 @@ def register_recovery_routes(app, session_user, revoke_user_sessions):
         ip_limit(db, request)
         if body.new_password != body.confirm_password:
             raise HTTPException(422, "Пароли не совпадают")
-        user, token = consume_token(db, body.token, "reset")
+        if body.token:
+            # Backward compatibility for reset links issued before this deployment.
+            user, token = consume_token(db, body.token, "reset")
+        else:
+            if limited(db, "reset-email", body.email, 10):
+                raise HTTPException(
+                    429,
+                    "Слишком много попыток. Запросите новый код через час.",
+                    headers={"Retry-After": "3600"},
+                )
+            user, token = consume_token(db, body.code, "reset", body.email)
         email = db.get(ConsumerEmail, user.id)
         if not email or email.email != token.email:
             db.rollback()
@@ -390,7 +449,7 @@ def register_recovery_routes(app, session_user, revoke_user_sessions):
         )
         db.add(
             AuditLog(
-                actor_type="CONSUMER",
+                actor_type=user.role,
                 action="AUTH_PASSWORD_RECOVERED",
                 entity_type="USER",
                 entity_id=user.id,
@@ -416,5 +475,23 @@ def register_recovery_routes(app, session_user, revoke_user_sessions):
             },
         )
 
+    def account_security_page():
+        return FileResponse(
+            Path(__file__).parent / "static" / "account-security.html",
+            headers={
+                "Cache-Control": "no-store, max-age=0",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "X-Frame-Options": "DENY",
+                "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            },
+        )
+
     for path in ["/forgot-password", "/reset-password", "/verify-email"]:
         app.add_api_route(path, recovery_page, methods=["GET"], include_in_schema=False)
+    app.add_api_route(
+        "/account-security",
+        account_security_page,
+        methods=["GET"],
+        include_in_schema=False,
+    )

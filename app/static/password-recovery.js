@@ -7,11 +7,11 @@
     token=new URLSearchParams(location.hash.slice(1)).get('token')||'';
     history.replaceState(null,'',location.pathname);
     $('message').textContent='';$('error').textContent='';$('retry').hidden=true;
-    $('forgotForm').hidden=mode!=='forgot';$('resetForm').hidden=mode!=='reset';$('verifyForm').hidden=mode!=='verify';$('legacyHelp').hidden=mode!=='forgot';
+    $('forgotForm').hidden=mode!=='forgot';$('resetForm').hidden=mode!=='reset';$('verifyForm').hidden=mode!=='verify';$('legacyHelp').hidden=mode!=='forgot';$('openReset').hidden=mode!=='forgot';
     if(mode!=='forgot'){
       $('title').textContent=mode==='reset'?'Новый пароль':'Подтвердите email';
-      $('intro').textContent=mode==='reset'?'Сохраните новый пароль. После этого войдите в аккаунт заново.':'Подтвердите адрес для восстановления доступа к вашему аккаунту.';
-      if(!token){$('error').textContent='Ссылка отсутствует или уже использована в этом окне. Откройте ссылку из письма заново либо запросите новую.';$(mode+'Form').hidden=true;$('retry').hidden=false;}
+      $('intro').textContent=mode==='reset'?'Введите email, код из письма и новый пароль. Код действует 10 минут.':'Подтвердите адрес для восстановления доступа к вашему аккаунту.';
+      if(mode==='verify'&&!token){$('error').textContent='Ссылка отсутствует или уже использована в этом окне. Откройте ссылку из письма заново.';$('verifyForm').hidden=true;$('retry').hidden=false;}
     }
   }
   initialize();
@@ -21,14 +21,15 @@
     const form=event.currentTarget,button=form.querySelector('button');
     if(kind==='reset'&&$('newPassword').value!==$('confirmPassword').value){$('error').textContent='Пароли не совпадают.';return;}
     button.disabled=true;
-    const body=kind==='forgot'?{email:$('email').value.trim()}:kind==='reset'?{token,new_password:$('newPassword').value,confirm_password:$('confirmPassword').value}:{token};
+    const body=kind==='forgot'?{email:$('email').value.trim()}:kind==='reset'?{email:$('resetEmail').value.trim(),code:$('resetCode').value.trim(),new_password:$('newPassword').value,confirm_password:$('confirmPassword').value}:{token};
     try{
       const endpoint=kind==='forgot'?'forgot-password':kind==='reset'?'reset-password':'verify-email';
       const response=await fetch('/v1/auth/'+endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
       const data=await response.json();
       if(!response.ok){if(response.status===400&&kind!=='forgot')$('retry').hidden=false;throw new Error(typeof data.detail==='string'?data.detail:'Проверьте введённые данные.');}
       $('message').textContent=data.message;
-      form.reset();if(kind!=='forgot'){token='';form.hidden=true;}
+      if(kind==='forgot'){$('openReset').textContent='Ввести полученный код →'}
+      else{form.reset();token='';form.hidden=true;}
     }catch(error){$('error').textContent=error instanceof TypeError?'Нет соединения. Проверьте сеть и попробуйте снова.':error.message;}
     finally{button.disabled=false;}
   });

@@ -28,7 +28,7 @@
         <p class="eyebrow">ВХОД ADMIN</p><h2>Добро пожаловать</h2><p class="lead">Используйте отдельную административную учётную запись.</p>
         <div class="form"><label class="field">Имя администратора<input id="username" value="relyqo-admin" autocomplete="username"></label><label class="field">Пароль<input id="password" type="password" autocomplete="current-password" placeholder="Введите пароль"></label><button id="login" class="btn primary" type="button">Войти в центр управления</button></div>
         <p id="loginError" class="loginError" role="alert"></p>
-        <details class="help"><summary>Не получается войти?</summary><p>Проверьте имя пользователя, язык ввода и Caps Lock. Если пароль утрачен, обратитесь к ответственному за доступ к RELYQO.</p></details>
+        <details class="help"><summary>Не получается войти?</summary><p>Проверьте имя пользователя, язык ввода и Caps Lock. <a href="/forgot-password">Получить одноразовый код по email</a> или используйте аварийное восстановление через секрет Render.</p></details>
       </section>
     </div>
   </main>
@@ -36,7 +36,7 @@
   <div id="appView" class="app hidden">
     <aside class="sidebar">
       <div class="sideBrand"><span class="logo">R</span><div><b>RELYQO</b><small>ADMIN CONTROL</small></div></div>
-      <nav class="nav"><button class="navBtn active" data-section="dashboard"><span class="navIcon">◫</span>Обзор</button><button class="navBtn" data-section="applications"><span class="navIcon">◎</span>Организации</button><button class="navBtn" data-section="ads"><span class="navIcon">◇</span>Реклама</button><button class="navBtn" data-section="audit"><span class="navIcon">≡</span>Журнал</button><div class="navDivider"></div><a class="navLink" href="/consumer"><span class="navIcon">C</span>Потребитель</a><a class="navLink" href="/review"><span class="navIcon">R</span>Owner Review</a></nav>
+      <nav class="nav"><button class="navBtn active" data-section="dashboard"><span class="navIcon">◫</span>Обзор</button><button class="navBtn" data-section="applications"><span class="navIcon">◎</span>Организации</button><button class="navBtn" data-section="ads"><span class="navIcon">◇</span>Реклама</button><button class="navBtn" data-section="audit"><span class="navIcon">≡</span>Журнал</button><div class="navDivider"></div><a class="navLink" href="/account-security"><span class="navIcon">S</span>Безопасность</a><a class="navLink" href="/consumer"><span class="navIcon">C</span>Потребитель</a><a class="navLink" href="/review"><span class="navIcon">R</span>Owner Review</a></nav>
       <div class="sideFooter"><b id="accountName">relyqo-admin</b><small>RELYQO_ADMIN · защищённая сессия</small><button id="logout" class="btn secondary" type="button">Выйти</button></div>
     </aside>
     <main class="workspace">

@@ -90,7 +90,36 @@ def verified(setup):
     return client, factory, mailbox, uid
 
 
-def reset_token(setup):
+@pytest.mark.parametrize("role", sorted(recovery.EMAIL_RECOVERY_ROLES))
+def test_every_interactive_role_can_bind_and_verify_recovery_email(setup, role):
+    client, factory, mailbox, uid = setup
+    with factory() as db:
+        db.get(User, uid).role = role
+        db.commit()
+    response = client.post(
+        "/v1/auth/recovery-email",
+        json={"email": "role@example.test", "current_password": PASSWORD},
+    )
+    assert response.status_code == 202
+    token = last_token(mailbox)
+    assert client.post("/v1/auth/verify-email", json={"token": token}).status_code == 200
+    assert client.get("/v1/auth/recovery-email").json() == {
+        "email": "role@example.test",
+        "verified": True,
+    }
+
+
+def test_account_security_page_is_private_data_safe(setup):
+    client, _, _, _ = setup
+    page = client.get("/account-security")
+    assert page.status_code == 200
+    assert "no-store" in page.headers["cache-control"]
+    assert page.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in page.headers["content-security-policy"]
+    assert "RESEND_API_KEY" not in page.text
+
+
+def reset_code(setup):
     client, _, mailbox, _ = setup
     assert (
         client.post(
@@ -98,22 +127,29 @@ def reset_token(setup):
         ).status_code
         == 202
     )
-    return last_token(mailbox)
+    return re.search(r"одноразовый код: (\d{6})", mailbox[-1][2]).group(1)
 
 
-def reset(client, token, password=NEW_PASSWORD):
+def reset(client, code, password=NEW_PASSWORD, email="person@example.test"):
     return client.post(
         "/v1/auth/reset-password",
-        json={"token": token, "new_password": password, "confirm_password": password},
+        json={
+            "email": email,
+            "code": code,
+            "new_password": password,
+            "confirm_password": password,
+        },
     )
 
 
 def test_complete_recovery_uses_existing_login_and_revokes_every_session(setup):
     client, factory, mailbox, uid = verified(setup)
     saved_cookie = client.cookies.get("relyqo_session")
-    token = reset_token(setup)
+    token = reset_code(setup)
     with factory() as db:
-        saved = db.get(PasswordRecoveryToken, token_hash(token))
+        saved = db.get(
+            PasswordRecoveryToken, token_hash(f"person@example.test:{token}")
+        )
         assert saved and saved.token_hash != token and token not in str(saved.__dict__)
     assert reset(client, token).status_code == 200
     assert client.get("/v1/auth/me").status_code == 401
@@ -199,15 +235,16 @@ def test_binding_requires_current_password_and_verification(setup):
 
 def test_expired_wrong_purpose_and_password_mismatch_do_not_change_password(setup):
     client, factory, mailbox, uid = verified(setup)
-    token = reset_token(setup)
+    token = reset_code(setup)
     assert (
-        client.post("/v1/auth/verify-email", json={"token": token}).status_code == 400
+        client.post("/v1/auth/verify-email", json={"token": token}).status_code == 422
     )
     assert (
         client.post(
             "/v1/auth/reset-password",
             json={
-                "token": token,
+                "email": "person@example.test",
+                "code": token,
                 "new_password": NEW_PASSWORD,
                 "confirm_password": "other-password",
             },
@@ -215,19 +252,21 @@ def test_expired_wrong_purpose_and_password_mismatch_do_not_change_password(setu
         == 422
     )
     with factory() as db:
-        db.get(PasswordRecoveryToken, token_hash(token)).expires_at = (
+        db.get(
+            PasswordRecoveryToken, token_hash(f"person@example.test:{token}")
+        ).expires_at = (
             datetime.utcnow() - timedelta(seconds=1)
         )
         db.commit()
     assert reset(client, token).status_code == 400
-    assert reset(client, "x" * 43).status_code == 400
+    assert reset(client, "000000").status_code == 400
     with factory() as db:
         assert verify_password(PASSWORD, db.get(User, uid).password_hash)
 
 
 def test_existing_password_change_invalidates_pending_email_and_reset_tokens(setup):
     client, factory, _, uid = verified(setup)
-    token = reset_token(setup)
+    token = reset_code(setup)
     assert (
         client.post(
             "/v1/auth/change-password",
@@ -238,9 +277,9 @@ def test_existing_password_change_invalidates_pending_email_and_reset_tokens(set
     assert reset(client, token, "another-password-123").status_code == 400
 
 
-def test_disabled_and_non_consumer_users_cannot_recover(setup):
+def test_disabled_users_cannot_recover_and_review_role_can(setup):
     client, factory, mailbox, uid = verified(setup)
-    token = reset_token(setup)
+    token = reset_code(setup)
     with factory() as db:
         db.get(User, uid).active = False
         db.commit()
@@ -254,8 +293,9 @@ def test_disabled_and_non_consumer_users_cannot_recover(setup):
         user.role = "RELYQO_REVIEWER"
         db.commit()
     client.post("/v1/auth/forgot-password", json={"email": "person@example.test"})
-    assert mailbox == []
-    assert reset(client, token).status_code == 400
+    assert len(mailbox) == 1
+    review_code = re.search(r"одноразовый код: (\d{6})", mailbox[-1][2]).group(1)
+    assert reset(client, review_code).status_code == 200
 
 
 def test_missing_mail_configuration_is_an_honest_global_failure(setup, monkeypatch):
@@ -303,7 +343,8 @@ def test_urls_are_fixed_and_reset_pages_have_no_tracking(setup, monkeypatch):
         headers={"Host": "attacker.example"},
         json={"email": "person@example.test"},
     )
-    assert "https://relyqo.onrender.com/reset-password#token=" in mailbox[-1][2]
+    assert "https://relyqo.onrender.com/reset-password" in mailbox[-1][2]
+    assert re.search(r"одноразовый код: \d{6}", mailbox[-1][2])
     assert "attacker" not in mailbox[-1][2]
     for path in ["/forgot-password", "/reset-password", "/verify-email"]:
         page = client.get(path)
@@ -353,7 +394,7 @@ def test_email_already_attached_to_other_user_cannot_be_claimed(setup):
 
 def test_simultaneous_token_replay_has_only_one_winner(setup):
     verified(setup)
-    token = reset_token(setup)
+    token = reset_code(setup)
 
     def attempt(n):
         with TestClient(app) as client:
