@@ -302,6 +302,8 @@ class PasswordRecoveryToken(Base):
     password_fingerprint: Mapped[str] = mapped_column(String(64))
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class RecoveryRateLimit(Base):
