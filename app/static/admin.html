@@ -36,7 +36,7 @@
   <div id="appView" class="app hidden">
     <aside class="sidebar">
       <div class="sideBrand"><span class="logo">R</span><div><b>RELYQO</b><small>ADMIN CONTROL</small></div></div>
-      <nav class="nav"><button class="navBtn active" data-section="dashboard"><span class="navIcon">◫</span>Обзор</button><button class="navBtn" data-section="applications"><span class="navIcon">◎</span>Организации</button><button class="navBtn" data-section="ads"><span class="navIcon">◇</span>Реклама</button><button class="navBtn" data-section="audit"><span class="navIcon">≡</span>Журнал</button><div class="navDivider"></div><a class="navLink" href="/account-security"><span class="navIcon">S</span>Безопасность</a><a class="navLink" href="/consumer"><span class="navIcon">C</span>Потребитель</a><a class="navLink" href="/review"><span class="navIcon">R</span>Owner Review</a></nav>
+      <nav class="nav"><button class="navBtn active" data-section="dashboard"><span class="navIcon">◫</span>Обзор</button><button class="navBtn" data-section="applications"><span class="navIcon">◎</span>Организации</button><button class="navBtn" data-section="ads"><span class="navIcon">◇</span>Реклама</button><button class="navBtn" data-section="audit"><span class="navIcon">≡</span>Журнал</button><div class="navDivider"></div><a class="navLink" href="/admin/analytics"><span class="navIcon">AI</span>Аналитика и категории</a><a class="navLink" href="/account-security"><span class="navIcon">S</span>Безопасность</a><a class="navLink" href="/consumer"><span class="navIcon">C</span>Потребитель</a><a class="navLink" href="/review"><span class="navIcon">R</span>Owner Review</a></nav>
       <div class="sideFooter"><b id="accountName">relyqo-admin</b><small>RELYQO_ADMIN · защищённая сессия</small><button id="logout" class="btn secondary" type="button">Выйти</button></div>
     </aside>
     <main class="workspace">
@@ -44,7 +44,7 @@
       <p id="workspaceError" class="sectionError"></p>
 
       <section id="section-dashboard" class="sectionView active">
-        <div class="hero"><p class="eyebrow">ОПЕРАЦИОННЫЙ ОБЗОР</p><h2>Платформа под контролем.</h2><p class="lead">Главные показатели RELYQO в одном месте. Admin контролирует процессы, но Score Engine и пользовательские оценки остаются независимыми.</p><span class="heroBadge">SCORE ENGINE НЕЗАВИСИМ</span></div>
+        <div class="hero"><p class="eyebrow">ОПЕРАЦИОННЫЙ ОБЗОР</p><h2>Платформа под контролем.</h2><p class="lead">Главные показатели RELYQO в одном месте. Admin контролирует процессы, но Score Engine и пользовательские оценки остаются независимыми.</p><span class="heroBadge">SCORE ENGINE НЕЗАВИСИМ</span> <a class="heroBadge" href="/admin/analytics">Аналитика потребителей и категории →</a></div>
         <div id="stats" class="stats"></div>
         <div class="panel"><div class="panelHead"><div><p class="eyebrow">БЫСТРЫЕ ДЕЙСТВИЯ</p><h2>Что требует внимания</h2></div></div><div class="actions"><button class="btn primary" data-go="applications">Проверить организации</button><button class="btn secondary" data-go="ads">Управлять рекламой</button><button class="btn secondary" data-go="audit">Открыть журнал</button></div></div>
       </section>

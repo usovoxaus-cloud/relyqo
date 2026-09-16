@@ -18,6 +18,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
+from .categories import category_catalog, require_category, register_category_routes
+from .analytics import register_analytics_routes
 from .password_recovery import register_recovery_routes
 from .ai import (
     AIServiceError,
@@ -1272,6 +1274,7 @@ def register_business_owner(
         )
     if db.scalar(select(User).where(User.username == username)):
         raise HTTPException(409, "Этот e-mail или имя пользователя уже заняты")
+    require_category(db, body.category)
     profile = normalize_business_profile(body)
     organization = Organization(
         name=profile["organization_name"],
@@ -1371,6 +1374,7 @@ def update_business_owner_profile(
     )
     if not organization or not branch:
         raise HTTPException(404, "Профиль организации не найден")
+    require_category(db, body.category)
     profile = normalize_business_profile(body)
     organization.name = profile["organization_name"]
     organization.city = profile["city"]
@@ -3215,6 +3219,7 @@ def create_manual_place(
     rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
     db: Session = Depends(get_db),
 ):
+    require_category(db, body.category)
     name = " ".join(body.name.split())
     address = " ".join(body.address.split())
     city = normalize_city_name(body.city)
@@ -3416,7 +3421,8 @@ def public_rated_organizations(
         raise HTTPException(422, "Количество должно быть от 1 до 100")
     if len(q) > 120:
         raise HTTPException(422, "Поисковый запрос слишком длинный")
-    if category not in {"ALL", *SERVICE_CATEGORY_GROUPS}:
+    category_groups = {item["code"]: item["group"] for item in category_catalog(db)}
+    if category not in {"ALL", *SERVICE_CATEGORY_GROUPS, *category_groups}:
         raise HTTPException(422, "Неизвестная сфера услуг")
     if score_type not in {"ALL", "VERIFIED", "COMMUNITY"}:
         raise HTTPException(422, "Неизвестный тип оценки")
@@ -3553,7 +3559,8 @@ def public_rated_organizations(
             return False
         if selected_city and (item.get("city") or "").casefold() != selected_city:
             return False
-        if category != "ALL" and service_category_group(item.get("category")) != category:
+        item_category = item.get("category")
+        if category != "ALL" and item_category != category and category_groups.get(item_category, service_category_group(item_category)) != category:
             return False
         if score_type == "VERIFIED" and item["verified_rating_count"] <= 0:
             return False
@@ -3715,6 +3722,7 @@ def create_community_rating(
 ):
     consumer = session_user(relyqo_session, db, CONSUMER_ROLE)
     validate_public_object(body.object_key, body.source)
+    require_category(db, body.category, allow_food=True)
     normalized_photo = normalize_rating_photo(body.photo_data_url)
     raw_rater = verified_community_rater(rater_cookie)
     cookie_value = rater_cookie
@@ -3946,8 +3954,8 @@ def public_rankings(
         raise HTTPException(422, "Для рейтинга страны укажите country_code")
     if scope == "city" and not normalized_city:
         raise HTTPException(422, "Для рейтинга города укажите city")
-    if normalized_category and normalized_category not in SERVICE_CATEGORIES:
-        raise HTTPException(422, "Неизвестная сфера услуг")
+    if normalized_category:
+        require_category(db, normalized_category)
     rows = db.execute(
         select(Organization, Branch)
         .join(Branch, Branch.organization_id == Organization.id)
@@ -4023,8 +4031,8 @@ def public_ranking_locations(
     db: Session = Depends(get_db),
 ):
     normalized_category = category.strip().upper() if category else None
-    if normalized_category and normalized_category not in SERVICE_CATEGORIES:
-        raise HTTPException(422, "Неизвестная сфера услуг")
+    if normalized_category:
+        require_category(db, normalized_category)
     rows = db.execute(
         select(Organization, Branch)
         .join(Branch, Branch.organization_id == Organization.id)
@@ -4584,3 +4592,6 @@ def fregat_ai_insights(
 
 # Consumer recovery extends the same users, password hashes and session revocation.
 register_recovery_routes(app, session_user, revoke_user_sessions)
+
+register_category_routes(app, session_user)
+register_analytics_routes(app, session_user)

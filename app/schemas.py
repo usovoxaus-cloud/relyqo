@@ -26,23 +26,7 @@ class NearbySearch(BaseModel):
 
 class ManualPlaceCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
-    category: Literal[
-        "RESTAURANT",
-        "CAFE",
-        "COFFEE_SHOP",
-        "BAKERY",
-        "BAR",
-        "FOOD_COURT",
-        "HOTEL",
-        "BEAUTY",
-        "HEALTH",
-        "ENTERTAINMENT",
-        "RETAIL",
-        "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE",
-        "EDUCATION",
-        "OTHER",
-    ]
+    category: str = Field(min_length=2, max_length=40, pattern=r"^[A-Z][A-Z0-9_]*$")
     description: str = Field(min_length=10, max_length=500)
     address: str = Field(min_length=3, max_length=255)
     city: str = Field(min_length=2, max_length=80)
@@ -55,24 +39,9 @@ class ManualPlaceCreate(BaseModel):
 class CommunityRatingCreate(BaseModel):
     object_key: str = Field(min_length=8, max_length=320)
     source: Literal["RELYQO_PARTNER", "MANUAL"]
-    category: Literal[
-        "FOOD",
-        "RESTAURANT",
-        "CAFE",
-        "COFFEE_SHOP",
-        "BAKERY",
-        "BAR",
-        "FOOD_COURT",
-        "HOTEL",
-        "BEAUTY",
-        "HEALTH",
-        "ENTERTAINMENT",
-        "RETAIL",
-        "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE",
-        "EDUCATION",
-        "OTHER",
-    ] = "OTHER"
+    category: str = Field(
+        default="OTHER", min_length=2, max_length=40, pattern=r"^[A-Z][A-Z0-9_]*$"
+    )
     overall: int = Field(ge=1, le=10)
     quality: int = Field(ge=1, le=10)
     service: int = Field(ge=1, le=10)
@@ -123,11 +92,7 @@ class BusinessOwnerRegister(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)
     organization_name: str = Field(min_length=2, max_length=160)
-    category: Literal[
-        "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT",
-        "HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE", "EDUCATION", "OTHER",
-    ]
+    category: str = Field(min_length=2, max_length=40, pattern=r"^[A-Z][A-Z0-9_]*$")
     description: str = Field(min_length=10, max_length=1000)
     address: str = Field(min_length=3, max_length=255)
     city: str = Field(min_length=2, max_length=80)
@@ -140,11 +105,7 @@ class BusinessOwnerRegister(BaseModel):
 
 class BusinessProfileUpdate(BaseModel):
     organization_name: str = Field(min_length=2, max_length=160)
-    category: Literal[
-        "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT",
-        "HOTEL", "BEAUTY", "HEALTH", "ENTERTAINMENT", "RETAIL", "AUTO_SERVICE",
-        "PROFESSIONAL_SERVICE", "EDUCATION", "OTHER",
-    ]
+    category: str = Field(min_length=2, max_length=40, pattern=r"^[A-Z][A-Z0-9_]*$")
     description: str = Field(min_length=10, max_length=1000)
     address: str = Field(min_length=3, max_length=255)
     city: str = Field(min_length=2, max_length=80)
