@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Безопасность аккаунта — RELYQO</title><link rel="stylesheet" href="/static/password-recovery.css"><script src="/static/account-security.js" defer></script></head>
+<head>
+<script src="/static/i18n.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Безопасность аккаунта — RELYQO</title><link rel="stylesheet" href="/static/password-recovery.css"><script src="/static/account-security.js" defer></script><link rel="stylesheet" href="/static/feedback.css"></head>
 <body><main class="recoveryShell"><a class="brand" href="/">RELYQO SECURITY</a><section class="recoveryCard"><h1>Восстановление по email</h1><p>Добавьте email и подтвердите его по ссылке из письма. После этого пароль можно восстановить одноразовым шестизначным кодом.</p>
 <p id="status" role="status">Проверяем аккаунт…</p>
 <form id="emailForm" hidden><label for="email">Email для восстановления</label><input id="email" name="email" type="email" maxlength="254" autocomplete="email" required><label for="currentPassword">Текущий пароль</label><input id="currentPassword" name="current_password" type="password" minlength="8" maxlength="200" autocomplete="current-password" required><button type="submit">Отправить письмо подтверждения</button></form>

@@ -3,6 +3,16 @@ import json
 from .config import settings
 
 
+def language_instruction():
+    from .i18n import language_context
+
+    return (
+        "\nRespond in Uzbek using Latin script."
+        if language_context.get() == "uz"
+        else "\nRespond in Russian."
+    )
+
+
 class AIUnavailableError(RuntimeError):
     pass
 
@@ -20,6 +30,7 @@ ADMIN_ANALYTICS_INSTRUCTIONS = """
 доходы, отзывы, тренды или персональные характеристики. Сравнивать периоды можно
 только при наличии их данных. Учитывай observed_days: неполную неделю нельзя
 напрямую сравнивать с полной по количеству оценок. Не меняй рейтинги и не принимай решения модерации.
+Причины в summary.reasons выбраны самими авторами и не являются доказанными фактами. Одна оценка может содержать несколько причин; суммы причин не равны числу людей. Не выдумывай причины, которых нет в данных.
 Различай число визитов, число оценок и уникальные аккаунты авторов. Подтверждённые
 визиты RELYQO не равны общему потоку клиентов. Безымянные оценки не равны людям.
 Удовлетворённость — условные группы общей оценки (8–10, 5–7, 1–4), не NPS.
@@ -40,7 +51,7 @@ def generate_admin_analytics(metrics: dict) -> str:
             api_key=settings.openai_api_key, timeout=30.0, max_retries=0
         ).responses.create(
             model=settings.openai_model,
-            instructions=ADMIN_ANALYTICS_INSTRUCTIONS,
+            instructions=ADMIN_ANALYTICS_INSTRUCTIONS + language_instruction(),
             input=json.dumps(metrics, ensure_ascii=False, sort_keys=True),
             max_output_tokens=900,
             reasoning={"effort": "low"},
@@ -91,7 +102,7 @@ def generate_business_insight(metrics: dict) -> str:
         )
         response = client.responses.create(
             model=settings.openai_model,
-            instructions=AI_INSTRUCTIONS,
+            instructions=AI_INSTRUCTIONS + language_instruction(),
             input=json.dumps(metrics, ensure_ascii=False, sort_keys=True),
             max_output_tokens=700,
             reasoning={"effort": "low"},
@@ -143,7 +154,7 @@ def generate_consumer_assistance(context: dict) -> str:
         )
         response = client.responses.create(
             model=settings.openai_model,
-            instructions=CONSUMER_AI_INSTRUCTIONS,
+            instructions=CONSUMER_AI_INSTRUCTIONS + language_instruction(),
             input=json.dumps(context, ensure_ascii=False, sort_keys=True),
             max_output_tokens=600,
             reasoning={"effort": "low"},
@@ -192,7 +203,7 @@ def generate_public_advice(context: dict) -> str:
         )
         response = client.responses.create(
             model=settings.openai_model,
-            instructions=PUBLIC_ADVISOR_INSTRUCTIONS,
+            instructions=PUBLIC_ADVISOR_INSTRUCTIONS + language_instruction(),
             input=json.dumps(context, ensure_ascii=False, sort_keys=True),
             max_output_tokens=240,
             reasoning={"effort": "none"},
@@ -236,7 +247,7 @@ def analyze_service_photo(image_data_url: str, context: dict) -> str:
         )
         response = client.responses.create(
             model=settings.openai_model,
-            instructions=PHOTO_ANALYSIS_INSTRUCTIONS,
+            instructions=PHOTO_ANALYSIS_INSTRUCTIONS + language_instruction(),
             input=[
                 {
                     "role": "user",

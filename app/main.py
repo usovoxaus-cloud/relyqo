@@ -10,7 +10,15 @@ import re
 import secrets
 from threading import Lock
 from urllib.parse import unquote, urlencode, urlparse
-from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import (
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +28,19 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .categories import category_catalog, require_category, register_category_routes
 from .analytics import register_analytics_routes
-from .password_recovery import register_recovery_routes
+from .operations import register_operations_routes
+from .i18n import register_i18n
+from .password_recovery import (
+    register_recovery_routes,
+    issue_email,
+    require_mail_configuration,
+)
+from .feedback import (
+    feedback_payload,
+    photo_digest,
+    record_signals,
+    register_feedback_routes,
+)
 from .ai import (
     AIServiceError,
     AIUnavailableError,
@@ -38,8 +58,10 @@ from .models import (
     Branch,
     CommunityRating,
     ConsumerFavorite,
+    ConsumerEmail,
     GooglePlaceReference,
     ManualPlace,
+    ModerationCase,
     Organization,
     OwnerReview,
     Rating,
@@ -127,7 +149,15 @@ ADVERTISEMENT_MEDIA_TYPES = {
     ),
 }
 SERVICE_CATEGORY_GROUPS = {
-    "FOOD": {"RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT", "FOOD"},
+    "FOOD": {
+        "RESTAURANT",
+        "CAFE",
+        "COFFEE_SHOP",
+        "BAKERY",
+        "BAR",
+        "FOOD_COURT",
+        "FOOD",
+    },
     "HOTEL": {"HOTEL"},
     "BEAUTY": {"BEAUTY"},
     "HEALTH": {"HEALTH"},
@@ -187,8 +217,10 @@ def normalize_rating_photo(data_url: str | None) -> tuple[bytes, str, str] | Non
         raise HTTPException(413, "Фото должно быть не больше 5 МБ")
     requested = "jpeg" if match.group(1) in {"jpeg", "jpg"} else match.group(1)
     valid_magic = (
-        requested == "jpeg" and raw.startswith(b"\xff\xd8\xff")
-        or requested == "png" and raw.startswith(b"\x89PNG\r\n\x1a\n")
+        requested == "jpeg"
+        and raw.startswith(b"\xff\xd8\xff")
+        or requested == "png"
+        and raw.startswith(b"\x89PNG\r\n\x1a\n")
         or requested == "webp"
         and raw.startswith(b"RIFF")
         and raw[8:12] == b"WEBP"
@@ -311,9 +343,7 @@ def recalculate_organization(org: Organization, db: Session) -> None:
     org.score = weighted_score(rows)
     org.rating_count = len([row for row in rows if row.included])
     db.add(org)
-    db.add(
-        ScoreHistory(organization_id=org.id, score=org.score)
-    )
+    db.add(ScoreHistory(organization_id=org.id, score=org.score))
 
 
 SESSION_COOKIE = "relyqo_session"
@@ -400,7 +430,17 @@ def authenticate(username: str, password: str, db: Session) -> User | None:
     lookup_username = login_identifier
     if settings.owner_email and login_identifier == settings.owner_email:
         lookup_username = "fregat-owner"
-    user = db.scalar(select(User).where(User.username == lookup_username))
+    user = (
+        db.scalar(
+            select(User)
+            .join(ConsumerEmail, ConsumerEmail.user_id == User.id)
+            .where(ConsumerEmail.email == login_identifier)
+        )
+        if "@" in login_identifier
+        else None
+    )
+    if not user:
+        user = db.scalar(select(User).where(User.username == lookup_username))
     if not user:
         user = bootstrap_user(lookup_username, password, db)
     if not user:
@@ -570,32 +610,53 @@ PUBLIC_ADVISOR_CATEGORY_INTENTS = (
         "рестораны и кафе",
         SERVICE_CATEGORY_GROUPS["FOOD"],
         (
-            "ресторан", "кафе", "кофейн", "пекар", "бар", "фуд-корт",
-            "еда", "поесть", "завтрак", "обед", "ужин",
+            "ресторан",
+            "кафе",
+            "кофейн",
+            "пекар",
+            "бар",
+            "фуд-корт",
+            "еда",
+            "поесть",
+            "завтрак",
+            "обед",
+            "ужин",
         ),
     ),
     (
-        "HOTEL", "гостиницы", SERVICE_CATEGORY_GROUPS["HOTEL"],
+        "HOTEL",
+        "гостиницы",
+        SERVICE_CATEGORY_GROUPS["HOTEL"],
         ("гостиниц", "отел", "hotel", "хостел"),
     ),
     (
-        "BEAUTY", "красота и уход", SERVICE_CATEGORY_GROUPS["BEAUTY"],
+        "BEAUTY",
+        "красота и уход",
+        SERVICE_CATEGORY_GROUPS["BEAUTY"],
         ("красот", "салон", "парикмах", "барбер", "спа"),
     ),
     (
-        "HEALTH", "здоровье", SERVICE_CATEGORY_GROUPS["HEALTH"],
+        "HEALTH",
+        "здоровье",
+        SERVICE_CATEGORY_GROUPS["HEALTH"],
         ("здоров", "клиник", "врач", "стомат", "аптек", "медицин"),
     ),
     (
-        "ENTERTAINMENT", "развлечения", SERVICE_CATEGORY_GROUPS["ENTERTAINMENT"],
+        "ENTERTAINMENT",
+        "развлечения",
+        SERVICE_CATEGORY_GROUPS["ENTERTAINMENT"],
         ("развлеч", "кино", "музе", "парк", "караоке"),
     ),
     (
-        "RETAIL", "магазины", SERVICE_CATEGORY_GROUPS["RETAIL"],
+        "RETAIL",
+        "магазины",
+        SERVICE_CATEGORY_GROUPS["RETAIL"],
         ("магазин", "покупк", "супермаркет", "торгов"),
     ),
     (
-        "AUTO_SERVICE", "автоуслуги", SERVICE_CATEGORY_GROUPS["AUTO_SERVICE"],
+        "AUTO_SERVICE",
+        "автоуслуги",
+        SERVICE_CATEGORY_GROUPS["AUTO_SERVICE"],
         ("авто", "машин", "шиномонтаж", "заправ", "мойк"),
     ),
     (
@@ -605,7 +666,9 @@ PUBLIC_ADVISOR_CATEGORY_INTENTS = (
         ("юрист", "консульт", "агентств", "профессиональн"),
     ),
     (
-        "EDUCATION", "образование", SERVICE_CATEGORY_GROUPS["EDUCATION"],
+        "EDUCATION",
+        "образование",
+        SERVICE_CATEGORY_GROUPS["EDUCATION"],
         ("образован", "университет", "школ", "обучен", "курс"),
     ),
 )
@@ -654,28 +717,32 @@ def public_advisor_fallback(priority: dict, sections: list[dict]) -> str:
                 else item["score"]
             )
             if priority["key"] == "distance" and item["distance_km"] is not None:
-                criterion = f'{item["distance_km"]:.1f} км'
+                criterion = f"{item['distance_km']:.1f} км"
             else:
-                criterion = f'{metric_score:.1f}/100 по критерию «{priority["label"]}»'
+                criterion = f"{metric_score:.1f}/100 по критерию «{priority['label']}»"
             choices.append(
-                f'{item["name"]} — {criterion}, {item["rating_count_label"]}'
+                f"{item['name']} — {criterion}, {item['rating_count_label']}"
             )
         if choices:
-            section_parts.append(f'{section["score_type"]}: ' + "; ".join(choices))
+            section_parts.append(f"{section['score_type']}: " + "; ".join(choices))
     category = (
-        f' среди категории «{priority["category_label"]}»'
+        f" среди категории «{priority['category_label']}»"
         if priority.get("category_label")
         else ""
     )
     return (
-        f'Сравнение{category}: ' + ". ".join(section_parts) + ". "
+        f"Сравнение{category}: " + ". ".join(section_parts) + ". "
         "Данных пока мало, поэтому перед посещением проверьте адрес и актуальные условия услуги."
     )
 
 
-def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict, list[dict]]:
+def public_advisor_items(
+    body: PublicAdvisorRequest, db: Session
+) -> tuple[dict, list[dict]]:
     priority_key, priority_label = public_advisor_priority(body.question)
-    category_key, category_label, requested_categories = public_advisor_category(body.question)
+    category_key, category_label, requested_categories = public_advisor_category(
+        body.question
+    )
     distances: dict[str, float | None] = {}
     for candidate in body.candidates:
         current = distances.get(candidate.object_key)
@@ -684,14 +751,10 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
         ):
             distances[candidate.object_key] = candidate.distance_km
     partner_ids = [
-        key.removeprefix("relyqo:")
-        for key in distances
-        if key.startswith("relyqo:")
+        key.removeprefix("relyqo:") for key in distances if key.startswith("relyqo:")
     ]
     manual_ids = [
-        key.removeprefix("manual:")
-        for key in distances
-        if key.startswith("manual:")
+        key.removeprefix("manual:") for key in distances if key.startswith("manual:")
     ]
     partner_rows = (
         db.execute(
@@ -731,7 +794,10 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
                 func.avg(CommunityRating.value),
                 func.count(CommunityRating.id),
             )
-            .where(CommunityRating.object_key.in_(accepted_keys))
+            .where(
+                CommunityRating.object_key.in_(accepted_keys),
+                CommunityRating.included.is_(True),
+            )
             .group_by(CommunityRating.object_key)
         ).all()
         if accepted_keys
@@ -787,10 +853,18 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
     }
 
     def base_item(
-        *, object_key: str, source: str, name: str, category: str,
-        address: str, description: str | None, distance_km: float | None,
-        profile_status: str = "", verified_score: float = 0,
-        verified_count: int = 0, verified_metrics: dict | None = None,
+        *,
+        object_key: str,
+        source: str,
+        name: str,
+        category: str,
+        address: str,
+        description: str | None,
+        distance_km: float | None,
+        profile_status: str = "",
+        verified_score: float = 0,
+        verified_count: int = 0,
+        verified_metrics: dict | None = None,
     ) -> dict:
         rate_query = urlencode(
             {
@@ -935,9 +1009,7 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
             item["rating_count_label"] = rating_count_label(item["rating_count"])
             item["metric_label"] = priority_label
             if priority_key == "distance" and item["distance_km"] is not None:
-                item["selection_reason"] = (
-                    f'Расстояние: {item["distance_km"]:.1f} км.'
-                )
+                item["selection_reason"] = f"Расстояние: {item['distance_km']:.1f} км."
             elif priority_key == "distance":
                 item["selection_reason"] = (
                     "Геолокация недоступна; порядок определён по рейтингу и числу оценок."
@@ -949,7 +1021,7 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
                     else item["score"]
                 )
                 item["selection_reason"] = (
-                    f'{priority_label.capitalize()}: {metric_score:.1f}/100.'
+                    f"{priority_label.capitalize()}: {metric_score:.1f}/100."
                 )
         if selected:
             sections.append(
@@ -963,7 +1035,9 @@ def public_advisor_items(body: PublicAdvisorRequest, db: Session) -> tuple[dict,
     }, sections
 
 
-def normalize_business_profile(body: BusinessOwnerRegister | BusinessProfileUpdate) -> dict:
+def normalize_business_profile(
+    body: BusinessOwnerRegister | BusinessProfileUpdate,
+) -> dict:
     website = (body.website or "").strip() or None
     if website and not re.match(r"^https?://", website, flags=re.IGNORECASE):
         raise HTTPException(422, "Сайт должен начинаться с http:// или https://")
@@ -1194,9 +1268,12 @@ def login(
 def register_consumer(
     body: ConsumerRegister,
     request: Request,
+    tasks: BackgroundTasks,
     response: Response,
     db: Session = Depends(get_db),
 ):
+    if body.email:
+        require_mail_configuration()
     username = body.username.strip().lower()
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
         raise HTTPException(
@@ -1209,6 +1286,7 @@ def register_consumer(
         username=username,
         password_hash=password_hash(body.password),
         role=CONSUMER_ROLE,
+        language=body.language,
     )
     db.add(user)
     try:
@@ -1236,6 +1314,10 @@ def register_consumer(
         ]
     )
     db.commit()
+    if body.email:
+        tasks.add_task(
+            issue_email, user.id, body.email, "verify", token_hash(user.password_hash)
+        )
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.set_cookie(
         SESSION_COOKIE,
@@ -1251,6 +1333,7 @@ def register_consumer(
         "role": user.role,
         "recovery_code": raw_recovery_code,
         "recovery_code_warning": "SAVE_NOW_SHOWN_ONCE",
+        "email_verification_requested": bool(body.email),
     }
 
 
@@ -1258,9 +1341,12 @@ def register_consumer(
 def register_business_owner(
     body: BusinessOwnerRegister,
     request: Request,
+    tasks: BackgroundTasks,
     response: Response,
     db: Session = Depends(get_db),
 ):
+    if body.email:
+        require_mail_configuration()
     username = body.username.strip().lower()
     valid_username = re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username)
     valid_email = re.fullmatch(
@@ -1301,6 +1387,7 @@ def register_business_owner(
         username=username,
         password_hash=password_hash(body.password),
         role=BUSINESS_OWNER_ROLE,
+        language=body.language,
         organization_id=organization.id,
     )
     db.add_all([branch, user])
@@ -1326,6 +1413,10 @@ def register_business_owner(
         ]
     )
     db.commit()
+    if body.email:
+        tasks.add_task(
+            issue_email, user.id, body.email, "verify", token_hash(user.password_hash)
+        )
     response.headers["Cache-Control"] = "no-store, max-age=0"
     response.set_cookie(
         SESSION_COOKIE,
@@ -1382,11 +1473,11 @@ def update_business_owner_profile(
     organization.description = profile["description"]
     organization.phone = profile["phone"]
     organization.website = profile["website"]
-    if (
-        user.role == BUSINESS_OWNER_ROLE
-        and organization.profile_status
-        in {"PUBLISHED", "VERIFIED_PARTNER", "REJECTED"}
-    ):
+    if user.role == BUSINESS_OWNER_ROLE and organization.profile_status in {
+        "PUBLISHED",
+        "VERIFIED_PARTNER",
+        "REJECTED",
+    }:
         organization.profile_status = "SELF_REGISTERED"
     branch.name = profile["address"]
     branch.address = profile["address"]
@@ -1605,14 +1696,18 @@ def normalized_advertisement_values(body: AdvertisementCreate) -> dict:
     cta_text = body.cta_text.strip()
     starts_at = utc_naive(body.starts_at)
     ends_at = utc_naive(body.ends_at)
-    if not campaign_name or not sponsor_name or not headline or not message or not cta_text:
+    if (
+        not campaign_name
+        or not sponsor_name
+        or not headline
+        or not message
+        or not cta_text
+    ):
         raise HTTPException(
             422,
             "Заполните название кампании, рекламодателя, заголовок, текст и кнопку",
         )
-    if body.placement == "TOP_BANNER" and (
-        len(headline) > 55 or len(message) > 160
-    ):
+    if body.placement == "TOP_BANNER" and (len(headline) > 55 or len(message) > 160):
         raise HTTPException(
             422,
             "Для верхней панели: заголовок до 55, текст до 160 символов",
@@ -1862,9 +1957,7 @@ def change_advertisement_status(
             AuditLog(
                 actor_type=admin.role,
                 action=(
-                    "ADVERTISEMENT_ACTIVATED"
-                    if body.active
-                    else "ADVERTISEMENT_PAUSED"
+                    "ADVERTISEMENT_ACTIVATED" if body.active else "ADVERTISEMENT_PAUSED"
                 ),
                 entity_type="ADVERTISEMENT",
                 entity_id=advertisement.id,
@@ -1908,8 +2001,9 @@ def public_advertisements(
             Advertisement.page_scope.in_({"ALL", normalized_page})
         )
     rows = db.scalars(
-        statement.order_by(Advertisement.updated_at.desc(), Advertisement.id.desc())
-        .limit(20)
+        statement.order_by(
+            Advertisement.updated_at.desc(), Advertisement.id.desc()
+        ).limit(20)
     ).all()
     response.headers["Cache-Control"] = "no-store, max-age=0"
     return {
@@ -2159,9 +2253,7 @@ def consumer_dashboard(
     community_photos_by_rating = {
         photo.community_rating_id: photo for photo in community_photos
     }
-    verified_photos_by_rating = {
-        photo.rating_id: photo for photo in verified_photos
-    }
+    verified_photos_by_rating = {photo.rating_id: photo for photo in verified_photos}
     favorite_items = []
     for favorite in favorites:
         item = consumer_object_info(favorite.object_key, favorite.source, db)
@@ -2227,9 +2319,7 @@ def consumer_dashboard(
         rating_items.append(item)
     rating_items.sort(key=lambda item: item["rated_at"], reverse=True)
     photo_items = []
-    community_ratings_by_id = {
-        rating.id: rating for rating in community_ratings
-    }
+    community_ratings_by_id = {rating.id: rating for rating in community_ratings}
     for photo in community_photos:
         rating = community_ratings_by_id.get(photo.community_rating_id)
         if not rating:
@@ -2307,9 +2397,7 @@ def consumer_rating_photo(
         )
     elif photo.rating_id:
         verified_rating = db.get(Rating, photo.rating_id)
-        allowed = bool(
-            verified_rating and verified_rating.consumer_user_id == user.id
-        )
+        allowed = bool(verified_rating and verified_rating.consumer_user_id == user.id)
     if not allowed:
         raise HTTPException(404, "Фотография не найдена")
     return Response(
@@ -2344,6 +2432,7 @@ def consumer_rating_detail(
         return {
             **item,
             "rating_id": community_rating.id,
+            "feedback": feedback_payload(community_rating),
             "rating_type": "COMMUNITY",
             "rating_type_label": "Community — мнение потребителя",
             "category": community_rating.category,
@@ -2358,7 +2447,7 @@ def consumer_rating_detail(
                 "value": community_rating.value,
             },
             "rated_at": community_rating.created_at,
-            "status": "PUBLISHED",
+            "status": community_rating.status,
             "photo": rating_photo_payload(photo),
             "included_in_verified_relyqo_score": False,
             "consumer_is_only_rating_author": True,
@@ -2380,6 +2469,7 @@ def consumer_rating_detail(
     return {
         **item,
         "rating_id": verified_rating.id,
+        "feedback": feedback_payload(verified_rating),
         "rating_type": "VERIFIED",
         "rating_type_label": (
             "Verified — ожидает независимой проверки"
@@ -2485,8 +2575,7 @@ def consumer_assistant(
     context = {
         "question": body.question.strip(),
         "favorites": [
-            consumer_object_info(item.object_key, item.source, db)
-            for item in favorites
+            consumer_object_info(item.object_key, item.source, db) for item in favorites
         ],
         "own_community_ratings": [
             {
@@ -2687,7 +2776,9 @@ def create_recovery_code(
 
 
 @app.post("/v1/auth/recover")
-def recover_account(body: AccountRecovery, response: Response, db: Session = Depends(get_db)):
+def recover_account(
+    body: AccountRecovery, response: Response, db: Session = Depends(get_db)
+):
     username = body.username.strip().lower()
     user = db.scalar(select(User).where(User.username == username))
     supplied_hash = token_hash(body.recovery_code.strip())
@@ -2824,7 +2915,9 @@ def set_staff_status(
             staff,
             AuditLog(
                 actor_type=owner.role,
-                action="STAFF_ACCOUNT_ENABLED" if body.active else "STAFF_ACCOUNT_DISABLED",
+                action="STAFF_ACCOUNT_ENABLED"
+                if body.active
+                else "STAFF_ACCOUNT_DISABLED",
                 entity_type="USER",
                 entity_id=staff.id,
             ),
@@ -2889,7 +2982,9 @@ def owner_qr_log(
     ).all()
     items = []
     for token, branch in rows:
-        issuer = db.get(User, token.issued_by_user_id) if token.issued_by_user_id else None
+        issuer = (
+            db.get(User, token.issued_by_user_id) if token.issued_by_user_id else None
+        )
         status = (
             "USED"
             if token.used_at
@@ -2947,7 +3042,7 @@ def owner_visit_token(
     existing = db.scalar(
         select(VisitToken).where(
             VisitToken.branch_id == branch.id,
-            VisitToken.transaction_reference == body.transaction_reference
+            VisitToken.transaction_reference == body.transaction_reference,
         )
     )
     if existing:
@@ -3094,7 +3189,10 @@ def public_nearby_branches(
                 func.avg(CommunityRating.community_score),
                 func.count(CommunityRating.id),
             )
-            .where(CommunityRating.object_key.in_(community_keys))
+            .where(
+                CommunityRating.object_key.in_(community_keys),
+                CommunityRating.included.is_(True),
+            )
             .group_by(CommunityRating.object_key)
         ).all()
         if community_keys
@@ -3148,25 +3246,25 @@ def public_nearby_branches(
         if distance > radius_km:
             continue
         item = {
-                "organization_id": organization.id,
-                "branch_id": branch.id,
-                "organization": organization.name,
-                "category": organization.category,
-                "description": organization.description,
-                "profile_status": organization.profile_status,
-                "verified_partner": organization.profile_status == "VERIFIED_PARTNER",
-                "branch": branch.name,
-                "address": branch.address or branch.name,
-                "city": branch.city or organization.city,
-                "country_code": branch.country_code,
-                "latitude": branch.latitude,
-                "longitude": branch.longitude,
-                "distance_km": round(distance, 2),
-                "relyqo_score": round(organization.score, 1),
-                "verified_rating_count": organization.rating_count,
-                "verified_metrics": verified_metrics.get(organization.id),
-                "rating_requires_verified_visit": True,
-            }
+            "organization_id": organization.id,
+            "branch_id": branch.id,
+            "organization": organization.name,
+            "category": organization.category,
+            "description": organization.description,
+            "profile_status": organization.profile_status,
+            "verified_partner": organization.profile_status == "VERIFIED_PARTNER",
+            "branch": branch.name,
+            "address": branch.address or branch.name,
+            "city": branch.city or organization.city,
+            "country_code": branch.country_code,
+            "latitude": branch.latitude,
+            "longitude": branch.longitude,
+            "distance_km": round(distance, 2),
+            "relyqo_score": round(organization.score, 1),
+            "verified_rating_count": organization.rating_count,
+            "verified_metrics": verified_metrics.get(organization.id),
+            "rating_requires_verified_visit": True,
+        }
         item.update(
             community_stats.get(
                 f"relyqo:{branch.id}",
@@ -3205,8 +3303,7 @@ def manual_place_item(
         "verified": False,
     }
     item.update(
-        community_stats
-        or {"community_score": 0.0, "community_rating_count": 0}
+        community_stats or {"community_score": 0.0, "community_rating_count": 0}
     )
     return item
 
@@ -3225,9 +3322,7 @@ def create_manual_place(
     city = normalize_city_name(body.city)
     description = " ".join(body.description.split())
     country_code = body.country_code.strip().upper()
-    google_place_id = (
-        body.google_place_id.strip() if body.google_place_id else None
-    )
+    google_place_id = body.google_place_id.strip() if body.google_place_id else None
     if len(name) < 2 or len(address) < 3 or len(city) < 2 or len(description) < 10:
         raise HTTPException(422, "Заполните название, описание, адрес и город")
     raw_rater = verified_community_rater(rater_cookie)
@@ -3338,9 +3433,7 @@ def public_manual_places_nearby(
 ):
     response.headers["Cache-Control"] = "no-store, max-age=0"
     lat_delta = search.radius_km / 110.574
-    longitude_scale = max(
-        0.01, 111.320 * math.cos(math.radians(search.latitude))
-    )
+    longitude_scale = max(0.01, 111.320 * math.cos(math.radians(search.latitude)))
     lng_delta = search.radius_km / longitude_scale
     rows = db.scalars(
         select(ManualPlace)
@@ -3363,7 +3456,10 @@ def public_manual_places_nearby(
                 func.avg(CommunityRating.community_score),
                 func.count(CommunityRating.id),
             )
-            .where(CommunityRating.object_key.in_(community_keys))
+            .where(
+                CommunityRating.object_key.in_(community_keys),
+                CommunityRating.included.is_(True),
+            )
             .group_by(CommunityRating.object_key)
         ).all()
         if community_keys
@@ -3435,7 +3531,9 @@ def public_rated_organizations(
             CommunityRating.object_key,
             func.avg(CommunityRating.community_score),
             func.count(CommunityRating.id),
-        ).group_by(CommunityRating.object_key)
+        )
+        .where(CommunityRating.included.is_(True))
+        .group_by(CommunityRating.object_key)
     ).all()
     community_stats = {
         row[0]: {
@@ -3478,8 +3576,7 @@ def public_rated_organizations(
                 "category": organization.category,
                 "description": organization.description,
                 "profile_status": organization.profile_status,
-                "verified_partner": organization.profile_status
-                == "VERIFIED_PARTNER",
+                "verified_partner": organization.profile_status == "VERIFIED_PARTNER",
                 "address": branch.address or branch.name,
                 "city": normalize_city_name(branch.city or organization.city),
                 "country_code": (branch.country_code or "").upper(),
@@ -3560,7 +3657,14 @@ def public_rated_organizations(
         if selected_city and (item.get("city") or "").casefold() != selected_city:
             return False
         item_category = item.get("category")
-        if category != "ALL" and item_category != category and category_groups.get(item_category, service_category_group(item_category)) != category:
+        if (
+            category != "ALL"
+            and item_category != category
+            and category_groups.get(
+                item_category, service_category_group(item_category)
+            )
+            != category
+        ):
             return False
         if score_type == "VERIFIED" and item["verified_rating_count"] <= 0:
             return False
@@ -3571,7 +3675,14 @@ def public_rated_organizations(
         if query:
             searchable = " ".join(
                 str(item.get(field) or "")
-                for field in ("name", "address", "city", "country_code", "category", "description")
+                for field in (
+                    "name",
+                    "address",
+                    "city",
+                    "country_code",
+                    "category",
+                    "description",
+                )
             ).casefold()
             if query not in searchable:
                 return False
@@ -3652,7 +3763,9 @@ def community_summary(object_key: str, db: Session) -> dict:
             func.avg(CommunityRating.service),
             func.avg(CommunityRating.cleanliness),
             func.avg(CommunityRating.value),
-        ).where(CommunityRating.object_key == object_key)
+        ).where(
+            CommunityRating.object_key == object_key, CommunityRating.included.is_(True)
+        )
     ).one()
     aggregated = (
         select(
@@ -3660,6 +3773,7 @@ def community_summary(object_key: str, db: Session) -> dict:
             func.avg(CommunityRating.community_score).label("score"),
             func.count(CommunityRating.id).label("rating_count"),
         )
+        .where(CommunityRating.included.is_(True))
         .group_by(CommunityRating.object_key)
         .subquery()
     )
@@ -3737,7 +3851,8 @@ def create_community_rating(
         body.value,
     )
     rating = CommunityRating(
-        **body.model_dump(exclude={"photo_data_url"}),
+        **body.model_dump(exclude={"photo_data_url", "reasons"}),
+        reasons_json=json.dumps(body.reasons),
         rater_hash=rater_hash,
         consumer_user_id=consumer.id,
         community_score=score,
@@ -3755,6 +3870,7 @@ def create_community_rating(
             object_key=body.object_key,
             content_type=normalized_photo[2],
             image_data=normalized_photo[0],
+            content_hash=photo_digest(normalized_photo[0]),
         )
         db.add(photo)
     db.add(
@@ -3765,6 +3881,7 @@ def create_community_rating(
             entity_id=rating.id,
         )
     )
+    record_signals(db, rating, "COMMUNITY", body.object_key, raw_rater, photo)
     db.commit()
     photo_analysis = None
     if photo and normalized_photo:
@@ -3865,6 +3982,9 @@ def public_advisor(
             "external_ratings_used": False,
         },
     }
+    from .i18n import language_context
+
+    ai_context["language"] = language_context.get()
     signature = token_hash(json.dumps(ai_context, ensure_ascii=False, sort_keys=True))
     now = datetime.utcnow()
     with _ai_lock:
@@ -3907,11 +4027,7 @@ def public_advisor(
         "priority": priority,
         "sections": sections,
         "candidate_count": len(
-            {
-                item["object_key"]
-                for section in sections
-                for item in section["items"]
-            }
+            {item["object_key"] for section in sections for item in section["items"]}
         ),
         "generated_at": now.isoformat() + "Z",
         "cached": False,
@@ -3973,7 +4089,10 @@ def public_rankings(
             continue
         if normalized_country and branch_country != normalized_country:
             continue
-        if normalized_city and (branch_city or "").casefold() != normalized_city.casefold():
+        if (
+            normalized_city
+            and (branch_city or "").casefold() != normalized_city.casefold()
+        ):
             continue
         if organization.id in organizations:
             continue
@@ -4157,6 +4276,9 @@ def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
 @app.post("/v1/ratings")
 def rate(
     body: RatingCreate,
+    response: Response,
+    request: Request,
+    rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
@@ -4182,7 +4304,8 @@ def rate(
         body.overall, body.food, body.service, body.cleanliness, body.value
     )
     rating = Rating(
-        **body.model_dump(exclude={"photo_data_url"}),
+        **body.model_dump(exclude={"photo_data_url", "reasons"}),
+        reasons_json=json.dumps(body.reasons),
         organization_id=org.id,
         consumer_user_id=consumer.id if consumer else None,
         ces=ces,
@@ -4202,6 +4325,7 @@ def rate(
             rating_id=rating.id,
             content_type=normalized_photo[2],
             image_data=normalized_photo[0],
+            content_hash=photo_digest(normalized_photo[0]),
         )
         db.add(photo)
     if pending_reason:
@@ -4230,6 +4354,27 @@ def rate(
                 entity_id=org.id,
             )
         )
+    rater_id = verified_community_rater(rater_cookie)
+    cookie_value = rater_cookie
+    if not rater_id:
+        rater_id, cookie_value = new_community_rater()
+    response.set_cookie(
+        COMMUNITY_COOKIE,
+        cookie_value,
+        max_age=365 * 24 * 3600,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    record_signals(
+        db,
+        rating,
+        "VERIFIED",
+        "relyqo:" + branch.id,
+        rater_id,
+        photo,
+    )
     db.commit()
     photo_analysis = None
     if photo and normalized_photo:
@@ -4308,9 +4453,7 @@ def pending_rating_reviews(
         if not rating:
             continue
         org = db.get(Organization, rating.organization_id)
-        photo = db.scalar(
-            select(RatingPhoto).where(RatingPhoto.rating_id == rating.id)
-        )
+        photo = db.scalar(select(RatingPhoto).where(RatingPhoto.rating_id == rating.id))
         result.append(
             {
                 "review_id": review.id,
@@ -4371,13 +4514,47 @@ def decide_rating_review(
         raise HTTPException(404, "Спорная оценка не найдена")
     if review.status != "PENDING":
         raise HTTPException(409, "Решение уже принято")
-    rating = db.get(Rating, review.entity_id)
+    rating = db.scalar(
+        select(Rating).where(Rating.id == review.entity_id).with_for_update()
+    )
+    review = db.scalar(
+        select(OwnerReview)
+        .where(OwnerReview.id == review_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if review.status != "PENDING":
+        raise HTTPException(409, "Решение уже принято")
     if not rating:
         raise HTTPException(404, "Оценка не найдена")
     approved = body.decision == "APPROVE"
     review.status = "APPROVED" if approved else "REJECTED"
     rating.included = approved
     rating.status = "ACCEPTED" if approved else "REJECTED"
+    for related in db.scalars(
+        select(ModerationCase).where(
+            ModerationCase.rating_id == rating.id, ModerationCase.status == "PENDING"
+        )
+    ).all():
+        related.status = review.status
+        related.decided_by = user.id
+        related.decided_at = datetime.utcnow()
+        related.decision_note = "Решение принято в панели проверки спорных оценок."
+    db.add(
+        ModerationCase(
+            case_key="legacy:" + review.id,
+            kind="REVIEW",
+            object_key="org:" + rating.organization_id,
+            rating_id=rating.id,
+            rating_type="VERIFIED",
+            details=review.reason,
+            status=review.status,
+            decided_by=user.id,
+            decided_at=datetime.utcnow(),
+            decision_note="Решение принято в панели проверки спорных оценок.",
+        )
+    )
+    db.flush()
     org = db.get(Organization, rating.organization_id)
     recalculate_organization(org, db)
     db.add_all(
@@ -4541,6 +4718,9 @@ def fregat_ai_insights(
         "category_scores": dashboard["metrics"],
         "pilot": dashboard["pilot"],
     }
+    from .i18n import language_context
+
+    payload["language"] = language_context.get()
     signature = token_hash(json.dumps(payload, sort_keys=True))
     now = datetime.utcnow()
     with _ai_lock:
@@ -4590,8 +4770,15 @@ def fregat_ai_insights(
         }
     return result
 
+
 # Consumer recovery extends the same users, password hashes and session revocation.
 register_recovery_routes(app, session_user, revoke_user_sessions)
 
 register_category_routes(app, session_user)
 register_analytics_routes(app, session_user)
+
+register_feedback_routes(app, session_user, recalculate_organization)
+
+register_operations_routes(app, session_user)
+
+register_i18n(app, session_user)

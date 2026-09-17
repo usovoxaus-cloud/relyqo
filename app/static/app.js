@@ -231,7 +231,7 @@ $("#demo").onclick = async () => {
 $("#submit").onclick = async () => {
   try {
     $("#rateError").textContent = "";
-    const body = { visit_id: visitId, photo_data_url: photoDataUrl };
+    const body = { visit_id: visitId, photo_data_url: photoDataUrl, ...(window.relyqoFeedback?.() || {}) };
     metrics.forEach(([id]) => { body[id] = Number($("#" + id).value); });
     const result = await api("/v1/ratings", body);
     $("#score").textContent = result.relyqo_score.toFixed(1);

@@ -24,6 +24,7 @@ from .models import (
     PasswordRecoveryToken,
     RecoveryRateLimit,
     AuditLog,
+    MailDelivery,
 )
 from .security import password_hash, token_hash, verify_password
 
@@ -148,8 +149,10 @@ def send_email(address, subject, text):
         method="POST",
     )
     with build_opener(NoMailRedirect()).open(request, timeout=10) as response:
-        if response.status not in {200, 201, 202} or not json.load(response).get("id"):
+        result = json.load(response)
+        if response.status not in {200, 201, 202} or not result.get("id"):
             raise RuntimeError("Email provider did not accept the message")
+        return result["id"]
 
 
 def limited(db, scope, identifier, maximum):
@@ -265,28 +268,55 @@ def issue_email(user_id, email, purpose, fingerprint=None):
         else:
             link = f"{recovery_origin()}/verify-email#token={raw}"
             instructions = f"Откройте ссылку в течение 30 минут:\n{link}"
+        footer = "Если вы не запрашивали это письмо, проигнорируйте его. Никому не передавайте код или ссылку."
+        if user.language == "uz":
+            title = (
+                "RELYQO parolini tiklash"
+                if purpose == "reset"
+                else "RELYQO emailingizni tasdiqlang"
+            )
+            instructions = (
+                f"Bir martalik kodingiz: {raw}\n\nUni {recovery_origin()}/reset-password?lang=uz sahifasiga 10 daqiqa ichida kiriting."
+                if purpose == "reset"
+                else f"Havolani 30 daqiqa ichida oching:\n{recovery_origin()}/verify-email?lang=uz#token={raw}"
+            )
+            footer = "Bu xatni so‘ramagan bo‘lsangiz, uni e’tiborsiz qoldiring. Kod yoki havolani hech kimga bermang."
         try:
-            send_email(
+            provider_id = send_email(
                 email,
                 title,
-                f"{title}\n\n{instructions}\n\nЕсли вы не запрашивали это письмо, проигнорируйте его. Никому не передавайте код или ссылку.",
+                f"{title}\n\n{instructions}\n\n{footer}",
             )
+            db.add(
+                MailDelivery(
+                    user_id=user.id,
+                    purpose=purpose,
+                    provider_id=provider_id if isinstance(provider_id, str) else None,
+                    status="ACCEPTED",
+                )
+            )
+            db.commit()
         except Exception:
             db.execute(
                 update(PasswordRecoveryToken)
                 .where(PasswordRecoveryToken.token_hash == token.token_hash)
                 .values(consumed_at=now)
             )
+            db.add(MailDelivery(user_id=user.id, purpose=purpose, status="FAILED"))
             db.commit()
             logger.error("Recovery email delivery failed; token invalidated")
 
 
-def notify_reset(email):
+def notify_reset(email, language="ru"):
     try:
         send_email(
             email,
-            "Пароль RELYQO изменён",
-            "Пароль вашего аккаунта RELYQO изменён. Все прежние сессии завершены. Если это были не вы, запросите восстановление на сайте RELYQO.",
+            "RELYQO paroli o‘zgartirildi"
+            if language == "uz"
+            else "Пароль RELYQO изменён",
+            "RELYQO akkauntingiz paroli o‘zgartirildi. Avvalgi barcha seanslar yakunlandi. Buni siz qilmagan bo‘lsangiz, RELYQO saytida parolni tiklashni so‘rang."
+            if language == "uz"
+            else "Пароль вашего аккаунта RELYQO изменён. Все прежние сессии завершены. Если это были не вы, запросите восстановление на сайте RELYQO.",
         )
     except Exception:
         logger.error("Password change notification delivery failed")
@@ -521,7 +551,7 @@ def register_recovery_routes(app, session_user, revoke_user_sessions):
         db.commit()
         response.delete_cookie("relyqo_session", path="/")
         response.headers["Cache-Control"] = "no-store"
-        tasks.add_task(notify_reset, token.email)
+        tasks.add_task(notify_reset, token.email, user.language)
         return {
             "message": "Пароль изменён. Войдите с новым паролем. Все прежние сессии завершены."
         }
