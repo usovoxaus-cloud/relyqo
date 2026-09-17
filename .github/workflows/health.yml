@@ -1,0 +1,36 @@
+name: RELYQO availability
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+  push:
+    branches: [main]
+    paths: ['.github/workflows/health.yml']
+permissions: {}
+concurrency:
+  group: relyqo-availability
+  cancel-in-progress: false
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Check public API and database health
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, time, urllib.request
+          endpoint = "https://relyqo.onrender.com/v1/health"
+          for attempt in range(2):
+              try:
+                  with urllib.request.urlopen(endpoint, timeout=90) as response:
+                      data = json.load(response)
+                  if data.get("status") != "ok":
+                      raise ValueError("Health check did not return ok")
+                  print("RELYQO website and database respond successfully.")
+                  break
+              except Exception:
+                  if attempt:
+                      raise SystemExit("RELYQO is unavailable. Check Render service and database status.")
+                  time.sleep(15)
+          PY

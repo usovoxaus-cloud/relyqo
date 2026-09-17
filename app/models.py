@@ -145,6 +145,8 @@ class Rating(Base):
     trust_weight: Mapped[float] = mapped_column(Float)
     included: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(30), default="ACCEPTED")
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reasons_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
 
@@ -168,6 +170,12 @@ class CommunityRating(Base):
     cleanliness: Mapped[int] = mapped_column(Integer)
     value: Mapped[int] = mapped_column(Integer)
     community_score: Mapped[float] = mapped_column(Float)
+    included: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    status: Mapped[str] = mapped_column(
+        String(30), default="ACCEPTED", server_default="ACCEPTED"
+    )
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reasons_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
 
 
@@ -184,9 +192,14 @@ class RatingPhoto(Base):
     community_rating_id: Mapped[str | None] = mapped_column(
         ForeignKey("community_ratings.id"), nullable=True, index=True
     )
-    object_key: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    object_key: Mapped[str | None] = mapped_column(
+        String(320), nullable=True, index=True
+    )
     content_type: Mapped[str] = mapped_column(String(40), default="image/jpeg")
     image_data: Mapped[bytes] = mapped_column(LargeBinary)
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
     ai_analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
     analysis_status: Mapped[str] = mapped_column(String(30), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
@@ -266,6 +279,7 @@ class User(Base):
         ForeignKey("organizations.id"), nullable=True
     )
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    language: Mapped[str] = mapped_column(String(2), default="ru", server_default="ru")
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     recovery_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -320,3 +334,56 @@ class RecoveryRateLimit(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     count: Mapped[int] = mapped_column(Integer)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class FeedbackSignal(Base):
+    __tablename__ = "feedback_signals"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    rating_id: Mapped[str] = mapped_column(String(36), unique=True)
+    rating_type: Mapped[str] = mapped_column(String(20))
+    object_key: Mapped[str] = mapped_column(String(320), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    device_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+
+class ModerationCase(Base):
+    __tablename__ = "moderation_cases"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    case_key: Mapped[str] = mapped_column(String(100), unique=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    object_key: Mapped[str] = mapped_column(String(320), index=True)
+    rating_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    rating_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reporter_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    details: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class MailDelivery(Base):
+    __tablename__ = "mail_deliveries"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    purpose: Mapped[str] = mapped_column(String(20))
+    provider_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+
+class OperationsEvent(Base):
+    __tablename__ = "operations_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    status: Mapped[str] = mapped_column(String(20))
+    details: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)

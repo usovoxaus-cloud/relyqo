@@ -58,6 +58,7 @@
       const p=element('p'); p.append(element('span',label),element('b',count(s[field]))); $('satisfactionRows').append(p);
     }
     $('sampleNote').textContent=!s.included?'За этот период пока нет учтённых оценок.':s.included<20?'Оценок пока мало: выводы предварительные.':'Доли описывают оценки в выбранной выборке.';
+    const reasons=$('feedbackReasons'); if(reasons){ reasons.replaceChildren(); for(const row of s.reasons||[]) reasons.append(barRow(row.label,row.count,s.included,count(row.count))); if(!(s.reasons||[]).length)reasons.append(element('p','Причины пока не указаны.','muted')); }
     trend(data.trend);
     $('sectors').replaceChildren(); const sectors=[...data.categories].sort((a,b)=>b.included-a.included);
     for(const row of sectors) $('sectors').append(barRow(row.label,row.included,Math.max(1,...sectors.map(x=>x.included)),count(row.included)));

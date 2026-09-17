@@ -71,6 +71,7 @@ def feedback(source):
             Rating.consumer_user_id.label("consumer"),
             Rating.created_at,
             Rating.overall,
+            Rating.reasons_json,
             Rating.food.label("quality"),
             Rating.service,
             Rating.cleanliness,
@@ -88,11 +89,12 @@ def feedback(source):
             CommunityRating.consumer_user_id.label("consumer"),
             CommunityRating.created_at,
             CommunityRating.overall,
+            CommunityRating.reasons_json,
             CommunityRating.quality,
             CommunityRating.service,
             CommunityRating.cleanliness,
             CommunityRating.value,
-            literal(True).label("eligible"),
+            CommunityRating.included.label("eligible"),
         )
         .outerjoin(Branch, CommunityRating.object_key == literal("relyqo:") + Branch.id)
         .subquery()
@@ -174,6 +176,24 @@ def build_report(db, filters):
         .mappings()
         .one()
     )
+    from .feedback import REASONS
+
+    reason_counts = {code: 0 for code in REASONS}
+    reason_rows = db.execute(
+        select(f.c.reasons_json, func.count())
+        .select_from(joined)
+        .where(*conditions, f.c.eligible.is_(True))
+        .group_by(f.c.reasons_json)
+    ).all()
+    for codes, count in reason_rows:
+        for code in set(json.loads(codes or "[]")):
+            if code in reason_counts:
+                reason_counts[code] += count
+    summary["reasons"] = [
+        {"code": code, "label": REASONS[code][0], "count": count}
+        for code, count in reason_counts.items()
+        if count
+    ]
     grouped = (
         db.execute(
             select(e.c.key, *columns)
@@ -397,6 +417,9 @@ def register_analytics_routes(app, session_user):
         if not report["summary"]["included"]:
             raise HTTPException(422, "Для анализа нужны оценки за выбранный период")
         payload = ai_context(report)
+        from .i18n import language_context
+
+        payload["language"] = language_context.get()
         signature = token_hash(
             settings.openai_model
             + json.dumps(payload, ensure_ascii=False, sort_keys=True)

@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
+<script src="/static/i18n.js"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071827">
@@ -8,7 +9,9 @@
   <style>
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#25306466,transparent 38%),#07111f;color:#eef8fa;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif}.shell{width:min(700px,100%);margin:auto;padding:22px 16px 60px}.top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:22px}.brand{display:flex;align-items:center;gap:11px;font-weight:900;letter-spacing:.08em}.mark{display:grid;place-items:center;width:42px;height:42px;border-radius:13px;background:#6de2bd;color:#05251d;font-size:23px}.back{color:#8de8ca;text-decoration:none;font-weight:800}.card{padding:26px;border:1px solid #275169;border-radius:25px;background:#0b2031;box-shadow:0 20px 60px #02071166}.eyebrow{margin:0 0 9px;color:#75dfbb;font-size:11px;font-weight:900;letter-spacing:.15em}.card h1{margin:0;font-size:clamp(31px,7vw,48px);line-height:1.05}.address,.lead{color:#9fb8c5;line-height:1.55}.separation{margin:20px 0;padding:14px 16px;border:1px solid #64569b;border-radius:14px;background:#211d42;color:#d8d0ff;font-size:13px;line-height:1.5}.metric{padding:12px 0}.metricTop{display:flex;justify-content:space-between;gap:12px;margin-bottom:9px;font-weight:750}.metric output{color:#72e4bd;font-size:18px;font-weight:900}input[type=range]{width:100%;accent-color:#6de2bd}.photoBox{margin-top:18px;padding:16px;border:1px dashed #4e7588;border-radius:16px;background:#091a28}.photoButton{display:inline-block;padding:12px 15px;border-radius:12px;background:#173a4d;color:#a9ead5;font-weight:900;cursor:pointer}.photoButton input{display:none}.photoHint{margin:9px 0 0;color:#7f9ba8;font-size:11px;line-height:1.45}.photoPreview{display:block;width:100%;max-height:280px;margin-top:12px;border-radius:13px;object-fit:cover}.analysis{margin-top:16px;padding:15px;border:1px solid #3d547e;border-radius:14px;background:#17213e;color:#d8ddff;line-height:1.55;text-align:left}.submit{width:100%;margin-top:18px;padding:16px;border:0;border-radius:14px;background:#6de2bd;color:#062119;font-size:15px;font-weight:900;cursor:pointer}.submit:disabled{opacity:.55}.error{margin-top:14px;padding:12px;border-radius:12px;background:#4a2030;color:#ffc4ce}.hidden{display:none!important}.done{text-align:center}.score{margin:18px 0 0;color:#70e5bd;font-size:72px;font-weight:950;letter-spacing:-.06em}.fine{color:#7798a8;font-size:12px;line-height:1.5}.authStatus{margin:13px 0 0;color:#8fcfbd;font-size:12px;line-height:1.45}.authGate{margin-top:18px;padding:18px;border:1px solid #6c5aa2;border-radius:18px;background:linear-gradient(135deg,#111f39,#241943)}.authGate h2{margin:4px 0 7px;font-size:21px}.authGate .lead{margin:0}.authGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:15px}.authForm{padding:14px;border:1px solid #4a527d;border-radius:14px;background:#0b1930}.authForm h3{margin:0 0 8px;font-size:15px}.authField{display:grid;gap:5px;margin-top:9px;color:#aebfd1;font-size:11px;font-weight:850}.authField input{height:43px;border:1px solid #4c5f7c;border-radius:10px;padding:0 11px;background:#071522;color:#fff;font:inherit}.authButton{width:100%;margin-top:11px;padding:12px;border:0;border-radius:11px;background:#6de2bd;color:#062119;font-weight:950;cursor:pointer}.authButton.secondary{background:#273451;color:#e4e8ff}.authButton:disabled{opacity:.55}.authError{margin-top:11px;color:#ffc4ce;font-size:12px;line-height:1.45}.authFallback{display:inline-block;margin-top:13px;color:#a9a1e8;text-decoration:none;font-size:12px;font-weight:850}@media(max-width:620px){.authGrid{grid-template-columns:1fr}}
   </style>
-</head>
+<link rel="stylesheet" href="/static/feedback.css">
+<script src="/static/feedback-form.js" defer></script>
+<script src="/static/account-onboarding.js" defer></script></head>
 <body class="ui-audit page-community-rate">
   <main class="shell">
     <header class="top"><div class="brand"><span class="mark">R</span><span>RELYQO COMMUNITY</span></div><a class="back" href="/nearby">← К карте</a></header>
@@ -21,7 +24,8 @@
       <div class="separation"><b>Важно:</b> это Community Score — мнение потребителей. Он показывается отдельно и не меняет официальный RELYQO Score, который требует подтверждённого QR-посещения.</div>
       <div id="metrics"></div>
       <div class="photoBox"><label class="photoButton">＋ Добавить фото к оценке<input id="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label><p class="photoHint">Необязательно · JPEG, PNG или WebP до 5 МБ. Фото дополняет мнение потребителя, но не меняет Score автоматически.</p><img id="photoPreview" class="photoPreview hidden" alt="Предпросмотр фотографии"></div>
-      <button id="submit" class="submit" type="button">Продолжить и отправить оценку</button>
+      <section id="feedbackFields" class="feedbackFields"></section>
+<button id="submit" class="submit" type="button">Продолжить и отправить оценку</button>
       <p id="authStatus" class="authStatus" aria-live="polite">Проверяем вход в аккаунт потребителя…</p>
       <div id="error" class="error hidden" role="alert"></div>
       <section id="authGate" class="authGate hidden" aria-labelledby="authGateTitle">
@@ -31,13 +35,13 @@
         <div class="authGrid">
           <form id="registerInline" class="authForm">
             <h3>Новый пользователь</h3>
-            <label class="authField">Имя пользователя<input name="username" minlength="3" autocomplete="username" required placeholder="например: kamol"></label>
+            <label class="field authField">Email для входа и восстановления<input name="email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com"></label><p class="emailHint">Необязательно. Подтвердите адрес по ссылке из письма. До подтверждения входите по имени пользователя.</p><label class="authField">Имя пользователя<input name="username" minlength="3" autocomplete="username" required placeholder="например: kamol"></label>
             <label class="authField">Пароль<input name="password" type="password" minlength="10" autocomplete="new-password" required placeholder="минимум 10 символов"></label>
             <button class="authButton" type="submit">Создать аккаунт и отправить</button>
           </form>
           <form id="loginInline" class="authForm">
             <h3>Уже есть аккаунт</h3>
-            <label class="authField">Имя пользователя<input name="username" autocomplete="username" required></label>
+            <label class="authField">Email или имя пользователя<input name="username" autocomplete="username" required></label>
             <label class="authField">Пароль<input name="password" type="password" minlength="8" autocomplete="current-password" required></label>
             <button class="authButton secondary" type="submit">Войти и отправить</button>
           </form>
@@ -119,7 +123,7 @@
     }
 
     function ratingBody(){
-      const body={object_key:objectKey,source,category,photo_data_url:photoDataUrl};
+      const body={object_key:objectKey,source,category,photo_data_url:photoDataUrl,...(window.relyqoFeedback?.()||{})};
       for(const [key] of metricDefinitions)body[key]=Number(document.querySelector(`#${key}`).value);
       return body;
     }

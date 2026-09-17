@@ -1,13 +1,48 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field, field_validator
+
+
+class FeedbackDetails(BaseModel):
+    reasons: list[str] = Field(default_factory=list, max_length=5)
+    comment: str | None = Field(default=None, max_length=600)
+
+    @field_validator("reasons")
+    @classmethod
+    def valid_reasons(cls, value):
+        from .feedback import REASONS
+
+        if any(code not in REASONS for code in value):
+            raise ValueError("Выберите причину из списка")
+        return list(dict.fromkeys(value))
+
+    @field_validator("comment")
+    @classmethod
+    def clean_comment(cls, value):
+        if value is None:
+            return None
+        return " ".join(value.split()) or None
+
+
+class RegistrationEmail(BaseModel):
+    email: str | None = Field(default=None, max_length=254)
+    language: Literal["ru", "uz"] = "ru"
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value):
+        if not value or not value.strip():
+            return None
+        from .password_recovery import EmailRequest
+
+        return EmailRequest.normalize_email(value)
 
 
 class VerifyVisit(BaseModel):
     token: str = Field(min_length=20)
 
 
-class RatingCreate(BaseModel):
+class RatingCreate(FeedbackDetails):
     visit_id: str
     overall: int = Field(ge=1, le=10)
     food: int = Field(ge=1, le=10)
@@ -36,7 +71,7 @@ class ManualPlaceCreate(BaseModel):
     google_place_id: str | None = Field(default=None, min_length=3, max_length=255)
 
 
-class CommunityRatingCreate(BaseModel):
+class CommunityRatingCreate(FeedbackDetails):
     object_key: str = Field(min_length=8, max_length=320)
     source: Literal["RELYQO_PARTNER", "MANUAL"]
     category: str = Field(
@@ -59,11 +94,11 @@ class ReviewDecision(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=80)
+    username: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=8, max_length=200)
 
 
-class ConsumerRegister(BaseModel):
+class ConsumerRegister(RegistrationEmail):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)
 
@@ -88,7 +123,7 @@ class PublicAdvisorRequest(BaseModel):
     candidates: list[PublicAdvisorCandidate] = Field(min_length=1, max_length=40)
 
 
-class BusinessOwnerRegister(BaseModel):
+class BusinessOwnerRegister(RegistrationEmail):
     username: str = Field(min_length=3, max_length=80)
     password: str = Field(min_length=10, max_length=200)
     organization_name: str = Field(min_length=2, max_length=160)

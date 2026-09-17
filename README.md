@@ -190,3 +190,32 @@ Community Score никогда не входит в официальный RELYQ
 `node --test tests/password-recovery-client.test.cjs` проверяет код контроллера формы: старые ссылки, ввод кода, удаление секрета из URL и несовпадающие пароли. Это тест с DOM-фикстурой, а не визуальная проверка браузера.
 
 `python -m pytest` запускает backend regression. Новые тесты используют отдельные временные SQLite БД и перехват доставки, без реальных писем. `tests/ui-ux-browser.cjs` проверяет 7 страниц, а `tests/password-recovery-browser.cjs` — восстановление на 1440/390/320 px. Для них нужны установленный Playwright, локальный сервер и `RELYQO_BASE_URL`; при использовании Edge задайте `PLAYWRIGHT_CHANNEL=msedge`. Переменная `RELYQO_SCREENSHOTS` задаёт необязательную папку снимков. API почты в browser-тестах подменён; настоящие транзакции подтверждения/сброса, login/logout и отзыва сессий проверяются Python-тестами.
+
+
+## Trust, access and operations release (17 September 2026)
+
+- `/admin/control`: private admin-only queue for risk signals, legacy rating reviews, complaints and appeals, business applications, all feedback with reasons/comments, AI conclusions, decisions and operational status. Consumers can complain from a place page, appeal their own excluded rating, and see responses in `/me`. Numeric scores are immutable; a reasoned decision can include/exclude a rating from every aggregate.
+- Optional email at consumer/business registration starts email verification. Verified email is accepted as a login alias. All existing roles can bind email in `/account-security`; an unverified address cannot recover an account. Recovery delivery has been checked at the provider; `MailDelivery.ACCEPTED` alone means provider acceptance, not inbox delivery. Delivery is currently a background task; failed attempts are recorded and users can request another verification link.
+- RU/UZ selector covers pages, dynamic interface messages, validation errors and emails. The confirmed account language controls subsequent emails; AI requests specify the selected language. User names, comments, complaints and submitted values are not translated. Custom category names remain as entered by the administrator.
+- Signals on new submissions: >=8 ratings/object/10 min, >=3 accounts/browser/object/day, >=10 ratings/account/hour, duplicate decoded photo pixels. These are review indicators, never automatic fraud verdicts or numeric score changes. Existing photographs without a digest are not retroactively classified. Signed first-party browser cookies are used; no fingerprint or raw IP is stored for these signals. Correlation events are pruned after 30 days on rating submissions. Closed cases retain the explanation and decision history.
+- `/v1/admin/operations` is admin-only. Generic server-error alerts go to previously verified admin addresses (at most once/hour). Whole-site/database outages are monitored independently by `.github/workflows/health.yml` every hour, with time for a Free instance to wake. The owner must enable GitHub Actions failure notifications in GitHub notification settings; schedules can be delayed/disabled by GitHub and are not an uptime SLA. No authentication tokens or client data are sent to this workflow.
+
+### Encrypted backup and restore
+
+In `/admin/control` → «Состояние системы», re-enter the current admin password and choose a separate backup passphrase of at least 16 characters. Download the `.rqbackup` file to storage outside Render and store the passphrase separately. Snapshots include account records, photos and audit history; AES-GCM authenticates/encrypts the archive with a scrypt-derived key. Never commit snapshots, passphrases or database URLs. The portable export supports up to 64 MB of serialized data; use PostgreSQL-native backups for larger databases.
+
+The CLI reads secrets from environment variables, never arguments or logs:
+
+```bash
+# DATABASE_URL: source connection. RELYQO_BACKUP_PASSPHRASE: separate secret.
+python -m app.scripts.backup export /secure/relyqo.rqbackup
+python -m app.scripts.backup verify /secure/relyqo.rqbackup
+# RELYQO_RESTORE_DATABASE_URL: a DIFFERENT, EMPTY database, never production.
+python -m app.scripts.backup restore /secure/relyqo.rqbackup
+```
+
+A verification-only command checks archive authentication; a real restore drill must restore into an isolated database, compare counts and representative records/photos, then run application health and login checks against that isolated database. The command refuses a target with any existing rows. Use the same application revision that produced the backup; perform subsequent migrations after restoration. A restored production clone contains real secrets/customer data and must be kept private, with email/AI disabled during the drill. Do not switch production to it until separately reviewed.
+
+Manual download does **not** enable scheduled durable backups. Render Free PostgreSQL has no native recovery and expires after 30 days. Set `DATABASE_EXPIRES_AT` to the provider's observed expiry for an admin warning, and leave `AUTOMATIC_BACKUP_STATUS=not_configured` until backups are actually enabled. After approving a paid database, enable/verify Render recovery, perform a restore into a separate instance, and only then mark automatic backups enabled. Paid web compute is separately required to remove idle sleeping. Pricing and recurring charges require the owner's approval.
+
+[Render recovery documentation](https://render.com/docs/postgresql-backups) · [Free service limitations](https://render.com/docs/free)
