@@ -16,6 +16,8 @@ let showRatedOnly = false;
 let googleMap = null;
 let googleMarkers = [];
 let mapLoadPromise = null;
+let mapLoadAttempt = 0;
+let catalogRequestId = 0;
 let remoteSearchQuery = "";
 let remoteSearchIds = new Set();
 let pendingManualLocation = null;
@@ -152,7 +154,7 @@ function updateSearchScope() {
 function searchPreferencesChanged() {
   saveSearchPreferences();
   updateSearchScope();
-  if (currentCenter) refreshCatalog();
+  if (currentCenter) refreshCatalog().catch(error => showError(error.message));
   else renderAll();
 }
 
@@ -486,15 +488,30 @@ async function loadGoogleMap() {
   if (mapLoadPromise) return mapLoadPromise;
   mapLoadPromise = (async () => {
     try {
-      const response = await fetch("/v1/public/maps-config", { cache: "no-store" });
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), 10000);
+      let response;
+      try {
+        response = await fetch("/v1/public/maps-config", { cache: "no-store", signal: controller.signal });
+      } finally {
+        clearTimeout(deadline);
+      }
       const config = await response.json();
       if (!response.ok || !config.configured || !config.browser_key) return false;
       await new Promise((resolve, reject) => {
-        window.relyqoGoogleMapReady = resolve;
+        const callback = `relyqoGoogleMapReady${++mapLoadAttempt}`;
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.browser_key)}&libraries=places&callback=relyqoGoogleMapReady&v=weekly`;
+        const finish = error => {
+          clearTimeout(deadline);
+          window[callback] = () => {};
+          script.onerror = null;
+          if (error) { script.remove(); reject(error); } else resolve();
+        };
+        const deadline = setTimeout(() => finish(new Error("Google Карта временно недоступна")), 12000);
+        window[callback] = () => finish();
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(config.browser_key)}&loading=async&callback=${callback}&v=weekly`;
         script.async = true;
-        script.onerror = () => reject(new Error("Google Карта временно недоступна"));
+        script.onerror = () => finish(new Error("Google Карта временно недоступна"));
         document.head.append(script);
       });
       $("#map").classList.add("googleReady");
@@ -975,16 +992,15 @@ function addressPart(place, type, property) {
   return component ? component[property] || "" : "";
 }
 
-async function fetchExternalPlaces() {
+async function fetchExternalPlaces(scope = { center: currentCenter, radius: selectedRadius(), limit: selectedLimit(), category: $("#serviceCategory").value || "ALL" }, isCurrent = () => true) {
   if (!window.google?.maps?.importLibrary) return [];
   const { Place, SearchNearbyRankPreference } = await google.maps.importLibrary("places");
   const found = new Map();
-  const radius = selectedRadius();
-  const limit = selectedLimit();
-  const centers = searchCenters(currentCenter, radius, limit);
+  const { radius, limit, center: origin, category: selected } = scope;
+  const centers = searchCenters(origin, radius, limit);
   const zoneRadius = centers.length === 1 ? radius : Math.max(1, radius * 0.72);
-  const selected = $("#serviceCategory").value || "ALL";
   for (const center of centers) {
+    if (!isCurrent()) return [];
     const request = {
       fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
       locationRestriction: { center, radius: Math.min(50000, zoneRadius * 1000) },
@@ -997,7 +1013,7 @@ async function fetchExternalPlaces() {
     for (const place of places || []) {
       if (!place.location || !place.id || found.has(place.id)) continue;
       const coordinates = { lat: place.location.lat(), lng: place.location.lng() };
-      const distance = distanceKm(currentCenter, coordinates);
+      const distance = distanceKm(origin, coordinates);
       if (distance > radius) continue;
       const category = externalCategory(place.primaryType);
       found.set(place.id, {
@@ -1040,12 +1056,13 @@ function externalPlaceItem(place) {
     description: `${categoryNames[category] || "Организация"}, найденная в Google Maps. Внешние рейтинги не используются RELYQO.`,
     latitude: coordinates.lat,
     longitude: coordinates.lng,
-    distance: distanceKm(currentCenter, coordinates),
+    distance: distanceKm(origin, coordinates),
     mapsUri: place.googleMapsURI || "",
   };
 }
 
 async function searchCatalog() {
+  ++catalogRequestId;
   if (showRatedOnly) {
     await reloadRatedCatalog();
     return;
@@ -1061,22 +1078,26 @@ async function searchCatalog() {
   }
   if (!currentCenter) await locate();
   if (!currentCenter) return;
+  const searchId = ++catalogRequestId;
   clearError();
   const button = $("#catalogSearchButton");
   button.disabled = true;
   $("#status").textContent = `Ищем «${query}»…`;
   try {
     const mapReady = await loadGoogleMap();
+    if (searchId !== catalogRequestId) return;
     if (!mapReady) throw new Error("Google Places сейчас недоступен");
-    const { Place, SearchByTextRankPreference } = await google.maps.importLibrary("places");
-    const { places } = await Place.searchByText({
+    const { Place, SearchByTextRankPreference } = await withDeadline(google.maps.importLibrary("places"), 12000);
+    if (searchId !== catalogRequestId) return;
+    const { places } = await withDeadline(Place.searchByText({
       textQuery: query,
       fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
       locationBias: { center: currentCenter, radius: Math.min(50000, selectedRadius() * 1000) },
       maxResultCount: Math.min(20, selectedLimit()),
       rankPreference: SearchByTextRankPreference.RELEVANCE,
       language: (navigator.language || "ru").split("-")[0],
-    });
+    }), 12000);
+    if (searchId !== catalogRequestId) return;
     const found = (places || []).map(externalPlaceItem).filter(Boolean)
       .filter((item) => item.distance <= selectedRadius());
     lastExternalPlaces = found;
@@ -1087,6 +1108,7 @@ async function searchCatalog() {
       ? `По запросу «${query}» найдено: ${found.length}.`
       : `По запросу «${query}» в радиусе ${selectedRadius()} км ничего не найдено.`;
   } catch (error) {
+    if (searchId !== catalogRequestId) return;
     remoteSearchQuery = "";
     remoteSearchIds = new Set();
     renderAll();
@@ -1097,28 +1119,57 @@ async function searchCatalog() {
   }
 }
 
+function withDeadline(task, milliseconds) {
+  let timer;
+  return Promise.race([task, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("Внешний поиск отвечает медленно")), milliseconds);
+  })]).finally(() => clearTimeout(timer));
+}
+
 async function refreshCatalog() {
   if (!currentCenter) return;
+  const requestId = ++catalogRequestId;
+  const isCurrent = () => requestId === catalogRequestId;
+  const scope = { center: { ...currentCenter }, radius: selectedRadius(), limit: selectedLimit(), category: $("#serviceCategory").value || "ALL" };
   clearError();
   updateSearchScope();
   $("#status").textContent = "Ищем организации рядом…";
-  const mapReady = await loadGoogleMap();
-  [lastPartners, lastManualPlaces] = await Promise.all([
-    fetchNearby("/v1/public/branches/nearby"),
-    fetchNearby("/v1/public/manual-places/nearby"),
-  ]);
-  lastExternalPlaces = [];
-  if (mapReady) {
+  // Start both sources now. Own results are usable even while Maps is unavailable.
+  const external = (async () => {
+    const mapReady = await loadGoogleMap();
+    if (!isCurrent()) return { stale: true };
+    if (!mapReady) throw new Error("Google Карта не загрузилась. Объекты собственного каталога RELYQO всё равно показаны ниже.");
+    let active = true;
     try {
-      lastExternalPlaces = await fetchExternalPlaces();
-    } catch (error) {
-      showError(`Google Places пока не ответил: ${error.message || "проверьте доступ Places API (New)"}. Объекты RELYQO показаны ниже.`);
+      return { rows: await withDeadline(fetchExternalPlaces(scope, () => active && isCurrent()), 12000) };
+    } finally {
+      active = false;
     }
-  } else {
-    showError("Google Карта не загрузилась. Объекты собственного каталога RELYQO всё равно показаны ниже.");
+  })().catch(error => ({ error }));
+  let local;
+  try {
+    local = await Promise.all([
+      fetchNearby("/v1/public/branches/nearby"),
+      fetchNearby("/v1/public/manual-places/nearby"),
+    ]);
+  } catch (error) {
+    if (!isCurrent()) return;
+    ++catalogRequestId;
+    throw error;
   }
+  if (!isCurrent()) return;
+  [lastPartners, lastManualPlaces] = local;
+  lastExternalPlaces = [];
   renderAll();
-  $("#status").textContent = `Готово: ${lastPartners.length + lastManualPlaces.length} объектов RELYQO и ${lastExternalPlaces.length} организаций найдено на карте.`;
+  $("#status").textContent = "Объекты RELYQO загружены. Дополняем карту…";
+  // Do not keep the search button blocked by third-party requests.
+  external.then(result => {
+    if (!isCurrent() || result.stale) return;
+    if (result.error) showError(result.error.message);
+    else lastExternalPlaces = result.rows;
+    renderAll();
+    $("#status").textContent = `Готово: ${lastPartners.length + lastManualPlaces.length} объектов RELYQO и ${lastExternalPlaces.length} организаций найдено на карте.`;
+  });
 }
 
 async function locate() {
@@ -1178,6 +1229,7 @@ $("#allOrganizationsTab").addEventListener("click", () => {
   renderAll();
 });
 $("#ratedOrganizationsTab").addEventListener("click", async () => {
+  ++catalogRequestId;
   clearError();
   try {
     await loadRatedCatalog();
