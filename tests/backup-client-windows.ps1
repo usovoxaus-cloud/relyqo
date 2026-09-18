@@ -43,7 +43,10 @@ function Invoke-RestMethod {
     $script:receiptCount++
     return @{ok=$true}
 }
-& (Join-Path $project 'app\backup-client\Backup.ps1') -ConfigPath $configPath
+# Only this disposable fixture exposes the underlying exception; no real secrets are used.
+$backupCode=Get-Content -LiteralPath (Join-Path $project 'app\backup-client\Backup.ps1') -Raw
+$backupCode=$backupCode.Replace('    # Never write exception objects', "    throw`n    # Never write exception objects")
+& ([scriptblock]::Create($backupCode)) -ConfigPath $configPath
 if ($script:receiptCount -ne 1 -or !(Get-Content (Join-Path $testRoot 'last-status.txt') -Raw).Contains(' OK ')) { throw 'Success was not recorded.' }
 # Exercise the actual Windows Task Scheduler API using a harmless task in this disposable runner.
 $taskName='RELYQO-Test-'+[guid]::NewGuid().ToString('N')
