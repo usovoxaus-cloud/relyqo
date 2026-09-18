@@ -66,12 +66,30 @@
     $('dimensions').replaceChildren();
     for(const [key,label] of Object.entries({overall:'Общее впечатление',quality:'Качество услуги / продукта',service:'Обслуживание',cleanliness:'Чистота',value:'Цена и ценность'})) $('dimensions').append(barRow(label,s.dimensions[key],10,s.dimensions[key]==null?'Нет данных':count(s.dimensions[key])+' / 10'));
     $('organizations').replaceChildren(); $('organizationCount').textContent=`Организаций: ${data.organizations.length}`;
-    for(const row of data.organizations) { const tr=element('tr'), name=element('td'), button=element('button',row.name); button.type='button'; button.addEventListener('click',()=>{$('entity').value=row.key;load();}); name.append(button,element('small',row.category_label)); tr.append(name); for(const value of [count(row.verified_visits),count(row.respondents),count(row.included),`${count(row.satisfied)} · ${pct(row.satisfied_percent)}`,count(row.neutral),count(row.dissatisfied)]) tr.append(element('td',value)); $('organizations').append(tr); }
-    if(!data.organizations.length) { const tr=element('tr'), td=element('td','В этой категории пока нет организаций.'); td.colSpan=7;tr.append(td);$('organizations').append(tr); }
-    $('methodology').replaceChildren(...['basis','respondents','visits','sources'].map(key=>element('p',data.methodology[key],'note')));
+    for(const row of data.organizations) { const tr=element('tr'), name=element('td'), button=element('button',row.name); button.type='button'; button.addEventListener('click',()=>{$('entity').value=row.key;load();}); name.append(button,element('small',row.category_label)); tr.append(name); for(const value of [count(row.verified_visits),count(row.respondents),count(row.included),count(row.new_respondents),count(row.returning_respondents),`${count(row.satisfied)} · ${pct(row.satisfied_percent)}`,count(row.neutral),count(row.dissatisfied)]) tr.append(element('td',value)); $('organizations').append(tr); }
+    if(!data.organizations.length) { const tr=element('tr'), td=element('td','В этой категории пока нет организаций.'); td.colSpan=9;tr.append(td);$('organizations').append(tr); }
+    $('methodology').replaceChildren(...['basis','respondents','visits','sources','cohorts','comparison'].map(key=>element('p',data.methodology[key],'note')));
+    renderComparison(data);
     $('analyze').disabled=!data.ai.configured||!s.included;
     $('aiText').textContent=''; $('aiStatus').textContent=!data.ai.configured?'ИИ-анализ пока не подключён. Статистика работает.':!s.included?'Для ИИ-анализа нужны оценки.':'ИИ объяснит показатели для выбранных фильтров.';
   }
+  function renderComparison(data) {
+    const c=data.comparison; $('comparisonRows').replaceChildren(); $('cohortMetrics').replaceChildren();
+    if(!c)return;
+    $('comparisonPeriod').textContent=`${data.period.start} — ${data.period.end} / ${c.period.start} — ${c.period.end} · UTC`;
+    for(const [key,label] of Object.entries({included:'Учтённые оценки',respondents:'Потребители с оценками',verified_visits:'Подтверждённые посещения',new_respondents:'Новые авторы',returning_respondents:'Вернувшиеся авторы',satisfied_percent:'Доля довольных, %'})){
+      const row=element('tr'),delta=c.delta[key];
+      for(const value of [label,count(data.summary[key]),count(c.summary[key]),delta==null?'—':(delta>0?'+':'')+count(delta)+(key==='satisfied_percent'?' п. п.':'')])row.append(element('td',value));
+      $('comparisonRows').append(row);
+    }
+    for(const [key,label] of Object.entries({new_respondents:'Новые авторы',returning_respondents:'Вернувшиеся авторы',repeat_respondents:'Повторные авторы за период'})){const p=element('p');p.append(element('span',label),element('b',count(data.summary[key])));$('cohortMetrics').append(p);}
+    $('exportReport').disabled=false;
+  }
+  $('exportReport').addEventListener('click',async()=>{
+    const b=$('exportReport');b.disabled=true;
+    try{const r=await fetch('/v1/admin/analytics/export.xlsx?'+appliedParams,{cache:'no-store'});if(!r.ok){if([401,403].includes(r.status))lock();throw Error('Не удалось скачать отчёт');}const url=URL.createObjectURL(await r.blob()),a=element('a');a.href=url;a.download='relyqo-analytics.xlsx';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+    catch(e){$('error').textContent=e.message;}finally{b.disabled=!report;}
+  });
   async function analyze() {
     const current=version; $('analyze').disabled=true; $('aiStatus').textContent='ИИ анализирует сводные показатели…';
     try { const data=await api('/v1/admin/analytics/insights?'+appliedParams,{method:'POST'}); if(current!==version) return; $('aiText').textContent=data.analysis; $('aiStatus').textContent=`${data.cached?'Сохранённый анализ':'Анализ готов'} · ${new Date(data.generated_at).toLocaleString('ru-RU')}`; }
@@ -79,7 +97,7 @@
     finally { if(current===version) $('analyze').disabled=!report?.ai.configured||!report?.summary.included; }
   }
   async function load() {
-    const current=++version; $('apply').disabled=true; $('error').textContent=''; $('pageStatus').textContent='Обновляем статистику…'; $('aiText').textContent=''; $('analyze').disabled=true;
+    const current=++version; $('apply').disabled=true; $('exportReport').disabled=true; $('error').textContent=''; $('pageStatus').textContent='Обновляем статистику…'; $('aiText').textContent=''; $('analyze').disabled=true;
     try { const query=params(); const data=await api('/v1/admin/analytics?'+query); if(current!==version) return; appliedParams=query; if(!directory.length||(!$('category').value&&!$('entity').value)) {directory=data.organizations;entityOptions();} render(data); $('content').hidden=false; $('locked').hidden=true; $('pageStatus').textContent='Данные обновлены · доступны только администратору'; if(firstLoad) {firstLoad=false;if(data.ai.configured&&data.summary.included) void analyze();} }
     catch(error) { if(current===version) {$('pageStatus').textContent='';$('error').textContent=error.message;if(!$('locked').hidden) $('pageStatus').textContent=error.message;else $('content').hidden=false;} }
     finally {if(current===version) $('apply').disabled=false;}
@@ -91,5 +109,6 @@
   $('analyze').addEventListener('click',analyze);
   $('categoryForm').addEventListener('submit',async event=>{event.preventDefault();$('saveCategory').disabled=true;$('categoryStatus').textContent='';try{const data=await api('/v1/admin/service-categories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({label:$('categoryName').value.trim(),group:$('categoryGroup').value})});await categories();$('categoryName').value='';$('categoryStatus').textContent=`Категория «${data.label}» добавлена и доступна на сайте.`;}catch(error){$('categoryStatus').textContent=error.message;}finally{$('saveCategory').disabled=false;}});
   setPeriod(30);
-  (async()=>{try{await categories();await load();}catch(error){$('pageStatus').textContent=error.message;}})();
+  const initial=new URLSearchParams(location.search);for(const id of ['start','end','source','category','entity'])if(initial.has(id)&&['start','end','source'].includes(id))$(id).value=initial.get(id);if(initial.has('start'))$('period').value='custom';
+  (async()=>{try{await categories();if(initial.has('category'))$('category').value=initial.get('category');if(initial.has('entity')){directory=(await api('/v1/admin/analytics?source='+$('source').value)).organizations;entityOptions();$('entity').value=initial.get('entity');}await load();}catch(error){$('pageStatus').textContent=error.message;}})();
 })();

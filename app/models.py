@@ -387,3 +387,52 @@ class OperationsEvent(Base):
     status: Mapped[str] = mapped_column(String(20))
     details: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+
+class AdminNotificationRead(Base):
+    __tablename__ = "admin_notification_reads"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(180), primary_key=True)
+    read_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class ImprovementAction(Base):
+    __tablename__ = "improvement_actions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    title: Mapped[str] = mapped_column(String(160))
+    recommendation: Mapped[str] = mapped_column(Text)
+    filters_json: Mapped[str] = mapped_column(Text)
+    baseline_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="OPEN", index=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+
+class ImprovementEvent(Base):
+    __tablename__ = "improvement_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    action_id: Mapped[str] = mapped_column(
+        ForeignKey("improvement_actions.id"), index=True
+    )
+    actor_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(20))
+    note: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class BackupAgent(Base):
+    __tablename__ = "backup_agents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    password_fingerprint: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_export_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_saved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    latest_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)

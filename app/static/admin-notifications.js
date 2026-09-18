@@ -1,0 +1,14 @@
+(() => {
+  'use strict';
+  const node=(tag,text)=>{const n=document.createElement(tag);if(text!=null)n.textContent=text;return n;};
+  const root=node('aside');root.className='adminNotifications';root.hidden=true;
+  const toggle=node('button','Уведомления'),panel=node('section');toggle.type='button';toggle.setAttribute('aria-expanded','false');toggle.setAttribute('aria-controls','notificationPanel');panel.id='notificationPanel';panel.hidden=true;
+  const title=node('h2','Требует внимания'),status=node('p'),list=node('div'),refresh=node('button','Обновить');refresh.type='button';status.setAttribute('role','status');panel.append(title,status,list,refresh);root.append(toggle,panel);document.querySelector('main')?.prepend(root);
+  let busy=false;
+  async function load(){if(busy||document.hidden)return;busy=true;refresh.disabled=true;try{
+    const r=await fetch('/v1/admin/notifications',{cache:'no-store'});if([401,403].includes(r.status)){root.hidden=true;list.replaceChildren();return;}if(!r.ok)throw Error('Не удалось загрузить уведомления');const d=await r.json();root.hidden=false;toggle.replaceChildren(node('span','Уведомления'),node('b',String(d.unread)));list.replaceChildren();status.textContent=d.items.length?'':'Новых событий пока нет.';
+    for(const item of d.items){const card=node('article');card.className='notificationCard';card.dataset.read=String(item.read);const a=node('a',item.title);a.href=item.href;card.append(a);if(item.organization){const p=node('p',item.organization);p.dataset.userContent='true';card.append(p);}if(item.kind==='SATISFACTION'){const p=node('p');p.append(node('span','Доля недовольных'),node('b',` ${item.previous_percent}% → ${item.current_percent}% · ${item.source}`));card.append(p);const samples=node('p');samples.append(node('span','Оценок в двух периодах'),node('b',` ${item.previous_count} / ${item.current_count}`));card.append(samples);}if(!item.read){const b=node('button','Прочитано');b.type='button';b.addEventListener('click',async()=>{b.disabled=true;try{const result=await fetch('/v1/admin/notifications/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keys:[item.key]}),cache:'no-store'});if(!result.ok)throw Error('Не удалось сохранить отметку');await load();}catch(e){status.textContent=e.message;b.disabled=false;}});card.append(b);}list.append(card);}
+    if(d.rule)list.append(node('p',d.rule));
+  }catch(e){if(!root.hidden)status.textContent=e.message;}finally{busy=false;refresh.disabled=false;}}
+  toggle.addEventListener('click',()=>{panel.hidden=!panel.hidden;toggle.setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden)load();});refresh.addEventListener('click',load);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});document.addEventListener('relyqo:refresh-notifications',load);setInterval(load,60000);load();
+})();

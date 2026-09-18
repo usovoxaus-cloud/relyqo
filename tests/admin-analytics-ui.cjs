@@ -31,7 +31,7 @@ function data(query){
 async function analyticsPage(unauthorized=false){
   const {window,document}=dom(fs.readFileSync('app/static/admin-analytics.html','utf8'));
   const requests=[];
-  const context={document,window,URLSearchParams,Date,console,fetch:async(url,options={})=>{
+  const context={document,window,URLSearchParams,Date,console,location:{search:"",hash:""},fetch:async(url,options={})=>{
     requests.push({url,options});let status=200,body;
     if(url==='/v1/public/service-categories')body={items:[category],groups:{HEALTH:'Здоровье',OTHER:'Другие услуги'}};
     else if(unauthorized){status=401;body={detail:'Войдите в аккаунт'};}
