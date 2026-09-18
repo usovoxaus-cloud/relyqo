@@ -3,7 +3,7 @@ $project = Split-Path $PSScriptRoot
 foreach ($name in @('Setup.ps1','Backup.ps1')) {
     $tokens=$null; $errors=$null
     $null=[Management.Automation.Language.Parser]::ParseFile((Join-Path $project ('app\backup-client\'+$name)),[ref]$tokens,[ref]$errors)
-    if ($errors.Count) { throw ('PowerShell parse errors in '+$name+': '+($errors|Out-String)) }
+    if ($errors.Count) { throw ('PowerShell parse errors in '+$name+': '+($errors | ForEach-Object { $_.Message + " at line " + $_.Extent.StartLineNumber } | Out-String)) }
 }
 $testRoot=Join-Path $env:TEMP ('relyqo-backup-test-'+[guid]::NewGuid().ToString('N'))
 $null=New-Item -ItemType Directory -Path $testRoot

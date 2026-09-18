@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --prefix /tmp/relyqo-dom linkedom@0.18.12
+      - run: npm install --prefix /tmp/relyqo-dom linkedom@0.18.12 acorn@8.15.0
       - run: node --test tests/admin-analytics-ui.cjs tests/trust-ui.cjs tests/performance-ui.cjs tests/password-recovery-client.test.cjs tests/admin-workflow-ui.cjs
         env:
           NODE_PATH: /tmp/relyqo-dom/node_modules
