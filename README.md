@@ -219,3 +219,8 @@ A verification-only command checks archive authentication; a real restore drill 
 Manual download does **not** enable scheduled durable backups. Render Free PostgreSQL has no native recovery and expires after 30 days. Set `DATABASE_EXPIRES_AT` to the provider's observed expiry for an admin warning, and leave `AUTOMATIC_BACKUP_STATUS=not_configured` until backups are actually enabled. After approving a paid database, enable/verify Render recovery, perform a restore into a separate instance, and only then mark automatic backups enabled. Paid web compute is separately required to remove idle sleeping. Pricing and recurring charges require the owner's approval.
 
 [Render recovery documentation](https://render.com/docs/postgresql-backups) · [Free service limitations](https://render.com/docs/free)
+
+
+### Loading performance (18 September 2026)
+
+Language scripts no longer block HTML parsing. Public JavaScript, CSS, dictionaries and icons can be reused for five minutes and then revalidated with ETag; private endpoints and page responses retain their existing cache policy. The map page no longer ships the disabled legacy implementation. Own catalog requests run alongside Maps loading and render without waiting for Google; third-party timeouts and search identifiers prevent stalled/old requests from blocking or replacing current results. Admin cases and the reason catalog load concurrently. `Server-Timing: app` reports server processing time separately from transfer latency. Render Free idle spin-up remains a hosting limitation; these changes do not enable paid compute or artificial keep-alive traffic.

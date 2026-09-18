@@ -4,6 +4,7 @@ from contextvars import ContextVar
 import json
 from pathlib import Path
 import re
+from time import perf_counter
 from fastapi import Cookie, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -46,6 +47,7 @@ class LanguagePreference(BaseModel):
 def register_i18n(app, session_user):
     @app.middleware("http")
     async def language(request, call_next):
+        started = perf_counter()
         selected = (
             request.query_params.get("lang")
             or request.cookies.get("relyqo_language")
@@ -55,12 +57,25 @@ def register_i18n(app, session_user):
         token = language_context.set(selected)
         try:
             response = await call_next(request)
-            response.headers["Content-Language"] = selected
-            response.headers["Vary"] = ", ".join(
-                filter(
-                    None, [response.headers.get("Vary"), "Cookie", "Accept-Language"]
-                )
+            response.headers["Server-Timing"] = (
+                f"app;dur={(perf_counter() - started) * 1000:.1f}"
             )
+            public_asset = request.url.path.startswith("/static/") and Path(
+                request.url.path
+            ).suffix in {".js", ".css", ".json", ".svg", ".ico", ".woff2"}
+            if public_asset and response.status_code in {200, 304}:
+                # These bytes do not depend on language, login, or cookies. Keep ETag revalidation.
+                response.headers["Cache-Control"] = (
+                    "public, max-age=300, must-revalidate"
+                )
+            else:
+                response.headers["Content-Language"] = selected
+                response.headers["Vary"] = ", ".join(
+                    filter(
+                        None,
+                        [response.headers.get("Vary"), "Cookie", "Accept-Language"],
+                    )
+                )
             return response
         finally:
             language_context.reset(token)

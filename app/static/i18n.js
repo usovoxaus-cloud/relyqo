@@ -7,7 +7,7 @@
  let dictionary={},pattern=null;
  const normalize=text=>text.replace(/\s+/g,' ').trim();
  const escape=text=>text.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
- function translate(text){if(language!=='uz'||typeof text!=='string')return text;const value=normalize(text);if(dictionary[value])return dictionary[value];return pattern?text.replace(pattern,match=>dictionary[match]||match):text;}
+ function translate(text){if(language!=='uz'||typeof text!=='string'||!/[А-Яа-яЁё]/.test(text))return text;const value=normalize(text);if(dictionary[value])return dictionary[value];return pattern?text.replace(pattern,match=>dictionary[match]||match):text;}
  window.relyqoT=translate;
  const skip='script,style,code,[data-user-content],[translate="no"],#placeName,#placeAddress,#organizationTitle,#organizationLead,#username,#name,#description,#assistantAnswer,#aiText,#analysis,#photoAnalysis';
  function translateNode(node){if(node.nodeType===3){if(!node.parentElement||node.parentElement.closest(skip))return;const t=translate(node.nodeValue);if(t!==node.nodeValue)node.nodeValue=t;}else if(node.nodeType===1&&!node.matches(skip)){for(const attribute of ['placeholder','title','aria-label','alt'])if(node.hasAttribute(attribute)){const v=node.getAttribute(attribute),t=translate(v);if(t!==v)node.setAttribute(attribute,t);}if(!node.matches('textarea,input'))for(const child of [...node.childNodes])translateNode(child);}}
