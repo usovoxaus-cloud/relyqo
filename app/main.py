@@ -28,6 +28,8 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .categories import category_catalog, require_category, register_category_routes
 from .analytics import register_analytics_routes
+from .admin_workflow import register_admin_workflow
+from .scheduled_backups import register_scheduled_backups
 from .operations import register_operations_routes
 from .i18n import register_i18n
 from .password_recovery import (
@@ -4780,5 +4782,9 @@ register_analytics_routes(app, session_user)
 register_feedback_routes(app, session_user, recalculate_organization)
 
 register_operations_routes(app, session_user)
+
+
+register_admin_workflow(app, session_user)
+register_scheduled_backups(app, session_user)
 
 register_i18n(app, session_user)

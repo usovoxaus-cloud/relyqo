@@ -35,7 +35,7 @@ class AnalyticsFilter:
     ):
         self.end = end or datetime.utcnow().date()
         self.start = start or self.end - timedelta(days=29)
-        if not 0 <= (self.end - self.start).days < 366:
+        if self.end == date.max or not 0 <= (self.end - self.start).days < 366:
             raise HTTPException(422, "Выберите период от 1 до 366 дней")
         self.source, self.category, self.entity = source, category, entity
 
@@ -149,7 +149,72 @@ def metric_payload(row):
     return counts
 
 
-def build_report(db, filters):
+def cohort_counts(db, filters, e, f, scope, start, stop):
+    """First/returning means an eligible registered author in this exact report scope."""
+
+    def query(group_entity=False):
+        group = [f.c.consumer]
+        if group_entity:
+            group.insert(0, e.c.key)
+        active = func.sum(case((f.c.created_at >= start, 1), else_=0))
+        authors = (
+            select(
+                *group,
+                func.min(f.c.created_at).label("first_at"),
+                active.label("activity"),
+            )
+            .select_from(f.join(e, f.c.entity == e.c.key))
+            .where(
+                *scope,
+                f.c.created_at < stop,
+                f.c.eligible.is_(True),
+                f.c.consumer.is_not(None),
+            )
+            .group_by(*group)
+            .having(active > 0)
+            .subquery()
+        )
+        columns = [
+            func.coalesce(
+                func.sum(case((authors.c.first_at >= start, 1), else_=0)), 0
+            ).label("new_respondents"),
+            func.coalesce(
+                func.sum(case((authors.c.first_at < start, 1), else_=0)), 0
+            ).label("returning_respondents"),
+            func.coalesce(
+                func.sum(case((authors.c.activity >= 2, 1), else_=0)), 0
+            ).label("repeat_respondents"),
+        ]
+        stmt = select(*columns)
+        if group_entity:
+            stmt = select(authors.c.key, *columns).group_by(authors.c.key)
+        return db.execute(stmt).mappings().all()
+
+    summary = dict(query()[0])
+    by_entity = {
+        row["key"]: {k: v for k, v in row.items() if k != "key"} for row in query(True)
+    }
+    return summary, by_entity
+
+
+def comparison_metrics(current, previous):
+    result = {}
+    for key in [
+        "included",
+        "respondents",
+        "verified_visits",
+        "new_respondents",
+        "returning_respondents",
+        "satisfied_percent",
+    ]:
+        before, after = previous.get(key), current.get(key)
+        result[key] = (
+            None if before is None or after is None else round(after - before, 1)
+        )
+    return result
+
+
+def build_report(db, filters, *, comparison=True):
     catalog = category_catalog(db)
     labels = {item["code"]: item["label"] for item in catalog}
     if filters.category and filters.category not in labels:
@@ -168,6 +233,7 @@ def build_report(db, filters):
     if filters.entity and not directory:
         raise HTTPException(404, "Организация не найдена в выбранной категории")
     start, stop = filters.bounds
+    cohort, entity_cohorts = cohort_counts(db, filters, e, f, conditions, start, stop)
     conditions += [f.c.created_at >= start, f.c.created_at < stop]
     joined = f.join(e, f.c.entity == e.c.key)
     columns = aggregate_columns(f)
@@ -176,6 +242,7 @@ def build_report(db, filters):
         .mappings()
         .one()
     )
+    summary.update(cohort)
     from .feedback import REASONS
 
     reason_counts = {code: 0 for code in REASONS}
@@ -268,6 +335,14 @@ def build_report(db, filters):
             **dict(row),
             "category_label": labels.get(row["category"], row["category"]),
             **by_entity.get(row["key"], metric_payload(None)),
+            **entity_cohorts.get(
+                row["key"],
+                {
+                    "new_respondents": 0,
+                    "returning_respondents": 0,
+                    "repeat_respondents": 0,
+                },
+            ),
             "verified_visits": visit_counts.get(row["key"], 0)
             if filters.source == "verified"
             else None,
@@ -297,7 +372,7 @@ def build_report(db, filters):
                 else None,
             }
         )
-    return {
+    result = {
         "period": {
             "start": str(filters.start),
             "end": str(filters.end),
@@ -327,9 +402,45 @@ def build_report(db, filters):
             "respondents": "Уникальные аккаунты, оставившие учтённые оценки в выбранном периоде. Безымянные оценки не превращаются в уникальных людей.",
             "visits": "Только посещения, подтверждённые через RELYQO. Это не весь поток клиентов организации.",
             "sources": "Подтверждённые и Community-оценки показаны раздельно. Оценки на проверке и исключённые оценки не входят в удовлетворённость.",
+            "cohorts": "Новые авторы впервые оставили учтённую оценку в выбранной группе организаций за этот период. Вернувшиеся уже оценивали эту группу раньше. Повторные авторы оставили две или более оценки за период. Это аккаунты с оценками, а не все клиенты; источники считаются отдельно.",
+            "comparison": "Сравнение с непосредственно предшествующим периодом той же длины. Доли сравниваются в процентных пунктах. Текущий день может быть неполным; состав выборки может меняться.",
         },
         "ai": {"configured": bool(settings.openai_api_key), "affects_ratings": False},
     }
+    if comparison:
+        days = (filters.end - filters.start).days + 1
+        if filters.start.toordinal() <= days:
+            raise HTTPException(422, "Дата слишком ранняя для сравнения периодов")
+        prior = build_report(
+            db,
+            AnalyticsFilter(
+                start=filters.start - timedelta(days=days),
+                end=filters.start - timedelta(days=1),
+                source=filters.source,
+                category=filters.category,
+                entity=filters.entity,
+            ),
+            comparison=False,
+        )
+        result["comparison"] = {
+            "period": prior["period"],
+            "summary": prior["summary"],
+            "delta": comparison_metrics(summary, prior["summary"]),
+        }
+        old_entities = {r["key"]: r for r in prior["organizations"]}
+        for row in organizations:
+            old = old_entities.get(row["key"], {})
+            row["previous"] = {
+                k: old.get(k)
+                for k in [
+                    "included",
+                    "respondents",
+                    "satisfied_percent",
+                    "new_respondents",
+                    "returning_respondents",
+                ]
+            }
+    return result
 
 
 def ai_context(report):
@@ -365,6 +476,7 @@ def ai_context(report):
         "source": report["filters"]["source"],
         "weekly_trend": list(weeks.values()),
         "summary": report["summary"],
+        "comparison": report.get("comparison"),
         "methodology": report["methodology"],
         "categories": [public_metrics(row) for row in report["categories"][:30]],
         "organizations": [
@@ -399,6 +511,25 @@ def register_analytics_routes(app, session_user):
         session_user(relyqo_session, db, "RELYQO_ADMIN")
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return build_report(db, filters)
+
+    @app.get("/v1/admin/analytics/export.xlsx")
+    def export(
+        filters: AnalyticsFilter = Depends(),
+        relyqo_session: str | None = Cookie(default=None),
+        db: Session = Depends(get_db),
+    ):
+        session_user(relyqo_session, db, "RELYQO_ADMIN")
+        from .report_export import export_report
+
+        return Response(
+            export_report(build_report(db, filters)),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": 'attachment; filename="relyqo-analytics.xlsx"',
+            },
+        )
 
     @app.post("/v1/admin/analytics/insights")
     def insights(

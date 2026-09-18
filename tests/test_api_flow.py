@@ -323,12 +323,12 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert script.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert "RELYQO MAP" in page.text
-    assert "navigator.geolocation" in page.text
+    assert "navigator.geolocation" in script.text
     assert "не сохраняется RELYQO" in page.text
-    assert "Оценить в RELYQO" in page.text
-    assert "Verified только по QR" in page.text
+    assert "Оценить в RELYQO" in script.text
+    assert "Verified только по QR" in script.text
     assert "♡ Моя карта" in page.text
-    assert "relyqo_favorites_v1" in page.text
+    assert "relyqo_favorites_v1" in script.text
     assert 'id="radius"' in page.text
     assert "Радиус, км" in page.text
     assert 'max="50"' not in page.text
@@ -344,7 +344,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'id="ratedMinScore"' in page.text
     assert "Verified — по QR" in page.text
     assert "Community — потребители" in page.text
-    assert "selectedRadius()" in page.text
+    assert "selectedRadius()" in script.text
     assert "relyqo_map_search_v1" in script.text
     assert "Радиус RELYQO" in script.text
     assert '$("#radius").addEventListener("input"' in script.text
@@ -359,7 +359,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "value == null" in script.text
     assert "if (!hasMapLocation(item)) return null;" in script.text
     assert 'appendMapLink(actions, item, "Открыть на карте")' in script.text
-    assert "public-ai-advisor-3" in page.text
+    assert 'src="/static/nearby.js?' in page.text
     assert "ratingCountLabel" in script.text
     assert "progressTimer" in script.text
     assert "AI‑ПОМОЩНИК RELYQO" in page.text
@@ -382,7 +382,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "собственном каталоге RELYQO" in page.text
     assert "maps.googleapis.com/maps/api/js" in script.text
     assert "google.maps.Map" in script.text
-    assert "libraries=places" in script.text
+    assert 'importLibrary("places")' in script.text
     assert "Place.searchNearby" in script.text
     assert "userRatingCount" not in script.text
     assert '"rating", "userRatingCount"' not in script.text

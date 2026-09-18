@@ -94,6 +94,8 @@ def register_operations_routes(app, session_user):
             .group_by(MailDelivery.status)
         ).all()
         recovery = db.get(ConsumerEmail, user.id)
+        from .scheduled_backups import backup_client_status
+
         response.headers["Cache-Control"] = "no-store"
         return {
             "database": "ok",
@@ -104,6 +106,7 @@ def register_operations_routes(app, session_user):
             "mail_last_7_days": dict(mail),
             "mail_status_note": "ACCEPTED означает принятие провайдером, а не подтверждение доставки.",
             "automatic_backups": settings.automatic_backup_status,
+            "local_backups": backup_client_status(db, user),
             "database_expires_at": settings.database_expires_at or None,
             "monitoring": "Ошибки API: письмо на подтверждённую почту администратора, не чаще раза в час. Недоступность всего сайта: отдельная проверка GitHub Actions.",
             "events": [

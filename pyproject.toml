@@ -20,13 +20,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==8.4.1", "httpx==0.28.1", "ruff==0.12.11"]
+dev = ["pytest==8.4.1", "httpx==0.28.1", "ruff==0.12.11", "openpyxl>=3.1,<4"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["static/*"]
+app = ["static/*", "backup-client/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
