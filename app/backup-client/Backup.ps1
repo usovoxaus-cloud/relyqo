@@ -35,7 +35,7 @@ try {
         $null = Invoke-RestMethod -Uri ($baseUrl + '/v1/backup-client/receipt') -Method Post -Headers $headers -ContentType 'application/json' -Body (@{sha256=$digest} | ConvertTo-Json -Compress) -TimeoutSec 60 -MaximumRedirection 0
     } catch { throw 'Backup saved, but the server did not receive confirmation. Check the destination folder.' }
     [IO.File]::WriteAllText((Join-Path (Split-Path $ConfigPath) 'last-status.txt'), ([DateTime]::UtcNow.ToString('o') + ' OK ' + $name))
-    Write-Host "Зашифрованная копия сохранена. / Shifrlangan nusxa saqlandi."
+    Write-Host ("Зашифрованная копия сохранена / Shifrlangan nusxa saqlandi: " + $finalFile)
 } catch {
     # Never write exception objects, request bodies, tokens or passphrases into logs.
     if ($pendingFile -and (Test-Path -LiteralPath $pendingFile)) { Remove-Item -LiteralPath $pendingFile }

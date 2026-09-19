@@ -9,7 +9,10 @@ RELYQO — ежедневные зашифрованные копии / kundalik
 4. Дождитесь первой успешной копии. Затем включится задание Windows:
    ежедневно в 19:00 и при входе в Windows. Компьютер должен быть включён,
    подключён к интернету, а вы — находиться в своей учётной записи Windows.
-5. Файлы: Документы\RELYQO-Backups. Состояние: %LOCALAPPDATA%\RELYQO\Backup\last-status.txt.
+5. Файлы: D:\Relico. Установщик создаёт эту папку автоматически.
+   Если диск D недоступен, настройка остановится с сообщением — другая папка
+   не выбирается автоматически. После сохранения выводится полный путь к файлу.
+   Состояние: %LOCALAPPDATA%\RELYQO\Backup\last-status.txt.
    Проверьте дату сохранения в админке. Ключ действует 180 дней; после смены
    пароля администратора нужно выпустить новый ключ и повторить настройку.
 6. Отключить: отозвать ключ в админке и отключить задание RELYQO Daily Backup
@@ -33,7 +36,9 @@ Administrator panelidagi nusxalash kalitini kiriting. Nusxa uchun alohida
 16–200 belgili parol tanlang va uni kompyuterdan tashqarida saqlang.
 Birinchi nusxa saqlangach, Windows vazifasi har kuni 19:00 da va tizimga kirishda ishlaydi.
 Kompyuter yoqilgan, internetga ulangan va Windows hisobingiz ochiq bo‘lishi kerak.
-Fayllar: Documents\RELYQO-Backups. Kalit 180 kun amal qiladi.
+Fayllar: D:\Relico. O‘rnatuvchi papkani avtomatik yaratadi. D diski mavjud
+bo‘lmasa, sozlash xabar bilan to‘xtaydi. Saqlangach, faylning to‘liq yo‘li ko‘rsatiladi.
+Kalit 180 kun amal qiladi.
 Administrator paroli o‘zgarsa, yangi kalit yarating va sozlashni takrorlang.
 Nusxalar Render bazasining amal qilish muddatini uzaytirmaydi.
 Tiklash faqat alohida bo‘sh bazada bajariladi. Parolsiz nusxani tiklab bo‘lmaydi.
