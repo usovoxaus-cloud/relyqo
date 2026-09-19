@@ -1,4 +1,5 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param([string]$Destination = 'D:\Relico')
+$ErrorActionPreference = 'Stop'
 function Plain([Security.SecureString]$value) {
     $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($value)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
@@ -8,6 +9,17 @@ try {
     Write-Host "RELYQO: ежедневные копии / Kundalik nusxalar"
     Write-Host "Компьютер должен быть включён, вход в Windows выполнен. / Kompyuter yoqilgan bo‘lishi kerak."
     Write-Host "Сохраните пароль копии отдельно. / Nusxa parolini alohida saqlang."
+    $destination = [IO.Path]::GetFullPath($Destination)
+    Write-Host ("Папка копий / Nusxalar papkasi: " + $destination)
+    if ($destination -notmatch '^[A-Za-z]:\\' -or !(Test-Path -LiteralPath ([IO.Path]::GetPathRoot($destination)) -PathType Container)) {
+        Write-Host "Диск для папки копий недоступен. Подключите диск и повторите настройку. / Nusxalar diski mavjud emas. Diskni ulang va qayta urinib ko‘ring." -ForegroundColor Red
+        exit 1
+    }
+    try { $null = [IO.Directory]::CreateDirectory($destination) }
+    catch {
+        Write-Host "Не удалось создать папку копий. Проверьте доступ к диску. / Nusxalar papkasini yaratib bo‘lmadi. Diskka kirishni tekshiring." -ForegroundColor Red
+        exit 1
+    }
     $server = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'server.json') -Raw | ConvertFrom-Json
     $uri = [uri]$server.base_url
     if ($uri.Scheme -ne 'https' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or $uri.AbsolutePath -ne '/') { throw 'Invalid server URL.' }
@@ -18,9 +30,7 @@ try {
     $confirmation = Read-Host "Повторите пароль / Parolni takrorlang" -AsSecureString
     if ((Plain $phrase).Length -lt 16 -or (Plain $phrase).Length -gt 200 -or (Plain $phrase) -cne (Plain $confirmation)) { throw 'Passphrases do not match or are too short.' }
     $root = Join-Path $env:LOCALAPPDATA 'RELYQO\Backup'
-    $destination = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'RELYQO-Backups'
     $null = New-Item -ItemType Directory -Path $root -Force
-    $null = New-Item -ItemType Directory -Path $destination -Force
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $acl = New-Object Security.AccessControl.DirectorySecurity
     $acl.SetAccessRuleProtection($true, $false)
