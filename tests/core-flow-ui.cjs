@@ -6,7 +6,7 @@ const read=name=>fs.readFileSync('app/static/'+name,'utf8');
 const settle=async()=>{for(let i=0;i<6;i++)await new Promise(r=>setImmediate(r));};
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}};
 const reply=data=>({ok:true,status:200,json:async()=>data});
-function dom(name){const {document,window}=parseHTML(read(name));Object.defineProperty(window.HTMLSelectElement.prototype,'value',{configurable:true,get(){return [...this.options].find(o=>o.selected)?.value??this.options[0]?.value??''},set(value){for(const o of this.options)o.selected=o.value===String(value)}});return{document,window};}
+function dom(name){const {document,window}=parseHTML(read(name));Object.defineProperty(window.HTMLSelectElement.prototype,'value',{configurable:true,get(){return [...this.options].find(o=>o.selected)?.value??this.options[0]?.value??''},set(value){for(const o of this.options)o.removeAttribute('selected');[...this.options].find(o=>o.value===String(value))?.setAttribute('selected','')}});return{document,window};}
 function photoHarness(document,window){
  const readers=[],errors=[];class Reader{constructor(){readers.push(this)}readAsDataURL(){}finish(value){this.result=value;this.onload()}}
  const context={document,window,FileReader:Reader,Error};vm.runInNewContext(read('rating-photo.js'),context);
@@ -65,9 +65,9 @@ test('community categories update criteria without clearing scores; publishing c
 });
 test('slow rated catalog responses cannot replace newer filters or unlock their loading button',async()=>{
  const source=read('nearby.js'),node=acorn.parse(source,{ecmaVersion:'latest'}).body.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='loadRatedCatalog');
- const answers=[deferred(),deferred(),deferred()],button={},more={},q={value:'old'};let call=0;
- const context={URLSearchParams,ratedRequestId:0,ratedCatalogHasMore:true,lastRatedPlaces:[],ratedCatalogTotal:0,ratedCatalogFacets:{},ratedCatalogLoaded:false,
-  $:id=>id==='#ratedOrganizationsTab'?button:id==='#ratedLoadMore'?more:id==='#catalogQuery'?q:{value:'0'},ratedFilterValue:()=> 'ALL',updateRatedLocationFilters(){},fetch:()=>answers[call++].promise};
+ const answers=[deferred(),deferred(),deferred()],button={},more={},q={value:'old',classList:{add(){}}};let call=0;
+ const context={window:{clearTimeout(){}},advisorRequestId:0,autoAdvisorTimer:null,directoryGeography:[],renderDirectoryGeography(){},scheduleDirectoryAdvice(){},URLSearchParams,ratedRequestId:0,ratedCatalogHasMore:true,lastRatedPlaces:[],ratedCatalogTotal:0,ratedCatalogFacets:{},ratedCatalogLoaded:false,
+  $:id=>id==='#ratedOrganizationsTab'?button:id==='#ratedLoadMore'?more:id==='#catalogQuery'?q:{value:'0',classList:{add(){}}},ratedFilterValue:()=> 'ALL',updateRatedLocationFilters(){},fetch:()=>answers[call++].promise};
  vm.runInNewContext(source.slice(node.start,node.end),context);const old=context.loadRatedCatalog();q.value='new';const fresh=context.loadRatedCatalog();answers[0].resolve(reply({items:[{name:'old'}]}));await old;assert.equal(button.disabled,true);assert.equal(context.lastRatedPlaces.length,0);answers[1].resolve(reply({items:[{name:'new'}],total:1}));await fresh;assert.equal(context.lastRatedPlaces[0].name,'new');assert.equal(button.disabled,false);
 });
 test('late geolocation denial cannot overwrite the catalog selected by the user',async()=>{
@@ -75,4 +75,26 @@ test('late geolocation denial cannot overwrite the catalog selected by the user'
  const status={},button={},errors=[];let deny;
  const context={locationRequestId:0,$:id=>id==='#locate'?button:status,clearError(){},showError:m=>errors.push(m),navigator:{geolocation:{getCurrentPosition(resolve,reject){deny=reject}}}};
  vm.runInNewContext(source.slice(node.start,node.end),context);const pending=context.locate();++context.locationRequestId;status.textContent='Каталог с оценками загружен';deny({code:1});await pending;assert.equal(status.textContent,'Каталог с оценками загружен');assert.equal(errors.length,0);assert.equal(button.disabled,false);
+});
+
+test('country directory starts without GPS or Maps, lists unrated places, and limits automatic AI to the selected city',async()=>{
+ const {document,window:events}=dom('nearby.html'),requests=[],timers=new Map();let clock=0,gps=0;
+ for(const select of document.querySelectorAll('select'))select.add=option=>select.append(option);
+ const rows=[{kind:'manual',id:'one',object_key:'manual:one',name:'School',city:'Tashkent',country_code:'UZ',category:'EDUCATION',address:'Street 1',community_rating_count:2,community_score:80,verified_rating_count:0},{kind:'manual',id:'two',object_key:'manual:two',name:'New clinic',city:'Samarkand',country_code:'UZ',category:'HEALTH',address:'Street 2',community_rating_count:0,community_score:0,verified_rating_count:0}];
+ const geo=[{country_code:'UZ',card_count:2,cities:[{city:'Tashkent',card_count:1},{city:'Samarkand',card_count:1}]}];
+ const window={relyqoCategoriesReady:Promise.resolve([]),setTimeout:fn=>{timers.set(++clock,fn);return clock},clearTimeout:id=>timers.delete(id)};
+ const context={document,window,Option:function(text,value=text){const option=document.createElement("option");option.textContent=text;option.value=value;return option;},URLSearchParams,Intl,AbortController,setTimeout:window.setTimeout,clearTimeout:window.clearTimeout,localStorage:{getItem:()=>null,setItem(){}},navigator:{language:'ru',geolocation:{getCurrentPosition(){gps++}}},fetch:async(url,options)=>{
+  requests.push({url,options});if(url==='/v1/public/advisor')return new Promise(()=>{});
+  assert(url.startsWith('/v1/public/rated-organizations?'));const p=new URLSearchParams(url.split('?')[1]),items=rows.filter(row=>!p.get('city')||row.city===p.get('city'));return reply({items,total:items.length,has_more:false,geography:geo,facets:{countries:['UZ'],cities:geo[0].cities.map(row=>({...row,country_code:'UZ'}))}});
+ }};
+ vm.runInNewContext(read('nearby.js'),context);await settle();assert.equal(document.querySelector('#error').textContent,'');assert.equal(gps,0);assert.equal(requests.length,1);assert.match(document.querySelector('#results').textContent,/New clinic/);assert.equal(document.querySelectorAll('#directoryGeography button').length,2);assert.equal(document.body.classList.contains('directoryMode'),true);
+ const auto=[...timers.values()][0];timers.clear();auto();await settle();const ai=requests.find(r=>r.url==='/v1/public/advisor');assert.deepEqual(JSON.parse(ai.options.body).candidates.map(r=>r.object_key),['manual:one']);assert.match(document.querySelector('#results').textContent,/School/);
+ document.querySelector('#ratedCountry').value='UZ';document.querySelector('#ratedCity').value='Samarkand';document.querySelector('#ratedCity').dispatchEvent(new events.Event('change'));await settle();assert.match(requests.at(-1).url,/city=Samarkand/);assert.match(document.querySelector('#results').textContent,/New clinic/);assert.doesNotMatch(document.querySelector('#results').textContent,/School/);
+});
+
+test('home does not download the QR decoder until scanning and concurrent scanner starts share one load',async()=>{
+ const x=qrHarness();x.window.jsQR=undefined;
+ assert.equal(x.document.querySelectorAll('script[src*="jsqr"]').length,0);
+ const first=vm.runInNewContext('prepareQrReader()',x.context),second=vm.runInNewContext('prepareQrReader()',x.context);
+ const scripts=x.document.querySelectorAll('script[src*="jsqr"]');assert.equal(scripts.length,1);x.window.jsQR=()=>null;scripts[0].onload();await Promise.all([first,second]);
 });

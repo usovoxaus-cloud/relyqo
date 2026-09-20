@@ -42,6 +42,7 @@ const api = async (url, body) => {
 let cameraStream = null;
 let scanTimer = null;
 let qrDetector = null;
+let qrReaderPromise = null;
 const qrCanvas = document.createElement("canvas");
 const qrContext = qrCanvas.getContext("2d", { willReadFrequently: true });
 
@@ -86,7 +87,20 @@ const prepareQrReader = async () => {
     }
   }
   if (!qrDetector && typeof window.jsQR !== "function") {
-    throw new Error("Модуль QR не загрузился. Проверьте интернет и обновите страницу.");
+    if (!qrReaderPromise) qrReaderPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
+      script.async = true;
+      const timer = window.setTimeout(() => script.onerror(), 12000);
+      script.onload = () => {window.clearTimeout(timer); resolve();};
+      script.onerror = () => {
+        window.clearTimeout(timer); script.remove(); qrReaderPromise = null;
+        reject(new Error("Модуль QR не загрузился. Проверьте интернет и попробуйте снова."));
+      };
+      document.head.append(script);
+    });
+    await qrReaderPromise;
+    if (typeof window.jsQR !== "function") {qrReaderPromise = null; throw new Error("Модуль QR недоступен. Попробуйте снова.");}
   }
 };
 
