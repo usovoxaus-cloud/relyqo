@@ -14,6 +14,7 @@
   <title>RELYQO — найдите организацию, которой можно доверять</title>
 <link rel="stylesheet" href="/static/feedback.css">
 <script src="/static/feedback-form.js" defer></script>
+<script src="/static/service-categories.js" defer></script>
 <script src="/static/account-onboarding.js" defer></script></head>
 <body class="ui-audit page-index">
   <main>
@@ -60,8 +61,14 @@
     <section id="rating" class="card hidden"><p class="eyebrow">ПОСЕЩЕНИЕ ПОДТВЕРЖДЕНО ✓</p><h2 id="place">Ваше впечатление</h2><p id="branch" class="lead"></p><div id="sliders"></div><div class="photoBox"><label class="photoButton">＋ Добавить фото к оценке<input id="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label><p class="photoHint">Необязательно · до 5 МБ. QR подтверждает посещение, фото дополняет оценку видимыми материалами.</p><img id="photoPreview" class="photoPreview hidden" alt="Предпросмотр фотографии"></div><section id="feedbackFields" class="feedbackFields"></section>
 <button id="submit">Отправить честную оценку <span>→</span></button><p id="rateError" class="error"></p></section>
     <section id="done" class="card hidden"><p id="doneStatus" class="eyebrow">ОЦЕНКА УЧТЕНА</p><div class="score"><span id="score">—</span><small>/100</small></div><h2 id="doneTitle">RELYQO Score обновлён</h2><p id="summary" class="lead"></p><div id="photoAnalysis" class="aiPhoto hidden"></div><p class="note">Результат рассчитан детерминированным Score Engine. Фото и AI-наблюдение не меняют Score. Спорные случаи не меняют рейтинг до Owner Review.</p><button onclick="location.href='/'">Готово</button></section>
+    <nav class="homeNav" aria-label="Кабинеты и помощь" style="flex-wrap:wrap;justify-content:center;gap:16px;margin:24px 0">
+      <a href="/business-owner">Кабинет бизнеса</a>
+      <a href="/admin">Вход администратора</a>
+      <a href="/forgot-password">Восстановить доступ</a>
+    </nav>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-  <script src="/static/app.js?v=camera-qr-3"></script>
+  <script src="/static/rating-photo.js?v=20260920"></script>
+  <script src="/static/app.js?v=core-20260920"></script>
 </body>
 </html>

@@ -1575,5 +1575,15 @@
   "Скачивание запущено. Нажмите Ctrl + J и «Показать в папке», чтобы найти копию. Храните пароль отдельно.": "Yuklab olish boshlandi. Nusxani topish uchun Ctrl + J va «Papkada ko‘rsatish» tugmalarini bosing. Parolni alohida saqlang.",
   "Сохранение отменено. Новая копия не сохранена.": "Saqlash bekor qilindi. Yangi nusxa saqlanmadi.",
   "Копия не сохранена.": "Nusxa saqlanmadi.",
-  "Пароли копии не совпадают.": "Nusxa parollari mos kelmaydi."
+  "Пароли копии не совпадают.": "Nusxa parollari mos kelmaydi.",
+  "Кабинеты и помощь": "Kabinetlar va yordam",
+  "Кабинет бизнеса": "Biznes kabineti",
+  "Вход администратора": "Administrator kirishi",
+  "Каталог без геолокации": "Joylashuvsiz katalog",
+  "Выберите фотографию JPEG, PNG или WebP.": "JPEG, PNG yoki WebP formatidagi suratni tanlang.",
+  "Не удалось прочитать фото. Выберите его ещё раз.": "Suratni o‘qib bo‘lmadi. Uni qayta tanlang.",
+  "Подождите, фотография ещё загружается.": "Kuting, surat hali yuklanmoqda.",
+  "Связь прервалась. Проверьте интернет перед повторной отправкой.": "Aloqa uzildi. Qayta yuborishdan oldin internetni tekshiring.",
+  "Не удалось выполнить запрос. Попробуйте позже.": "So‘rovni bajarib bo‘lmadi. Keyinroq urinib ko‘ring.",
+  "Список категорий не загрузился. Обновите страницу, чтобы изменить категорию.": "Toifalar ro‘yxati yuklanmadi. Toifani o‘zgartirish uchun sahifani yangilang."
 }

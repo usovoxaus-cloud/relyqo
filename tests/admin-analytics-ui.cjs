@@ -100,3 +100,15 @@ test('new categories populate static and subsequently created forms without dupl
   assert.equal(window.relyqoCategoryLabel('CUSTOM_VET'),category.label);
   assert.equal(window.relyqoCategoryGroup('CUSTOM_VET'),'HEALTH');
 });
+
+test('administrator statistics render without waiting for the category service',async()=>{
+  const {document,window}=dom(fs.readFileSync('app/static/admin-analytics.html','utf8'));
+  const requests=[];
+  vm.runInNewContext(fs.readFileSync('app/static/admin-analytics.js','utf8'),{document,window,URLSearchParams,Date,location:{search:''},fetch:async url=>{
+    requests.push(url);
+    if(url==='/v1/public/service-categories')return new Promise(()=>{});
+    const report=data(url.split('?')[1]);report.ai.configured=false;
+    return {ok:true,status:200,json:async()=>report};
+  }});
+  await settle();assert(requests.some(url=>url.startsWith('/v1/admin/analytics?')));assert.equal(document.getElementById('content').hidden,false);assert.equal(document.getElementById('respondents').textContent,'2');
+});

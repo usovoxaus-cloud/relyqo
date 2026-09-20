@@ -1,6 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 let visitId;
-let photoDataUrl = null;
+let verifyPending = false, ratingPending = false, ratingSaved = false;
 let metrics = [];
 const metricSets = {
   FOOD: ["Общее впечатление", "Качество еды / продукта", "Обслуживание", "Чистота", "Цена и ценность"],
@@ -16,7 +16,7 @@ const metricSets = {
 };
 const foodCategories = new Set(["FOOD", "RESTAURANT", "CAFE", "COFFEE_SHOP", "BAKERY", "BAR", "FOOD_COURT"]);
 const renderMetrics = (category = "OTHER") => {
-  const group = foodCategories.has(category) ? "FOOD" : category;
+  const group = window.relyqoCategoryGroup?.(category) || (foodCategories.has(category) ? "FOOD" : category);
   const labels = metricSets[group] || metricSets.OTHER;
   metrics = ["overall", "food", "service", "cleanliness", "value"].map((id, index) => [id, labels[index]]);
   $("#sliders").innerHTML = metrics.map(([id, label]) => `<div class="metric"><div class="metricTop"><label for="${id}">${label}</label><output id="${id}Out">8</output></div><input id="${id}" type="range" min="1" max="10" value="8" aria-label="${label}"></div>`).join("");
@@ -24,32 +24,18 @@ const renderMetrics = (category = "OTHER") => {
 };
 renderMetrics();
 
-$("#photo").addEventListener("change", (event) => {
-  const file = event.target.files[0];
-  $("#rateError").textContent = "";
-  if (!file) {
-    photoDataUrl = null;
-    $("#photoPreview").classList.add("hidden");
-    return;
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    event.target.value = "";
-    $("#rateError").textContent = "Фото должно быть не больше 5 МБ";
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    photoDataUrl = reader.result;
-    $("#photoPreview").src = photoDataUrl;
-    $("#photoPreview").classList.remove("hidden");
-  };
-  reader.readAsDataURL(file);
+const ratingPhoto = window.relyqoRatingPhoto({
+  input: $("#photo"), preview: $("#photoPreview"),
+  onChange: () => { $("#rateError").textContent = ""; },
+  onError: message => { $("#rateError").textContent = message; },
 });
 
 const api = async (url, body) => {
-  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || "Ошибка запроса");
+  let response;
+  try { response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); }
+  catch (_) { throw new Error("Связь прервалась. Проверьте интернет перед повторной отправкой."); }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Не удалось выполнить запрос. Попробуйте позже.");
   return data;
 };
 
@@ -206,18 +192,31 @@ $("#qrImage").addEventListener("change", async (event) => {
 window.addEventListener("pagehide", stopCamera);
 
 $("#verify").onclick = async () => {
+  if (verifyPending || visitId) return;
+  verifyPending = true;
+  $("#verify").disabled = true;
   try {
     $("#scanError").textContent = "";
     $("#scanStatus").textContent = "";
     stopCamera();
-    const result = await api("/v1/visits/verify-token", { token: $("#token").value.trim() });
+    const result = await api("/v1/visits/verify-token", { token: readRelyqoToken($("#token").value) });
     visitId = result.visit_id;
     $("#place").textContent = result.organization.name;
     $("#branch").textContent = result.branch.name;
-    renderMetrics(result.organization.category || "OTHER");
+    const category = result.organization.category || "OTHER";
+    renderMetrics(category);
+    Promise.resolve(window.relyqoCategoriesReady).then(() => {
+      const labels = metricSets[window.relyqoCategoryGroup?.(category)];
+      if (!labels) return;
+      metrics.forEach(([id], index) => {
+        $(`label[for="${id}"]`).textContent = labels[index];
+        $("#" + id).setAttribute("aria-label", labels[index]);
+      });
+    });
     $("#scan").classList.add("hidden");
     $("#rating").classList.remove("hidden");
   } catch (error) { $("#scanError").textContent = error.message; }
+  finally { verifyPending = false; $("#verify").disabled = Boolean(visitId); }
 };
 
 $("#demo").onclick = async () => {
@@ -229,11 +228,16 @@ $("#demo").onclick = async () => {
 };
 
 $("#submit").onclick = async () => {
+  if (ratingPending || ratingSaved) return;
+  ratingPending = true;
+  $("#submit").disabled = true;
+  $("#submit").setAttribute("aria-busy", "true");
   try {
     $("#rateError").textContent = "";
-    const body = { visit_id: visitId, photo_data_url: photoDataUrl, ...(window.relyqoFeedback?.() || {}) };
+    const body = { visit_id: visitId, photo_data_url: ratingPhoto.value(), ...(window.relyqoFeedback?.() || {}) };
     metrics.forEach(([id]) => { body[id] = Number($("#" + id).value); });
     const result = await api("/v1/ratings", body);
+    ratingSaved = true;
     $("#score").textContent = result.relyqo_score.toFixed(1);
     $("#doneStatus").textContent = result.status === "PENDING_REVIEW" ? "ОЦЕНКА ПОЛУЧЕНА" : "ОЦЕНКА УЧТЕНА";
     $("#doneTitle").textContent = result.status === "PENDING_REVIEW" ? "Ожидает независимой проверки" : "RELYQO Score обновлён";
@@ -253,6 +257,11 @@ $("#submit").onclick = async () => {
     $("#rating").classList.add("hidden");
     $("#done").classList.remove("hidden");
   } catch (error) { $("#rateError").textContent = error.message; }
+  finally {
+    ratingPending = false;
+    $("#submit").disabled = ratingSaved;
+    $("#submit").removeAttribute("aria-busy");
+  }
 };
 
 const token = new URLSearchParams(location.search).get("token");
