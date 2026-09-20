@@ -1567,5 +1567,13 @@
   "Ключ создан": "Kalit yaratildi",
   "Ключ отключён": "Kalit o‘chirildi",
   "Новые авторы впервые оставили учтённую оценку в выбранной группе организаций за этот период. Вернувшиеся уже оценивали эту группу раньше. Повторные авторы оставили две или более оценки за период. Это аккаунты с оценками, а не все клиенты; источники считаются отдельно.": "Yangi mualliflar tanlangan tashkilotlar guruhida shu davrda ilk marta hisobga olingan baho qoldirgan. Qaytganlar bu guruhni avval baholagan. Takroriy mualliflar davrda ikki yoki undan ortiq baho qoldirgan. Bular barcha mijozlar emas, baholagan hisoblar; manbalar alohida hisoblanadi.",
-  "Сравнение с непосредственно предшествующим периодом той же длины. Доли сравниваются в процентных пунктах. Текущий день может быть неполным; состав выборки может меняться.": "Xuddi shunday davomiylikdagi bevosita oldingi davr bilan solishtiriladi. Ulushlar foiz punktlarida taqqoslanadi. Bugungi kun to‘liq bo‘lmasligi, tanlanma tarkibi o‘zgarishi mumkin."
+  "Сравнение с непосредственно предшествующим периодом той же длины. Доли сравниваются в процентных пунктах. Текущий день может быть неполным; состав выборки может меняться.": "Xuddi shunday davomiylikdagi bevosita oldingi davr bilan solishtiriladi. Ulushlar foiz punktlarida taqqoslanadi. Bugungi kun to‘liq bo‘lmasligi, tanlanma tarkibi o‘zgarishi mumkin.",
+  "При сохранении выберите папку D:\\Relico. Открывать файл копии не нужно — он понадобится для восстановления.": "Saqlashda D:\\Relico papkasini tanlang. Nusxa faylini ochish shart emas — u tiklash uchun kerak bo‘ladi.",
+  "Выберите папку для сохранения копии, например D:\\Relico.": "Nusxani saqlash uchun papkani tanlang, masalan D:\\Relico.",
+  "Сохраняем файл в выбранную папку…": "Fayl tanlangan papkaga saqlanmoqda…",
+  "Копия сохранена в выбранную папку. Храните пароль отдельно. Открывать файл не нужно.": "Nusxa tanlangan papkaga saqlandi. Parolni alohida saqlang. Faylni ochish shart emas.",
+  "Скачивание запущено. Нажмите Ctrl + J и «Показать в папке», чтобы найти копию. Храните пароль отдельно.": "Yuklab olish boshlandi. Nusxani topish uchun Ctrl + J va «Papkada ko‘rsatish» tugmalarini bosing. Parolni alohida saqlang.",
+  "Сохранение отменено. Новая копия не сохранена.": "Saqlash bekor qilindi. Yangi nusxa saqlanmadi.",
+  "Копия не сохранена.": "Nusxa saqlanmadi.",
+  "Пароли копии не совпадают.": "Nusxa parollari mos kelmaydi."
 }

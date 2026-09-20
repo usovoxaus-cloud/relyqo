@@ -246,3 +246,11 @@ Backend tests verify authorization, export, receipt validation, revocation/passw
 ### Pilot readiness
 
 Use 3–5 consenting organizations and 30–50 invited consumers for an initial pilot. On real phones, verify registration, email confirmation, QR submission, rating/comment/photo, recovery, and complaints in both languages. In the admin panel, verify notifications, an application decision, report filters/export, and one completed improvement task. Start with real pilot activity; synthetic fixtures belong only in isolated tests and must never inflate the public rating. Before accepting irreplaceable data, save a copy and practice a separate restore; resolve the current database expiry before 28 September 2026.
+
+### Faster admin workflow (20 September 2026)
+
+Direct links to system operations, applications, feedback and history load their own private endpoint immediately instead of first requesting the pending-case list. Feedback reason labels are loaded only for tabs that display ratings. Tabs without an initial private data request still verify the administrator role before showing controls.
+
+Manual backups use the browser's native save dialog when `showSaveFilePicker` is available, so the owner can select `D:\Relico` directly. The dialog is opened during the user gesture, before exporting anything. Cancelling it does not request a new snapshot. Success is shown only after the file stream closes; failed writes are aborted and never reported as saved. Other browsers retain the ordinary download flow with an explicit Ctrl+J location hint. Passwords are cleared after every attempt. This is still a manual backup, not a background schedule or a Windows agent receipt.
+
+GitHub checks reuse the pip download cache and cancel superseded checks for the same pull request or branch. Checks on other branches run independently. Production still uses the existing Render automatic deployment configuration; no hosting plan, database connection or service charge is changed by this release.
