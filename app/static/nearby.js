@@ -255,7 +255,7 @@ function renderDirectoryGeography() {
     }
     section.append(heading,cities); root.append(section);
   }
-  const cities = visible.flatMap(country => country.cities);
+  const cities = visible.filter(country => country.country_code).flatMap(country => country.cities);
   $("#directorySummary").textContent = `Стран в каталоге: ${directoryGeography.filter(c=>c.country_code).length}. Городов в выбранной области: ${cities.filter(c=>c.city).length}. Найдено карточек по фильтрам: ${ratedCatalogTotal}.`;
 }
 
@@ -1269,7 +1269,7 @@ async function locate() {
   } catch (error) {
     if (requestId !== locationRequestId) return;
     showError(error.code === 1
-      ? "Доступ к геолокации запрещён. Разрешите его в настройках браузера и нажмите «Найти организации»."
+      ? "Доступ к геолокации запрещён. Разрешите его в настройках браузера и нажмите «Показать рядом на карте»."
       : error.message || "Не удалось определить местоположение");
     $("#status").textContent = "Поиск не выполнен";
   } finally {

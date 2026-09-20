@@ -1608,5 +1608,7 @@
   "Городов в выбранной области:": "Tanlangan hududdagi shaharlar:",
   "Найдено карточек по фильтрам:": "Filtrlar bo‘yicha topilgan kartochkalar:",
   "Модуль QR не загрузился. Проверьте интернет и попробуйте снова.": "QR moduli yuklanmadi. Internetni tekshirib, qayta urinib ko‘ring.",
-  "Модуль QR недоступен. Попробуйте снова.": "QR moduli mavjud emas. Qayta urinib ko‘ring."
+  "Модуль QR недоступен. Попробуйте снова.": "QR moduli mavjud emas. Qayta urinib ko‘ring.",
+  "Показать рядом на карте": "Yaqin atrofni xaritada ko‘rsatish",
+  "Доступ к геолокации запрещён. Разрешите его в настройках браузера и нажмите «Показать рядом на карте».": "Geolokatsiyaga ruxsat berilmagan. Brauzer sozlamalarida ruxsat bering va «Yaqin atrofni xaritada ko‘rsatish» tugmasini bosing."
 }
