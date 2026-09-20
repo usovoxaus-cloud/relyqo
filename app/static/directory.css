@@ -1,0 +1,9 @@
+.directoryPanel{margin-top:18px;padding:22px;border:1px solid #245069;border-radius:24px;background:#0a1d2d}
+.directoryPanel h2{margin:0 0 16px}.directorySelects{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:650px}
+.directoryGeography{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:16px 0}
+.directoryCountry{padding:16px;border:1px solid #31556a;border-radius:15px;background:#10283a}.directoryCountry h3{margin:0 0 12px;font-size:16px}
+.directoryCities{display:flex;gap:8px;flex-wrap:wrap}.directoryCities button{padding:10px 12px;min-height:44px;border:1px solid #3b776b;border-radius:10px;background:#123b32;color:#c5fbe6;font:inherit;cursor:pointer}.directoryCities button[aria-pressed=true]{background:#6de2bd;color:#05251d}.directoryCities button:disabled{opacity:.6;cursor:default}
+.directoryMode .layout{grid-template-columns:1fr}.directoryMode #mapCard,.directoryMode .searchSettings{display:none}.directoryMode .results{height:auto;max-height:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.directoryMode .results>.empty,.directoryMode .results>.topOrganizationsIntro{grid-column:1/-1}.directoryMode .place{margin-top:0}
+.directoryMode .listHeader{align-items:start}.directoryMode #browseCatalog{display:none}
+.directoryPanel select{font-size:16px;min-height:48px}.directoryPanel button:focus-visible{outline:3px solid #b5a1ff;outline-offset:2px}
+@media(max-width:700px){.directoryMode .results,.directorySelects{grid-template-columns:1fr}.directoryPanel{padding:18px}.directoryGeography{grid-template-columns:1fr}}

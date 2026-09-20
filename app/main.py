@@ -3511,6 +3511,7 @@ def public_rated_organizations(
     score_type: str = "ALL",
     min_score: float = 0,
     sort: str = "rating",
+    include_unrated: bool = False,
     db: Session = Depends(get_db),
 ):
     if offset < 0:
@@ -3522,7 +3523,7 @@ def public_rated_organizations(
     category_groups = {item["code"]: item["group"] for item in category_catalog(db)}
     if category not in {"ALL", *SERVICE_CATEGORY_GROUPS, *category_groups}:
         raise HTTPException(422, "Неизвестная сфера услуг")
-    if score_type not in {"ALL", "VERIFIED", "COMMUNITY"}:
+    if score_type not in {"ALL", "RATED", "VERIFIED", "COMMUNITY"}:
         raise HTTPException(422, "Неизвестный тип оценки")
     if not 0 <= min_score <= 100:
         raise HTTPException(422, "Минимальный рейтинг должен быть от 0 до 100")
@@ -3561,9 +3562,9 @@ def public_rated_organizations(
             object_key,
             {"community_score": 0.0, "community_rating_count": 0},
         )
-        if organization.rating_count <= 0 and community["community_rating_count"] <= 0:
+        if not include_unrated and organization.rating_count <= 0 and community["community_rating_count"] <= 0:
             continue
-        if organization.id in seen_organizations:
+        if not include_unrated and organization.id in seen_organizations:
             continue
         seen_organizations.add(organization.id)
         verified_count = int(organization.rating_count)
@@ -3601,15 +3602,15 @@ def public_rated_organizations(
     manual_places = (
         db.scalars(
             select(ManualPlace).where(
-                ManualPlace.id.in_(manual_ids),
+                True if include_unrated else ManualPlace.id.in_(manual_ids),
                 ManualPlace.active.is_(True),
             )
         ).all()
-        if manual_ids
+        if include_unrated or manual_ids
         else []
     )
     for place in manual_places:
-        community = community_stats[f"manual:{place.id}"]
+        community = community_stats.get(f"manual:{place.id}", {"community_score": 0.0, "community_rating_count": 0})
         items.append(
             {
                 "kind": "manual",
@@ -3635,6 +3636,21 @@ def public_rated_organizations(
             key=lambda value: (value["country_code"], value["city"].casefold()),
         ),
     }
+    # Count public cards/branches, not customers. Unknown geography remains explicit.
+    locations: dict[str, dict[str, int]] = {}
+    for item in items:
+        country = item.get("country_code") or ""
+        city_name = item.get("city") or ""
+        cities = locations.setdefault(country, {})
+        cities[city_name] = cities.get(city_name, 0) + 1
+    geography = [
+        {
+            "country_code": country,
+            "card_count": sum(cities.values()),
+            "cities": [{"city": name, "card_count": count} for name, count in sorted(cities.items())],
+        }
+        for country, cities in sorted(locations.items())
+    ]
     query = q.strip().casefold()
     selected_country = country_code.strip().upper()
     selected_city = normalize_city_name(city).casefold()
@@ -3654,6 +3670,8 @@ def public_rated_organizations(
         return int(item["verified_rating_count"] + item["community_rating_count"])
 
     def matches(item: dict) -> bool:
+        if score_type == "RATED" and selected_reviews(item) <= 0:
+            return False
         if selected_country and item.get("country_code") != selected_country:
             return False
         if selected_city and (item.get("city") or "").casefold() != selected_city:
@@ -3710,7 +3728,7 @@ def public_rated_organizations(
         item["top_rank"] = top_rank
         item["top_score_type"] = (
             score_type
-            if score_type != "ALL"
+            if score_type in {"VERIFIED", "COMMUNITY"}
             else "VERIFIED"
             if item["verified_rating_count"] > 0
             else "COMMUNITY"
@@ -3743,6 +3761,8 @@ def public_rated_organizations(
         "total": total,
         "has_more": offset + limit < total,
         "facets": facets,
+        "geography": geography,
+        "includes_unrated": include_unrated,
         "score_policy": "VERIFIED_AND_COMMUNITY_SEPARATE",
         "top_policy": {
             "calculation": "deterministic_score_then_rating_count_v1",
