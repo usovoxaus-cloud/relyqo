@@ -11,6 +11,7 @@
   </style>
 <link rel="stylesheet" href="/static/feedback.css">
 <script src="/static/feedback-form.js" defer></script>
+<script src="/static/service-categories.js" defer></script>
 <script src="/static/account-onboarding.js" defer></script></head>
 <body class="ui-audit page-community-rate">
   <main class="shell">
@@ -68,6 +69,7 @@
       <a class="back" href="/nearby">Вернуться к карте</a>
     </section>
   </main>
+  <script src="/static/rating-photo.js?v=20260920"></script>
   <script>
     const params=new URLSearchParams(location.search);
     const objectKey=params.get('object_key')||'';
@@ -90,6 +92,13 @@
       OTHER:['Общее впечатление','Качество результата','Удобство и сервис','Состояние и порядок','Цена и ценность']
     };
     const metricDefinitions=['overall','quality','service','cleanliness','value'].map((key,index)=>[key,(metricSets[group]||metricSets.OTHER)[index]]);
+    document.addEventListener('DOMContentLoaded',()=>{
+      Promise.resolve(window.relyqoCategoriesReady).then(()=>{
+        const labels=metricSets[window.relyqoCategoryGroup?.(category)];
+        if(!labels)return;
+        metricDefinitions.forEach(([key],index)=>{document.querySelector(`label[for="${key}"]`).textContent=labels[index]});
+      });
+    });
     const validObject=Boolean(objectKey&&['RELYQO_PARTNER','MANUAL'].includes(source));
     const submitButton=document.querySelector('#submit');
     const authGate=document.querySelector('#authGate');
@@ -99,7 +108,7 @@
     const authGrid=document.querySelector('#authGate .authGrid');
     const inlineRecovery=document.querySelector('#inlineRecovery');
     const inlineRecoveryValue=document.querySelector('#inlineRecoveryValue');
-    let photoDataUrl=null;
+    let ratingPending=false, ratingSaved=false;
     let consumerAuthenticated=false;
     let pendingSubmission=false;
 
@@ -109,7 +118,7 @@
     const hideAuthError=()=>authError.classList.add('hidden');
     const setAuthButtonsDisabled=disabled=>document.querySelectorAll('.authButton').forEach(button=>button.disabled=disabled);
 
-    document.querySelector('#photo').addEventListener('change',event=>{const file=event.target.files[0];hideError();if(!file){photoDataUrl=null;document.querySelector('#photoPreview').classList.add('hidden');return}if(file.size>5*1024*1024){event.target.value='';showError('Фото должно быть не больше 5 МБ');return}const reader=new FileReader();reader.onload=()=>{photoDataUrl=reader.result;document.querySelector('#photoPreview').src=photoDataUrl;document.querySelector('#photoPreview').classList.remove('hidden')};reader.readAsDataURL(file)});
+    const ratingPhoto=window.relyqoRatingPhoto({input:document.querySelector('#photo'),preview:document.querySelector('#photoPreview'),onChange:hideError,onError:showError});
     document.querySelector('#placeName').textContent=name;
     document.querySelector('#placeAddress').textContent=address;
     for(const [key,label] of metricDefinitions){const row=document.createElement('div');row.className='metric';const top=document.createElement('div');top.className='metricTop';const text=document.createElement('label');text.htmlFor=key;text.textContent=label;const output=document.createElement('output');output.id=`${key}Value`;output.textContent='7';top.append(text,output);const input=document.createElement('input');input.id=key;input.type='range';input.min='1';input.max='10';input.value='7';input.addEventListener('input',()=>output.textContent=input.value);row.append(top,input);document.querySelector('#metrics').append(row)}
@@ -123,7 +132,7 @@
     }
 
     function ratingBody(){
-      const body={object_key:objectKey,source,category,photo_data_url:photoDataUrl,...(window.relyqoFeedback?.()||{})};
+      const body={object_key:objectKey,source,category,photo_data_url:ratingPhoto.value(),...(window.relyqoFeedback?.()||{})};
       for(const [key] of metricDefinitions)body[key]=Number(document.querySelector(`#${key}`).value);
       return body;
     }
@@ -138,6 +147,8 @@
     }
 
     async function submitRating(){
+      if(ratingPending||ratingSaved)return;
+      ratingPending=true;
       hideError();
       hideAuthError();
       submitButton.disabled=true;
@@ -147,10 +158,11 @@
         const data=await response.json().catch(()=>({}));
         if(response.status===401||response.status===403){consumerAuthenticated=false;pendingSubmission=true;revealAuthGate('Сессия потребителя не активна. Войдите или создайте аккаунт — баллы уже сохранены на странице.');return}
         if(!response.ok)throw new Error(data.detail||'Не удалось сохранить оценку');
+        ratingSaved=true;
         pendingSubmission=false;
         showDone(data);
       }catch(error){showError(error.message);authStatus.textContent='Оценка пока не отправлена.'}
-      finally{if(!document.querySelector('#formCard').classList.contains('hidden'))submitButton.disabled=false}
+      finally{ratingPending=false;if(!document.querySelector('#formCard').classList.contains('hidden'))submitButton.disabled=false}
     }
 
     async function authenticateInline(form,url){

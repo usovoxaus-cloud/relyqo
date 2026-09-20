@@ -18,6 +18,8 @@ let googleMarkers = [];
 let mapLoadPromise = null;
 let mapLoadAttempt = 0;
 let catalogRequestId = 0;
+let ratedRequestId = 0;
+let locationRequestId = 0;
 let remoteSearchQuery = "";
 let remoteSearchIds = new Set();
 let pendingManualLocation = null;
@@ -885,6 +887,7 @@ function renderAll() {
 
 async function loadRatedCatalog(reset = true) {
   if (!reset && !ratedCatalogHasMore) return;
+  const requestId = ++ratedRequestId;
   const button = $("#ratedOrganizationsTab");
   const moreButton = $("#ratedLoadMore");
   button.disabled = true;
@@ -909,6 +912,7 @@ async function loadRatedCatalog(reset = true) {
     if (city !== "ALL") params.set("city", city);
     const response = await fetch(`/v1/public/rated-organizations?${params}`, { cache: "no-store" });
     const data = await response.json();
+    if (requestId !== ratedRequestId) return;
     if (!response.ok) throw new Error(data.detail || "Не удалось загрузить оценки RELYQO");
     lastRatedPlaces = reset ? (data.items || []) : [...lastRatedPlaces, ...(data.items || [])];
     ratedCatalogTotal = Number(data.total) || 0;
@@ -916,10 +920,14 @@ async function loadRatedCatalog(reset = true) {
     ratedCatalogFacets = data.facets || ratedCatalogFacets;
     ratedCatalogLoaded = true;
     updateRatedLocationFilters();
+  } catch (error) {
+    if (requestId === ratedRequestId) throw error;
   } finally {
-    button.disabled = false;
-    moreButton.disabled = false;
-    moreButton.textContent = "Показать ещё";
+    if (requestId === ratedRequestId) {
+      button.disabled = false;
+      moreButton.disabled = false;
+      moreButton.textContent = "Показать ещё";
+    }
   }
 }
 
@@ -1173,6 +1181,7 @@ async function refreshCatalog() {
 }
 
 async function locate() {
+  const requestId = ++locationRequestId;
   clearError();
   const button = $("#locate");
   button.disabled = true;
@@ -1184,11 +1193,14 @@ async function locate() {
       reject,
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 },
     ));
+    if (requestId !== locationRequestId) return;
     currentCenter = { lat: position.coords.latitude, lng: position.coords.longitude };
+    showRatedOnly = false;
     $("#addPlace").disabled = false;
     $("#radius").value = selectedRadius();
     await refreshCatalog();
   } catch (error) {
+    if (requestId !== locationRequestId) return;
     showError(error.code === 1
       ? "Доступ к геолокации запрещён. Разрешите его в настройках браузера и нажмите «Найти организации»."
       : error.message || "Не удалось определить местоположение");
@@ -1199,6 +1211,10 @@ async function locate() {
 }
 
 $("#locate").addEventListener("click", locate);
+$("#browseCatalog").addEventListener("click", () => {
+  $("#ratedOrganizationsTab").click();
+  $("#listCard").scrollIntoView({behavior:"smooth",block:"start"});
+});
 $("#advisorForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const question = $("#advisorQuestion").value.trim();
@@ -1222,6 +1238,7 @@ $("#favoritesFilter").addEventListener("click", () => {
   renderAll();
 });
 $("#allOrganizationsTab").addEventListener("click", () => {
+  ++catalogRequestId;
   showRatedOnly = false;
   clearError();
   $("#status").textContent = currentCenter ? "Каталог рядом с вами" : "Разрешите геолокацию для поиска рядом или откройте каталог с оценками.";
@@ -1229,16 +1246,19 @@ $("#allOrganizationsTab").addEventListener("click", () => {
   renderAll();
 });
 $("#ratedOrganizationsTab").addEventListener("click", async () => {
-  ++catalogRequestId;
+  const requestId = ++catalogRequestId;
+  ++locationRequestId;
   clearError();
   try {
     await loadRatedCatalog();
+    if (requestId !== catalogRequestId) return;
     showRatedOnly = true;
     $("#status").textContent = "Каталог с оценками загружен";
     $("#scopeHint").textContent = "Этот каталог доступен без геолокации.";
     if ($("#sortMode").value === "distance") $("#sortMode").value = "rating";
     renderAll();
   } catch (error) {
+    if (requestId !== catalogRequestId) return;
     showError(error.message || "Не удалось загрузить оценки RELYQO");
     updateCatalogMode();
   }
