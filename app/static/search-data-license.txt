@@ -1,0 +1,9 @@
+City search data: GeoNames (https://www.geonames.org/)
+Source: https://download.geonames.org/export/dump/cities15000.zip
+Retrieved: 2026-09-22
+License: Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/
+
+Changes: extracted populated places in UZ, KZ, KG, TJ, AZ, GE, TR and AE;
+retained names, a subset of alternate names, coordinates, population and IDs;
+added RELYQO Russian/Uzbek labels for starter cities; sorted by population.
+GeoNames data is supplied as is and is not a complete list of all settlements.
