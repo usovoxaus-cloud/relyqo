@@ -6,4 +6,8 @@
 .directoryMode .layout{grid-template-columns:1fr}.directoryMode #mapCard,.directoryMode .searchSettings{display:none}.directoryMode .results{height:auto;max-height:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.directoryMode .results>.empty,.directoryMode .results>.topOrganizationsIntro{grid-column:1/-1}.directoryMode .place{margin-top:0}
 .directoryMode .listHeader{align-items:start}.directoryMode #browseCatalog{display:none}
 .directoryPanel select{font-size:16px;min-height:48px}.directoryPanel button:focus-visible{outline:3px solid #b5a1ff;outline-offset:2px}
+.directoryPanel>.ratedFilter{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-width:650px}.directoryPanel>.ratedFilter select{background:#10283a;color:#edf9fa;border:1px solid #31556a;border-radius:10px;padding:10px}
+.directoryCities .emptyCity{background:#142b3c;border-color:#365669;color:#a9c2ce}.directoryCities .emptyCity[aria-pressed=true]{background:#6de2bd;color:#05251d}
+.directoryServices{display:flex;flex-wrap:wrap;gap:8px}.directoryServices button{padding:10px 14px;min-height:44px;background:#142c42;color:#d4ecf6;border:1px solid #40617b;border-radius:12px;font:inherit;cursor:pointer}.directoryServices button[aria-pressed=true]{background:#6de2bd;color:#05251d;border-color:#6de2bd}
+.directoryMode .empty a{display:inline-block;color:#99efd4;margin-top:8px;font-weight:700}
 @media(max-width:700px){.directoryMode .results,.directorySelects{grid-template-columns:1fr}.directoryPanel{padding:18px}.directoryGeography{grid-template-columns:1fr}}

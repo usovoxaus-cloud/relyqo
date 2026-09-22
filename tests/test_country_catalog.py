@@ -5,6 +5,52 @@ from fastapi.testclient import TestClient
 from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import Branch, ManualPlace, Organization
+from app.geography import COUNTRY_CITIES, location_catalog
+
+
+def test_starter_countries_and_cities_are_selectable_without_creating_organizations():
+    directory = location_catalog([], include_starter=True)
+    assert len(directory) == 8
+    assert sum(len(country["cities"]) for country in directory) == 40
+    assert all(country["card_count"] == 0 for country in directory)
+    assert all(city["label_ru"] and city["label_uz"] for country in directory for city in country["cities"])
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    response = client.get("/v1/public/rated-organizations", params={"include_unrated": True, "country_code": "TR", "city": "Анкара", "q": uuid.uuid4().hex})
+    assert response.status_code == 200
+    data = response.json()
+    assert set(COUNTRY_CITIES) <= set(data["facets"]["countries"])
+    assert data["items"] == [] and data["total"] == 0
+    assert any(city["city"] == "Ankara" and city["country_code"] == "TR" for city in data["facets"]["cities"])
+
+
+def test_new_service_categories_and_city_aliases_filter_real_public_records():
+    Base.metadata.create_all(engine)
+    suffix = uuid.uuid4().hex
+    with SessionLocal() as db:
+        clinic = Organization(name=f"Clinic {suffix}", category="CLINIC", profile_status="PUBLISHED")
+        repair = Organization(name=f"Repair {suffix}", category="HOME_REPAIR", profile_status="PUBLISHED")
+        db.add_all([clinic, repair])
+        db.flush()
+        db.add_all([
+            Branch(organization_id=clinic.id, name="Clinic branch", city="Самарканд", country_code="UZ"),
+            Branch(organization_id=repair.id, name="Repair branch", city="Samarkand", country_code="UZ"),
+            Branch(organization_id=repair.id, name="Outside starter list", city="Nukus", country_code="UZ"),
+        ])
+        db.commit()
+    client = TestClient(app)
+    categories = {row["code"]: row for row in client.get("/v1/public/service-categories").json()["items"]}
+    for code in ("CLINIC", "DENTAL", "FITNESS", "TRAVEL_AGENCY", "DELIVERY", "CLEANING", "HOME_REPAIR", "LANGUAGE_SCHOOL"):
+        assert code in categories and categories[code]["label"]
+    path = "/v1/public/rated-organizations"
+    for spelling in ("Samarkand", "Самарканд", "Samarqand"):
+        data = client.get(path, params={"include_unrated": True, "country_code": "UZ", "city": spelling, "q": suffix, "category": "HEALTH"}).json()
+        assert data["total"] == 1 and data["items"][0]["category"] == "CLINIC"
+        uz = next(country for country in data["geography"] if country["country_code"] == "UZ")
+        assert sum(city["city"] == "Samarkand" for city in uz["cities"]) == 1
+        assert any(city["city"] == "Nukus" for city in uz["cities"])
+    repairs = client.get(path, params={"include_unrated": True, "q": suffix, "category": "HOME_REPAIR"}).json()
+    assert repairs["total"] == 2 and all(row["category"] == "HOME_REPAIR" for row in repairs["items"])
 
 
 def test_country_city_catalog_includes_public_unrated_branches_and_excludes_private_places():

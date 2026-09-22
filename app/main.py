@@ -26,7 +26,8 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
-from .categories import category_catalog, require_category, register_category_routes
+from .categories import BUILTINS, GROUPS, category_catalog, require_category, register_category_routes
+from .geography import directory_city, location_catalog
 from .analytics import register_analytics_routes
 from .admin_workflow import register_admin_workflow
 from .scheduled_backups import register_scheduled_backups
@@ -118,23 +119,8 @@ app.add_middleware(
 )
 static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static), name="static")
-SERVICE_CATEGORIES = {
-    "RESTAURANT",
-    "CAFE",
-    "COFFEE_SHOP",
-    "BAKERY",
-    "BAR",
-    "FOOD_COURT",
-    "HOTEL",
-    "BEAUTY",
-    "HEALTH",
-    "ENTERTAINMENT",
-    "RETAIL",
-    "AUTO_SERVICE",
-    "PROFESSIONAL_SERVICE",
-    "EDUCATION",
-    "OTHER",
-}
+SERVICE_CATEGORIES = set(BUILTINS)
+
 ADVERTISEMENT_PLACEMENTS = {"TOP_BANNER", "CORNER"}
 ADVERTISEMENT_PAGE_SCOPES = {"ALL", "HOME", "MAP", "RANKINGS", "PROFILE"}
 ADVERTISEMENT_MEDIA_TYPES = {
@@ -151,25 +137,10 @@ ADVERTISEMENT_MEDIA_TYPES = {
     ),
 }
 SERVICE_CATEGORY_GROUPS = {
-    "FOOD": {
-        "RESTAURANT",
-        "CAFE",
-        "COFFEE_SHOP",
-        "BAKERY",
-        "BAR",
-        "FOOD_COURT",
-        "FOOD",
-    },
-    "HOTEL": {"HOTEL"},
-    "BEAUTY": {"BEAUTY"},
-    "HEALTH": {"HEALTH"},
-    "ENTERTAINMENT": {"ENTERTAINMENT"},
-    "RETAIL": {"RETAIL"},
-    "AUTO_SERVICE": {"AUTO_SERVICE"},
-    "PROFESSIONAL_SERVICE": {"PROFESSIONAL_SERVICE"},
-    "EDUCATION": {"EDUCATION"},
-    "OTHER": {"OTHER"},
+    group: {code for code, (_, parent) in BUILTINS.items() if parent == group} | {group}
+    for group in GROUPS
 }
+
 SERVICE_CATEGORY_ALIASES = {
     "РЕСТОРАН": "FOOD",
     "КАФЕ": "FOOD",
@@ -3620,37 +3591,18 @@ def public_rated_organizations(
                 "display_score": community["community_score"],
             }
         )
-    facets = {
-        "countries": sorted(
-            {item["country_code"] for item in items if item.get("country_code")}
-        ),
-        "cities": sorted(
-            [
-                {"city": city_name, "country_code": country}
-                for city_name, country in {
-                    (item.get("city") or "", item.get("country_code") or "")
-                    for item in items
-                    if item.get("city")
-                }
-            ],
-            key=lambda value: (value["country_code"], value["city"].casefold()),
-        ),
-    }
-    # Count public cards/branches, not customers. Unknown geography remains explicit.
-    locations: dict[str, dict[str, int]] = {}
+    # Normalize known spelling variants only within the recorded country.
+    # Starter locations are navigation choices, never synthetic business cards.
     for item in items:
-        country = item.get("country_code") or ""
-        city_name = item.get("city") or ""
-        cities = locations.setdefault(country, {})
-        cities[city_name] = cities.get(city_name, 0) + 1
-    geography = [
-        {
-            "country_code": country,
-            "card_count": sum(cities.values()),
-            "cities": [{"city": name, "card_count": count} for name, count in sorted(cities.items())],
-        }
-        for country, cities in sorted(locations.items())
-    ]
+        item["city"] = directory_city(item.get("city"), item.get("country_code"))
+    geography = location_catalog(items, include_starter=include_unrated)
+    facets = {
+        "countries": [row["country_code"] for row in geography if row["country_code"]],
+        "cities": [
+            {**city_row, "country_code": row["country_code"]}
+            for row in geography for city_row in row["cities"] if city_row["city"]
+        ],
+    }
     query = q.strip().casefold()
     selected_country = country_code.strip().upper()
     selected_city = normalize_city_name(city).casefold()
@@ -3674,7 +3626,7 @@ def public_rated_organizations(
             return False
         if selected_country and item.get("country_code") != selected_country:
             return False
-        if selected_city and (item.get("city") or "").casefold() != selected_city:
+        if selected_city and (item.get("city") or "").casefold() != directory_city(selected_city, item.get("country_code")).casefold():
             return False
         item_category = item.get("category")
         if (

@@ -224,6 +224,15 @@ function updateRatedLocationFilters() {
     .map((item) => String(item.city || "").trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "ru"));
   replaceOptions(citySelect, cities, "Все города", previousCity);
+  for (const option of citySelect.options) {
+    if (option.value === "ALL") continue;
+    const row = (ratedCatalogFacets.cities || []).find(city => city.city === option.value && (selectedCountry === "ALL" || city.country_code === selectedCountry));
+    option.textContent = cityName(row || {city: option.value});
+  }
+}
+
+function cityName(city) {
+  return city[document.documentElement.lang === "uz" ? "label_uz" : "label_ru"] || city.city || "Город не указан";
 }
 
 function countryName(code) {
@@ -243,7 +252,8 @@ function renderDirectoryGeography() {
     heading.textContent = `${countryName(country.country_code)} · ${country.card_count}`;
     for (const city of country.cities) {
       const button = document.createElement("button"); button.type = "button";
-      button.textContent = `${city.city || "Город не указан"} · ${city.card_count}`;
+      button.textContent = `${cityName(city)} · ${city.card_count}`;
+      if (!city.card_count) button.classList.add("emptyCity");
       button.disabled = !country.country_code || !city.city;
       button.setAttribute("aria-pressed", String(country.country_code === selected && city.city === selectedCity));
       button.addEventListener("click", () => {
@@ -259,8 +269,21 @@ function renderDirectoryGeography() {
   $("#directorySummary").textContent = `Стран в каталоге: ${directoryGeography.filter(c=>c.country_code).length}. Городов в выбранной области: ${cities.filter(c=>c.city).length}. Найдено карточек по фильтрам: ${ratedCatalogTotal}.`;
 }
 
+function renderDirectoryServices() {
+  const root = $("#directoryServices");
+  root.replaceChildren();
+  for (const code of ["FOOD", "HOTEL", "CLINIC", "DENTAL", "EDUCATION", "BEAUTY", "AUTO_SERVICE", "FITNESS", "TRAVEL_AGENCY", "DELIVERY", "CLEANING", "HOME_REPAIR"]) {
+    if (![...$("#ratedCategory").options].some(option => option.value === code)) continue;
+    const button = document.createElement("button");
+    button.type = "button"; button.textContent = categoryNames[code] || code;
+    button.setAttribute("aria-pressed", String(ratedFilterValue("#ratedCategory") === code));
+    button.addEventListener("click", () => {$("#ratedCategory").value = code; reloadRatedCatalog();});
+    root.append(button);
+  }
+}
+
 function scheduleDirectoryAdvice() {
-  const scope = `${ratedFilterValue("#ratedCountry")}|${ratedFilterValue("#ratedCity")}`;
+  const scope = `${ratedFilterValue("#ratedCountry")}|${ratedFilterValue("#ratedCity")}|${ratedFilterValue("#ratedCategory")}`;
   if (scope === lastAutoScope) return;
   window.clearTimeout(autoAdvisorTimer);
   autoAdvisorTimer = window.setTimeout(() => {
@@ -828,6 +851,12 @@ function renderList(rows) {
       ? "По выбранным фильтрам пока нет организаций в каталоге RELYQO."
       : showFavoritesOnly ? "На вашей личной карте пока нет объектов в выбранном радиусе."
         : "Организации не найдены. Измените радиус или сферу и повторите поиск."}</div>`;
+    if (showRatedOnly) {
+      const hint = document.createElement("p"), link = document.createElement("a");
+      hint.textContent = "Каталог пополняется. Можно выбрать другой город или зарегистрировать свою организацию.";
+      link.href = "/business-owner"; link.textContent = "Добавить свою организацию";
+      root.firstElementChild.append(hint, link);
+    }
     $("#listCount").textContent = "0 найдено";
     return;
   }
@@ -999,6 +1028,7 @@ async function reloadRatedCatalog() {
   ++locationRequestId;
   ++catalogRequestId;
   updateCatalogMode();
+  renderDirectoryServices();
   clearError();
   try {
     await loadRatedCatalog(true);
@@ -1450,4 +1480,5 @@ updatePersonalMode();
 $("#scopeHint").textContent = "Этот каталог доступен без геолокации.";
 reloadRatedCatalog().then(() => {$("#status").textContent = ratedCatalogLoaded ? "Каталог стран и городов загружен" : "Не удалось загрузить каталог. Нажмите «Найти» для повтора.";});
 
-Promise.resolve(window.relyqoCategoriesReady).then(items => {for (const item of items || []) categoryNames[item.code] = item.label; restoreSearchPreferences(); renderAll();});
+Promise.resolve(window.relyqoCategoriesReady).then(items => {for (const item of items || []) categoryNames[item.code] = item.label; restoreSearchPreferences(); renderDirectoryServices(); renderAll();});
+Promise.resolve(window.relyqoLanguageReady).then(() => {if (ratedCatalogLoaded) {updateRatedLocationFilters(); renderDirectoryGeography();}});
