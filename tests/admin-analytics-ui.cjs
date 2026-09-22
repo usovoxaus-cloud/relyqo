@@ -13,7 +13,7 @@ function dom(html){
   Object.defineProperty(window.HTMLSelectElement.prototype,'value',{
     configurable:true,
     get(){return [...this.options].find(o=>o.selected)?.value??this.options[0]?.value??'';},
-    set(value){for(const o of this.options)o.selected=o.value===String(value);}
+    set(value){for(const o of this.options)o.removeAttribute('selected');[...this.options].find(o=>o.value===String(value))?.setAttribute('selected','');}
   });
   return {window,document};
 }
@@ -111,4 +111,16 @@ test('administrator statistics render without waiting for the category service',
     return {ok:true,status:200,json:async()=>report};
   }});
   await settle();assert(requests.some(url=>url.startsWith('/v1/admin/analytics?')));assert.equal(document.getElementById('content').hidden,false);assert.equal(document.getElementById('respondents').textContent,'2');
+});
+
+
+test('built-in service specialties populate registration and catalog filters and preserve the selected value',async()=>{
+  const {window,document}=dom('<html><body><select id="ratedCategory"><option value="ALL">Все</option></select><select name="category"><option value="OTHER">Другие</option></select></body></html>');
+  const items=[{code:'CLINIC',label:'Клиники и медицинские центры',group:'HEALTH',custom:false},{code:'DELIVERY',label:'Доставка и курьерские услуги',group:'PROFESSIONAL_SERVICE',custom:false}];
+  vm.runInNewContext(fs.readFileSync('app/static/service-categories.js','utf8'),{window,document,MutationObserver:window.MutationObserver,AbortController,setTimeout,clearTimeout,fetch:async()=>({ok:true,json:async()=>({items})})});
+  document.dispatchEvent(new window.Event('DOMContentLoaded'));await window.relyqoCategoriesReady;await settle();
+  const registration=document.querySelector('select[name="category"]');registration.value='CLINIC';window.relyqoApplyCategoryOptions();
+  assert.equal(registration.value,'CLINIC');
+  for(const select of document.querySelectorAll('select')){assert.equal(select.querySelectorAll('option[value="CLINIC"]').length,1);assert.equal(select.querySelectorAll('option[value="DELIVERY"]').length,1);}
+  assert.equal(window.relyqoCategoryGroup('CLINIC'),'HEALTH');
 });

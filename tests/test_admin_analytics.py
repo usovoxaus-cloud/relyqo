@@ -355,18 +355,18 @@ def test_category_creation_is_persistent_validated_and_available_in_registration
     client, factory, _ = data
     response = client.post(
         "/v1/admin/service-categories",
-        json={"label": "  Ветеринарные   клиники  ", "group": "HEALTH"},
+        json={"label": "  Ветеринарная   хирургия  ", "group": "HEALTH"},
     )
     assert response.status_code == 201, response.text
     category = response.json()
     code = category["code"]
-    assert category["label"] == "Ветеринарные клиники"
+    assert category["label"] == "Ветеринарная хирургия"
     with factory() as db:
         assert db.get(ServiceCategory, code).group_code == "HEALTH"
     assert (
         client.post(
             "/v1/admin/service-categories",
-            json={"label": "ветеринарные клиники", "group": "HEALTH"},
+            json={"label": "ветеринарная хирургия", "group": "HEALTH"},
         ).status_code
         == 409
     )

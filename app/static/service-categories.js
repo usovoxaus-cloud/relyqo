@@ -8,9 +8,13 @@
     for (const select of document.querySelectorAll(selectors)) {
       const existing = new Set([...select.options].map(option => option.value));
       for (const item of items) {
-        if (!item.custom || existing.has(item.code)) continue;
+        if (existing.has(item.code)) continue;
+        // The nearby map searches broad provider groups; the directory and
+        // organization forms support every precise category.
+        if (select.id === 'serviceCategory' && !item.custom && item.code !== item.group) continue;
         const option = document.createElement('option');
         option.value = item.code; option.textContent = item.label; select.append(option);
+        existing.add(item.code);
       }
     }
   };
