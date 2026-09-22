@@ -239,6 +239,10 @@ function cityName(city) {
 
 function countryName(code) {
   if (!code) return "Страна не указана";
+  if (document.documentElement.lang === "uz") {
+    const names = {UZ:"O‘zbekiston",KZ:"Qozog‘iston",KG:"Qirg‘iziston",TJ:"Tojikiston",AZ:"Ozarbayjon",GE:"Gruziya",TR:"Turkiya",AE:"Birlashgan Arab Amirliklari"};
+    if (names[code]) return names[code];
+  }
   try { return new Intl.DisplayNames([document.documentElement.lang || "ru"], {type:"region"}).of(code) || code; }
   catch (_) { return code; }
 }

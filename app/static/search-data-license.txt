@@ -7,3 +7,5 @@ Changes: extracted populated places in UZ, KZ, KG, TJ, AZ, GE, TR and AE;
 retained names, a subset of alternate names, coordinates, population and IDs;
 added RELYQO Russian/Uzbek labels for starter cities; sorted by population.
 GeoNames data is supplied as is and is not a complete list of all settlements.
+
+Unqualified alternate names are retained only for matching. Display labels use curated localized starter names or the primary source name, not arbitrary historical aliases.
