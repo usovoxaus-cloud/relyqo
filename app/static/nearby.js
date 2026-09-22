@@ -239,6 +239,10 @@ function cityName(city) {
 
 function countryName(code) {
   if (!code) return "Страна не указана";
+  if (document.documentElement.lang === "uz") {
+    const names = {UZ:"O‘zbekiston",KZ:"Qozog‘iston",KG:"Qirg‘iziston",TJ:"Tojikiston",AZ:"Ozarbayjon",GE:"Gruziya",TR:"Turkiya",AE:"Birlashgan Arab Amirliklari"};
+    if (names[code]) return names[code];
+  }
   try { return new Intl.DisplayNames([document.documentElement.lang || "ru"], {type:"region"}).of(code) || code; }
   catch (_) { return code; }
 }
@@ -1051,6 +1055,13 @@ function searchCenters(center, radius, resultLimit) {
 }
 
 function externalCategory(primaryType) {
+  const specialty = {
+    dentist:"DENTAL", dental_clinic:"DENTAL", pharmacy:"PHARMACY", veterinary_care:"VETERINARY",
+    medical_clinic:"CLINIC", hospital:"CLINIC", doctor:"CLINIC", gym:"FITNESS",
+    lawyer:"LEGAL_SERVICE", real_estate_agency:"REAL_ESTATE", insurance_agency:"INSURANCE",
+    preschool:"KINDERGARTEN", car_wash:"CAR_WASH", tire_shop:"TIRE_SERVICE",
+  }[String(primaryType || "").toLowerCase()];
+  if (specialty) return specialty;
   const group = categoryGroup(primaryType);
   if (group !== "FOOD") return group;
   const type = String(primaryType || "").toLowerCase();

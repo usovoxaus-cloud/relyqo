@@ -79,7 +79,7 @@
       const aliases = new Set([plan.city.city, plan.city.label_ru, plan.city.label_uz, ...(plan.city.aliases || [])].map(normalize));
       lastCityPlaces = (places || []).map(place => externalPlaceItem(place, null)).filter(Boolean)
         .filter(item => item.country_code === body.country_code && aliases.has(normalize(item.city)))
-        .map(item => ({...item, city:body.city, distance:null}));
+        .map(item => ({...item, city:body.city, distance:null, category:item.category === "OTHER" && !["ALL","FOOD"].includes(plan.category) ? plan.category : item.category}));
       renderAll();
       status(plan.ai_generated ? `ИИ уточнил запрос. Найдено новых организаций: ${lastCityPlaces.length}.` : `Поиск выполнен. Найдено новых организаций: ${lastCityPlaces.length}. ИИ сейчас недоступен.`);
     } catch (error) {

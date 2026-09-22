@@ -13,3 +13,13 @@
 @media(max-width:700px){.directorySelects{grid-template-columns:1fr}.directoryPanel{padding:16px}.directoryMode .place h2{font-size:17px}.directoryMode .results{padding:0 14px}}
 
 .advisorDetails{margin-top:20px}.advisorDetails>summary{color:#a9e5d2;font-size:14px;cursor:pointer;padding:12px 0}.advisorDetails .advisor{margin-top:8px}
+
+/* Keep the simple list above the legacy global theme's important rules. */
+body.ui-audit.page-nearby.directoryMode .intro{display:block!important}
+body.ui-audit.page-nearby.directoryMode .intro h1{max-width:none!important}
+body.ui-audit.page-nearby.directoryMode #locate{width:auto!important;padding:8px 14px!important;background:#132f3c!important;color:#a9e5d2!important;border:1px solid #3b635d!important;box-shadow:none!important}
+body.ui-audit.page-nearby.directoryMode .viewLinks{display:none!important}
+body.ui-audit.page-nearby.directoryMode .results{max-height:none!important;height:auto!important;padding:0 18px!important;overflow:visible!important}
+body.ui-audit.page-nearby.directoryMode .place{margin:0!important;padding:16px 0!important;border:0!important;border-bottom:1px solid #2b4352!important;border-radius:0!important;background:none!important;box-shadow:none!important;transform:none!important}
+body.ui-audit.page-nearby.directoryMode .catalogSearchWrap{padding:0!important}
+body.ui-audit.page-nearby.directoryMode .googleAttribution{font:400 12px/1.4 sans-serif!important;color:#fff!important;letter-spacing:normal!important}
