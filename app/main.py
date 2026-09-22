@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .categories import BUILTINS, GROUPS, category_catalog, require_category, register_category_routes
 from .geography import directory_city, location_catalog
+from .search import router as search_router
 from .analytics import register_analytics_routes
 from .admin_workflow import register_admin_workflow
 from .scheduled_backups import register_scheduled_backups
@@ -4760,3 +4761,5 @@ register_admin_workflow(app, session_user)
 register_scheduled_backups(app, session_user)
 
 register_i18n(app, session_user)
+
+app.include_router(search_router)
