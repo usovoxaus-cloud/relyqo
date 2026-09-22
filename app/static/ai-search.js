@@ -38,7 +38,7 @@
       // Never overwrite status for a city search the user has already started.
       if (ratedFilterValue("#ratedCity") === "ALL") status(advice.ai_generated ? "Города загружены. ИИ показал основные города первыми — выберите нужный." : "Города загружены — выберите нужный.");
     } catch (_) {
-      if (request === cityRequest && country() === code && ratedFilterValue("#ratedCity") === "ALL") status("Показаны доступные города. Расширить список сейчас не удалось.");
+      if (request === cityRequest && country() === code && ratedFilterValue("#ratedCity") === "ALL") status(window.relyqoCityChoices.has(code) ? "Города загружены — выберите нужный." : "Показаны доступные города. Расширить список сейчас не удалось.");
     }
   };
 
@@ -58,7 +58,17 @@
     try {
       // Load the Places library without constructing a map or requesting GPS.
       const library = loadGooglePlaces();
-      const plan = await jsonRequest("/v1/public/search/plan", body);
+      let plan;
+      try {
+        plan = await jsonRequest("/v1/public/search/plan", body);
+      } catch (_) {
+        // A delayed planner must never suppress real provider results.
+        const cities = window.relyqoCityChoices.get(body.country_code) || (ratedCatalogFacets.cities || []).filter(city => city.country_code === body.country_code);
+        const city = cities.find(city => city.city === body.city);
+        if (!city) throw new Error("City data unavailable");
+        const terms = body.query || categoryNames[body.category] || "организации и услуги";
+        plan = {city, category:body.category, text_query:`${terms}, ${city.city}, ${body.country_code}`, ai_generated:false};
+      }
       if (!current()) return;
       if (!await library) throw new Error("Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO.");
       if (!current()) return;
@@ -83,7 +93,7 @@
       renderAll();
       status(plan.ai_generated ? `ИИ уточнил запрос. Найдено новых организаций: ${lastCityPlaces.length}.` : `Поиск выполнен. Найдено новых организаций: ${lastCityPlaces.length}. ИИ сейчас недоступен.`);
     } catch (error) {
-      if (current()) status(error.message || "Поиск временно недоступен. Попробуйте ещё раз.");
+      if (current()) status("Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO.");
     }
   }
 

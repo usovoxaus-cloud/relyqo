@@ -17,7 +17,7 @@ async function harness(options={}){
   if(url.startsWith('/v1/public/rated-organizations'))return reply({items:[],total:0,geography:[],facets:{countries:['UZ','KZ'],cities:Object.entries(rows).flatMap(([country_code,cities])=>cities.map(c=>({...c,country_code})))}});
   if(url.startsWith('/v1/public/search/cities?')){const code=new URLSearchParams(url.split('?')[1]).get('country_code');return options.cities?options.cities(code):reply({items:rows[code]})}
   if(url==='/v1/public/search/cities/recommend')return options.recommend?options.recommend(body):reply({recommended_ids:rows[body.country_code].map(row=>row.id),ai_generated:true});
-  if(url==='/v1/public/search/plan')return reply({country_code:body.country_code,city:rows[body.country_code].find(c=>c.city===body.city),text_query:'детская стоматология, '+body.city+', '+body.country_code,category:'DENTAL',ai_generated:true});
+  if(url==='/v1/public/search/plan'){if(options.planError)throw new Error('signal is aborted without reason');return reply({country_code:body.country_code,city:rows[body.country_code].find(c=>c.city===body.city),text_query:'детская стоматология, '+body.city+', '+body.country_code,category:'DENTAL',ai_generated:true});}
   throw Error('Unexpected '+url);
  }};
  vm.runInNewContext(fs.readFileSync('app/static/nearby.js','utf8'),context);vm.runInNewContext(fs.readFileSync('app/static/ai-search.js','utf8'),context);await settle();
@@ -47,4 +47,12 @@ test('late business results cannot leak into another city',async()=>{
  const old=deferred();const x=await harness({places:body=>body.textQuery.includes('Tashkent')?old.promise:{places:[place('new','Nukus service','Нукус')]}});
  await x.choose('#ratedCountry','UZ');await x.choose('#ratedCity','Tashkent');await x.runSearch();await x.choose('#ratedCity','Nukus');await x.runSearch();old.resolve({places:[place('old','Old Tashkent service')]});await settle();
  assert.match(x.document.querySelector('#results').textContent,/Nukus service/);assert.doesNotMatch(x.document.querySelector('#results').textContent,/Old Tashkent service/);
+});
+
+test('planner timeout still searches real places and never exposes raw network errors',async()=>{
+ const x=await harness({planError:true});await x.choose('#ratedCountry','UZ');await x.choose('#ratedCity','Tashkent');await x.runSearch();
+ assert.match(x.document.querySelector('#results').textContent,/Real dental clinic/);
+ assert.match(x.document.querySelector('#citySearchStatus').textContent,/ИИ сейчас недоступен/);
+ assert.doesNotMatch(x.document.querySelector('#citySearchStatus').textContent,/aborted|signal/);
+ assert(x.calls.some(c=>c.places?.textQuery.endsWith(', Tashkent, UZ')));
 });
