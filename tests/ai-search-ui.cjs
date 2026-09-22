@@ -40,6 +40,7 @@ test('late country data cannot replace a newly chosen country',async()=>{
 test('automatic AI city search returns real provider places without GPS, map construction or database writes',async()=>{
  const x=await harness();await x.choose('#ratedCountry','UZ');await x.choose('#ratedCity','Tashkent');await x.runSearch();
  assert.deepEqual(x.counts(),{gps:0,maps:0});assert.match(x.document.querySelector('#results').textContent,/Real dental clinic/);assert.doesNotMatch(x.document.querySelector('#results').textContent,/Foreign/);assert.match(x.document.querySelector('#citySearchStatus').textContent,/ИИ уточнил/);
+ assert.equal(vm.runInNewContext('lastCityPlaces[0].category',x.context),'DENTAL');
  assert(x.calls.some(c=>c.url==='/v1/public/search/plan'));assert(x.calls.some(c=>c.places?.textQuery.includes('Tashkent')));assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'));
 });
 test('late business results cannot leak into another city',async()=>{
