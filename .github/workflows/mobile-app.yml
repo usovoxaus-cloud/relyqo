@@ -1,0 +1,127 @@
+name: Mobile app
+on:
+  pull_request:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/mobile-app.yml']
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/mobile-app.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx expo export --platform android --platform ios
+  android:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: npm ci
+      - run: npx expo prebuild --platform android --no-install
+      - name: Build self-contained preview APK
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+        working-directory: mobile/android
+      - name: Package APK with checksum
+        run: |
+          mkdir -p release
+          cp android/app/build/outputs/apk/release/app-release.apk release/RELYQO-Android-preview.apk
+          cp README.md release/README.md
+          cd release
+          sha256sum RELYQO-Android-preview.apk > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RELYQO-Android-preview
+          path: mobile/release/
+          retention-days: 30
+          if-no-files-found: error
+  android-smoke:
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: RELYQO-Android-preview
+          path: mobile/release
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: python mobile/scripts/smoke_android.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: RELYQO-Android-smoke
+          path: mobile/smoke-output/
+          retention-days: 14
+  ios:
+    needs: checks
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npx expo prebuild --platform ios
+      - name: Build iOS Release for simulator (not a signed iPhone IPA)
+        run: >-
+          xcodebuild -workspace ios/RELYQO.xcworkspace -scheme RELYQO
+          -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RELYQO-iOS-simulator
+          path: mobile/ios/build/Build/Products/Release-iphonesimulator/RELYQO.app/
+          retention-days: 14
+          if-no-files-found: error

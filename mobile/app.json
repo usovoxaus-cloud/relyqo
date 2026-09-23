@@ -1,0 +1,88 @@
+{
+  "expo": {
+    "name": "RELYQO",
+    "slug": "relyqo-mobile",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#071827",
+    "ios": {
+      "bundleIdentifier": "uz.relyqo.mobile.preview",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Показать организации рядом, когда вы нажимаете «Карта рядом».",
+        "NSPhotoLibraryUsageDescription": "Выбрать фотографию для вашей оценки организации.",
+        "NSCameraUsageDescription": "Отсканировать QR посещения или добавить фото к оценке.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "uz.relyqo.mobile.preview",
+      "versionCode": 1,
+      "allowBackup": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#76e4c0",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Отсканировать QR посещения или добавить фото к оценке.",
+          "recordAudioAndroid": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "ru",
+              "uz"
+            ],
+            "android": [
+              "ru",
+              "uz"
+            ]
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#071827",
+          "image": "./assets/icon.png",
+          "imageWidth": 100
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": false
+          }
+        }
+      ],
+      "expo-router"
+    ],
+    "scheme": "relyqo-preview"
+  }
+}
