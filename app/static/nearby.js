@@ -1016,6 +1016,8 @@ async function loadRatedCatalog(reset = true) {
 }
 
 async function reloadRatedCatalog() {
+  // An explicit search supersedes the queued reload from the last keystroke.
+  clearTimeout(ratedSearchTimer);
   window.relyqoCancelSearch?.();
   lastCityPlaces = [];
   lastRatedPlaces = [];

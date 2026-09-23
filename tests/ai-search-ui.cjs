@@ -22,7 +22,7 @@ async function harness(options={}){
  vm.runInNewContext(fs.readFileSync('app/static/nearby.js','utf8'),context);vm.runInNewContext(fs.readFileSync('app/static/ai-search.js','utf8'),context);await settle();
  async function choose(id,value){document.querySelector(id).value=value;document.querySelector(id).dispatchEvent(new events.Event('change'));await settle()}
  async function runSearch(){const pending=[...timers].find(([id,t])=>t.delay===350);assert(pending,'automatic search was scheduled');timers.delete(pending[0]);pending[1].fn();await settle()}
- return{document,window,context,events,calls,choose,runSearch,counts:()=>({gps,maps})};
+ return{document,window,context,events,calls,timers,choose,runSearch,counts:()=>({gps,maps})};
 }
 test('Uzbekistan is fixed, all 14 regions are available before business data, and cities follow the region',async()=>{
  const x=await harness({localError:true});
@@ -48,6 +48,46 @@ test('ordinary results render before the AI planner finishes, without GPS or wri
  assert.deepEqual(x.counts(),{gps:0,maps:0});assert.match(x.document.querySelector('#results').textContent,/Real dental clinic/);assert.doesNotMatch(x.document.querySelector('#results').textContent,/Foreign/);
  assert(x.calls.some(c=>c.url==='/v1/public/search/plan'));assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'));
  plan.resolve(reply({text_query:'детская стоматология, Ташкент, Узбекистан',ai_generated:true}));await settle();assert.match(x.document.querySelector('#citySearchStatus').textContent,/ИИ уточнил/);
+});
+test('repeating Find shares the pending AI request and then reuses its successful answer',async()=>{
+ const plan=deferred(),x=await harness({plan:()=>plan.promise});
+ x.document.querySelector('#catalogQuery').value='нужен детский стоматолог';await x.choose('#ratedRegion','13');await x.runSearch();
+ await x.choose('#ratedCategory','ALL');await x.runSearch();
+ assert.equal(x.calls.filter(c=>c.url==='/v1/public/search/plan').length,1);
+ assert.match(x.document.querySelector('#results').textContent,/Real dental clinic/);
+ assert.match(x.document.querySelector('#citySearchStatus').textContent,/ИИ уточняет запрос/);
+ plan.resolve(reply({ai_generated:true,text_query:'детская стоматология, Ташкент',interpreted_query:'<img src=x> стоматология'}));await settle();
+ assert.match(x.document.querySelector('#citySearchStatus').textContent,/<img src=x> стоматология/);
+ assert.equal(x.document.querySelector('#citySearchStatus img'),null);
+ await x.choose('#ratedCategory','ALL');await x.runSearch();
+ assert.equal(x.calls.filter(c=>c.url==='/v1/public/search/plan').length,1);
+});
+test('a failed AI request remains retryable and is not treated as a successful cache entry',async()=>{
+ let attempt=0;const x=await harness({plan:()=>{if(++attempt===1)throw Error('network');return reply({ai_generated:true,text_query:'детская стоматология, Ташкент'});}});
+ x.document.querySelector('#catalogQuery').value='помочь с зубом';await x.choose('#ratedRegion','13');await x.runSearch();
+ assert.match(x.document.querySelector('#citySearchStatus').textContent,/обычный поиск работает/);
+ await x.choose('#ratedCategory','ALL');await x.runSearch();assert.equal(attempt,2);assert.match(x.document.querySelector('#citySearchStatus').textContent,/ИИ уточнил/);
+});
+test('empty ordinary results stay in progress while AI is still finding the intended service',async()=>{
+ const plan=deferred(),x=await harness({plan:()=>plan.promise,places:b=>({places:b.textQuery.startsWith('детская')?[place('found','Children clinic')]:[]})});
+ x.document.querySelector('#catalogQuery').value='помощь ребёнку с зубом';await x.choose('#ratedRegion','13');await x.runSearch();
+ assert.match(x.document.querySelector('#results').textContent,/Ищем подходящие/);assert.doesNotMatch(x.document.querySelector('#results').textContent,/нет организаций/);
+ plan.resolve(reply({ai_generated:true,text_query:'детская стоматология, Ташкент'}));await settle();assert.match(x.document.querySelector('#results').textContent,/Children clinic/);
+});
+test('a late AI answer cannot refine a different newer request',async()=>{
+ const old=deferred(),x=await harness({plan:b=>b.query==='old query'?old.promise:reply({ai_generated:true,text_query:'current intent'})});
+ x.document.querySelector('#catalogQuery').value='old query';await x.choose('#ratedRegion','13');await x.runSearch();
+ x.document.querySelector('#catalogQuery').value='new query';await x.choose('#ratedCategory','ALL');await x.runSearch();
+ old.resolve(reply({ai_generated:true,text_query:'obsolete intent'}));await settle();
+ assert(!x.calls.some(c=>c.places?.textQuery==='obsolete intent'));assert(x.calls.some(c=>c.places?.textQuery==='current intent'));
+});
+test('explicit search clears the queued reload from typing',async()=>{
+ const x=await harness();x.document.querySelector('#catalogQuery').value='стоматология';
+ x.document.querySelector('#catalogQuery').dispatchEvent(new x.events.Event('input'));
+ assert([...x.timers.values()].some(t=>t.delay===250));
+ x.document.querySelector('#catalogSearchButton').dispatchEvent(new x.events.Event('click'));await settle();
+ assert(![...x.timers.values()].some(t=>t.delay===250));
+ await x.runSearch();assert.equal(x.calls.filter(c=>c.url==='/v1/public/search/plan').length,1);
 });
 test('missing or differently named locality does not erase nearby places; foreign or distant records are excluded',async()=>{
  const x=await harness({places:()=>({places:[place('district','District-address clinic','Chilonzor tumani'),place('distant','Distant','Ташкент','UZ','Tashkent',42,60),place('foreign','Foreign','Ташкент','KZ')]})});await x.choose('#ratedRegion','13');await x.choose('#ratedCity','Tashkent');await x.runSearch();
