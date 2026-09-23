@@ -1,10 +1,8 @@
-/* AI interprets intent; city IDs and business records come from real sources. */
+/* Source-backed Uzbekistan locations; AI improves intent without delaying live results. */
 (() => {
-  let cityRequest = 0, searchRequest = 0, searchTimer;
-  window.relyqoCityChoices = new Map();
-  const country = () => ratedFilterValue("#ratedCountry");
+  let searchRequest = 0, searchTimer;
   const language = () => document.documentElement.lang === "uz" ? "uz" : "ru";
-  const scope = () => [country(), ratedFilterValue("#ratedCity"), ratedFilterValue("#ratedCategory"), $("#catalogQuery").value.trim()].join("|");
+  const scope = () => [ratedFilterValue("#ratedRegion"), ratedFilterValue("#ratedCity"), ratedFilterValue("#ratedCategory"), $("#catalogQuery").value.trim()].join("|");
   const status = text => {$("#citySearchStatus").textContent = text;};
   const normalize = value => String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
@@ -13,89 +11,100 @@
     const deadline = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch(url, body ? {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:controller.signal} : {signal:controller.signal});
-      const data = await response.json();
-      if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Не удалось выполнить поиск");
-      return data;
+      if (!response.ok) throw new Error("Search unavailable");
+      return await response.json();
     } finally { clearTimeout(deadline); }
   }
 
-  window.relyqoLoadCities = async code => {
-    const request = ++cityRequest;
-    if (code === "ALL") {status(""); return;}
-    status("Загружаем города выбранной страны…");
-    try {
-      let cities = window.relyqoCityChoices.get(code);
-      if (!cities) cities = (await jsonRequest(`/v1/public/search/cities?country_code=${encodeURIComponent(code)}`)).items;
-      if (request !== cityRequest || country() !== code) return;
-      window.relyqoCityChoices.set(code, cities);
-      updateRatedLocationFilters();
-      status(`Города загружены: ${cities.length}. ИИ подбирает основные направления…`);
-      const advice = await jsonRequest("/v1/public/search/cities/recommend", {country_code:code, language:language()});
-      if (request !== cityRequest || country() !== code) return;
-      const order = new Map(advice.recommended_ids.map((id,index) => [id,index]));
-      window.relyqoCityChoices.set(code, [...cities].sort((a,b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999)));
-      updateRatedLocationFilters();
-      // Never overwrite status for a city search the user has already started.
-      if (ratedFilterValue("#ratedCity") === "ALL") status(advice.ai_generated ? "Города загружены. ИИ показал основные города первыми — выберите нужный." : "Города загружены — выберите нужный.");
-    } catch (_) {
-      if (request === cityRequest && country() === code && ratedFilterValue("#ratedCity") === "ALL") status(window.relyqoCityChoices.has(code) ? "Города загружены — выберите нужный." : "Показаны доступные города. Расширить список сейчас не удалось.");
-    }
-  };
+  const locationsReady = jsonRequest("/static/uzbekistan.json?v=20260923").then(data => {
+    window.relyqoUzbekistan = data;
+    updateRatedLocationFilters();
+    renderDirectoryGeography();
+    return data;
+  }).catch(() => {
+    status("Не удалось загрузить города. Поиск по областям доступен — список городов появится после обновления страницы.");
+    return {cities:[], regions:[...$("#ratedRegion").options].filter(row => row.value !== "ALL").map(row => ({code:row.value, label_ru:row.textContent, label_uz:row.textContent, aliases:[row.textContent]}))};
+  });
 
-  window.relyqoCancelSearch = () => {++searchRequest; clearTimeout(searchTimer);};
+  window.relyqoCancelSearch = () => {++searchRequest; clearTimeout(searchTimer); window.relyqoSearchPending = false;};
   window.relyqoSearchOrganizations = () => {
-    const chosenCity = ratedFilterValue("#ratedCity");
-    if (country() === "ALL" || chosenCity === "ALL") return;
+    const region = ratedFilterValue("#ratedRegion"), category = ratedFilterValue("#ratedCategory"), query = $("#catalogQuery").value.trim();
+    if (region === "ALL" && category === "ALL" && !query) {status(""); return;}
     const request = ++searchRequest, key = scope();
     clearTimeout(searchTimer);
+    window.relyqoSearchPending = true;
+    status("Ищем организации в Узбекистане…");
+    renderAll();
     searchTimer = setTimeout(() => runSearch(request, key), 350);
   };
 
-  async function runSearch(request, key) {
-    const current = () => request === searchRequest && key === scope() && showRatedOnly;
-    const body = {country_code:country(), city:ratedFilterValue("#ratedCity"), category:ratedFilterValue("#ratedCategory"), query:$("#catalogQuery").value.trim(), language:language()};
-    status("ИИ уточняет запрос и ищет организации…");
-    try {
-      // Load the Places library without constructing a map or requesting GPS.
-      const library = loadGooglePlaces();
-      let plan;
-      try {
-        plan = await jsonRequest("/v1/public/search/plan", body);
-      } catch (_) {
-        // A delayed planner must never suppress real provider results.
-        const cities = window.relyqoCityChoices.get(body.country_code) || (ratedCatalogFacets.cities || []).filter(city => city.country_code === body.country_code);
-        const city = cities.find(city => city.city === body.city);
-        if (!city) throw new Error("City data unavailable");
-        const terms = body.query || categoryNames[body.category] || "организации и услуги";
-        plan = {city, category:body.category, text_query:`${terms}, ${city.city}, ${body.country_code}`, ai_generated:false};
-      }
-      if (!current()) return;
-      if (!await library) throw new Error("Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO.");
-      if (!current()) return;
-      const {Place} = await withDeadline(google.maps.importLibrary("places"), 12000);
-      if (!current()) return;
-      const center = {lat:plan.city.latitude, lng:plan.city.longitude};
-      const requestBody = {
-        textQuery:plan.text_query,
-        fields:["id","displayName","location","formattedAddress","googleMapsURI","primaryType","addressComponents"],
-        maxResultCount:12, language:body.language, region:body.country_code.toLowerCase(),
-      };
-      if (Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
-        const longitudeDelta = 0.23 / Math.max(0.3, Math.cos(center.lat * Math.PI / 180));
-        requestBody.locationRestriction = {north:center.lat + 0.23, south:center.lat - 0.23, east:center.lng + longitudeDelta, west:center.lng - longitudeDelta};
-      }
-      const {places} = await withDeadline(Place.searchByText(requestBody), 12000);
-      if (!current()) return;
-      const aliases = new Set([plan.city.city, plan.city.label_ru, plan.city.label_uz, ...(plan.city.aliases || [])].map(normalize));
-      lastCityPlaces = (places || []).map(place => externalPlaceItem(place, null)).filter(Boolean)
-        .filter(item => item.country_code === body.country_code && aliases.has(normalize(item.city)))
-        .map(item => ({...item, city:body.city, distance:null, category:item.category === "OTHER" && !["ALL","FOOD"].includes(plan.category) ? plan.category : item.category}));
-      renderAll();
-      status(plan.ai_generated ? `ИИ уточнил запрос. Найдено новых организаций: ${lastCityPlaces.length}.` : `Поиск выполнен. Найдено новых организаций: ${lastCityPlaces.length}. ИИ сейчас недоступен.`);
-    } catch (error) {
-      if (current()) status("Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO.");
+  function inScope(place, item, city, region, data) {
+    if (item.country_code !== "UZ") return false;
+    const admin = normalize(addressPart(place, "administrative_area_level_1", "longText"));
+    const recordedRegion = data.regions.find(row => [row.label_ru,row.label_uz,...row.aliases].some(alias => normalize(alias) === admin));
+    if (region && recordedRegion && recordedRegion.code !== region.code) return false;
+    if (city) {
+      // Providers may report a district instead of a locality. Coordinates keep these real results.
+      return distanceKm({lat:city.latitude,lng:city.longitude}, {lat:item.latitude,lng:item.longitude}) <= 25;
     }
+    if (!region) return true;
+    if (recordedRegion) return recordedRegion.code === region.code;
+    const localities = data.cities.filter(row => [row.city,row.label_ru,row.label_uz,...row.aliases].some(alias => normalize(alias) === normalize(item.city)));
+    return localities.length > 0 && localities.every(row => row.region_code === region.code);
   }
 
-  if (country() !== "ALL") window.relyqoLoadCities(country());
+  async function runSearch(request, key) {
+    const current = () => request === searchRequest && key === scope() && showRatedOnly;
+    const body = {country_code:"UZ", region_code:ratedFilterValue("#ratedRegion") === "ALL" ? "" : ratedFilterValue("#ratedRegion"), city:ratedFilterValue("#ratedCity"), category:ratedFilterValue("#ratedCategory"), query:$("#catalogQuery").value.trim(), language:language()};
+    // The planner and provider load in parallel; ordinary results never wait for the planner.
+    const advice = body.query ? jsonRequest("/v1/public/search/plan", body).catch(() => null) : Promise.resolve(null);
+    const library = loadGooglePlaces();
+    try {
+      const data = await locationsReady;
+      if (!current()) return;
+      const region = data.regions.find(row => row.code === body.region_code);
+      const city = data.cities.find(row => row.city === body.city && (!region || row.region_code === region.code));
+      const location = city ? cityName(city) : region ? cityName(region) : "Узбекистан";
+      const service = categoryNames[body.category] || "организации и услуги";
+      const terms = body.query ? [body.query, body.category !== "ALL" ? service : ""].filter(Boolean).join(", ") : service;
+      const plainQuery = `${terms}, ${location}, Узбекистан`;
+      if (!await library) throw new Error("Places unavailable");
+      if (!current()) return;
+      const {Place} = await withDeadline(google.maps.importLibrary("places"), 12000);
+      async function find(textQuery) {
+        if (!current()) return [];
+        const requestBody = {textQuery,fields:["id","displayName","location","formattedAddress","googleMapsURI","primaryType","addressComponents"],maxResultCount:20,language:body.language,region:"uz"};
+        if (city) {
+          const delta = 0.23 / Math.max(0.3, Math.cos(city.latitude * Math.PI / 180));
+          requestBody.locationRestriction = {north:city.latitude+.23,south:city.latitude-.23,east:city.longitude+delta,west:city.longitude-delta};
+        }
+        const {places} = await withDeadline(Place.searchByText(requestBody), 12000);
+        return (places || []).map(place => ({place,item:externalPlaceItem(place,null)}))
+          .filter(({place,item}) => item && inScope(place,item,city,region,data))
+          .map(({item}) => ({...item,distance:null}));
+      }
+      let found = await find(plainQuery);
+      if (!current()) return;
+      lastCityPlaces = found;
+      window.relyqoSearchPending = false;
+      renderAll();
+      status(found.length ? `Найдено организаций: ${found.length}.` : "По этому запросу организации не найдены. Попробуйте другую услугу или всю область.");
+      const plan = await advice;
+      if (!current()) return;
+      if (plan?.ai_generated && plan.text_query && normalize(plan.text_query) !== normalize(plainQuery)) {
+        // Keep the first results visible if enrichment fails or produces nothing.
+        try {
+          const refined = await find(plan.text_query);
+          if (!current()) return;
+          if (refined.length) {found = refined; lastCityPlaces = refined; renderAll();}
+          status(refined.length ? `ИИ уточнил запрос. Найдено организаций: ${found.length}.` : "ИИ не нашёл дополнительных совпадений. Показаны результаты обычного поиска.");
+        } catch (_) {if (current()) status("Показаны результаты поиска. Уточнение с ИИ сейчас недоступно.");}
+      } else if (plan?.ai_generated) status(`ИИ уточнил запрос. Найдено организаций: ${found.length}.`);
+      else if (body.query) status(found.length ? `Найдено организаций: ${found.length}. ИИ сейчас недоступен — обычный поиск работает.` : "Организации не найдены. Попробуйте короткий запрос, например «стоматология».");
+    } catch (_) {
+      if (current()) status("Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO. Нажмите «Найти с ИИ», чтобы повторить.");
+    } finally {
+      if (current()) {window.relyqoSearchPending = false; renderAll();}
+    }
+  }
 })();

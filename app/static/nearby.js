@@ -194,6 +194,8 @@ function matchesRatedFilters(item) {
   const minimum = Math.max(0, Math.min(100, Number($("#ratedMinScore")?.value) || 0));
   if (item._citySearch) return scoreType === "ALL" && minimum === 0;
   if (country !== "ALL" && String(item.country_code || "").toUpperCase() !== country) return false;
+  const region = ratedFilterValue("#ratedRegion");
+  if (region !== "ALL" && item.region_code !== region) return false;
   if (city !== "ALL" && String(item.city || "") !== city) return false;
   if (category !== "ALL" && item.category !== category && categoryGroup(item.category) !== category) return false;
   if (scoreType === "VERIFIED" && Number(item.verified_rating_count) <= 0) return false;
@@ -214,18 +216,22 @@ function updateRatedLocationFilters() {
   const countrySelect = $("#ratedCountry");
   const citySelect = $("#ratedCity");
   if (!countrySelect || !citySelect) return;
-  const previousCountry = countrySelect.value;
   const previousCity = citySelect.value;
-  const countries = [...new Set(ratedCatalogFacets.countries || [])]
-    .sort((a, b) => a.localeCompare(b, "ru"));
-  replaceOptions(countrySelect, countries, "Все страны", previousCountry);
-  for (const option of countrySelect.options) if (option.value !== "ALL") option.textContent = countryName(option.value);
-  const selectedCountry = countrySelect.value;
-  const supplied = window.relyqoCityChoices?.get(selectedCountry);
-  const cityRows = supplied || (ratedCatalogFacets.cities || []).filter(item => selectedCountry === "ALL" || item.country_code === selectedCountry);
+  countrySelect.value = "UZ";
+  const regionSelect = $("#ratedRegion"), previousRegion = regionSelect?.value || "ALL";
+  const data = window.relyqoUzbekistan;
+  if (regionSelect && data) {
+    replaceOptions(regionSelect, data.regions.map(row => row.code), "Весь Узбекистан", previousRegion);
+    for (const option of regionSelect.options) {
+      const row = data.regions.find(row => row.code === option.value);
+      if (row) option.textContent = cityName(row);
+    }
+  }
+  const supplied = data?.cities || (ratedCatalogFacets.cities || []).filter(item => item.country_code === "UZ");
+  const cityRows = supplied.filter(row => previousRegion !== "ALL" && row.region_code === previousRegion);
   const cities = [...new Set(cityRows.map(item => item.city).filter(Boolean))];
-  replaceOptions(citySelect, cities, selectedCountry === "ALL" ? "Сначала выберите страну" : "Выберите город", previousCity);
-  citySelect.disabled = selectedCountry === "ALL";
+  replaceOptions(citySelect, cities, previousRegion === "ALL" ? "Сначала выберите область" : "Вся область / регион", previousCity);
+  citySelect.disabled = previousRegion === "ALL";
   for (const option of citySelect.options) {
     if (option.value === "ALL") continue;
     const row = cityRows.find(city => city.city === option.value);
@@ -248,9 +254,9 @@ function countryName(code) {
 }
 
 function renderDirectoryGeography() {
-  $("#directorySummary").textContent = ratedFilterValue("#ratedCity") === "ALL"
-    ? "Выберите город — поиск начнётся автоматически."
-    : `Организаций с карточкой RELYQO: ${ratedCatalogTotal}. Дополняем список результатами поиска.`;
+  $("#directorySummary").textContent = ratedFilterValue("#ratedRegion") === "ALL"
+    ? "Выберите область или напишите, что ищете."
+    : "Поиск по выбранной области. При желании уточните город и услугу.";
 }
 
 function scheduleDirectoryAdvice() {
@@ -820,6 +826,14 @@ function renderList(rows) {
   root.replaceChildren();
   const favorites = readFavorites();
   if (!rows.length) {
+    if (showRatedOnly && window.relyqoSearchPending) {
+      const loading = document.createElement("div");
+      loading.className = "empty";
+      loading.textContent = "Ищем подходящие организации…";
+      root.append(loading);
+      $("#listCount").textContent = "Поиск…";
+      return;
+    }
     root.innerHTML = `<div class="empty">${showRatedOnly
       ? "По выбранным фильтрам пока нет организаций в каталоге RELYQO."
       : showFavoritesOnly ? "На вашей личной карте пока нет объектов в выбранном радиусе."
@@ -971,8 +985,10 @@ async function loadRatedCatalog(reset = true) {
     });
     const country = ratedFilterValue("#ratedCountry");
     const city = ratedFilterValue("#ratedCity");
+    const region = ratedFilterValue("#ratedRegion");
     if (country !== "ALL") params.set("country_code", country);
     if (city !== "ALL") params.set("city", city);
+    if (region !== "ALL") params.set("region_code", region);
     const response = await fetch(`/v1/public/rated-organizations?${params}`, { cache: "no-store" });
     const data = await response.json();
     if (requestId !== ratedRequestId) return;
@@ -1000,15 +1016,18 @@ async function loadRatedCatalog(reset = true) {
 async function reloadRatedCatalog() {
   window.relyqoCancelSearch?.();
   lastCityPlaces = [];
+  lastRatedPlaces = [];
   showRatedOnly = true;
   ++locationRequestId;
   ++catalogRequestId;
   updateCatalogMode();
   clearError();
+  renderAll();
+  // Local records and live discovery are independent. A slow database must not block Places.
+  window.relyqoSearchOrganizations?.();
   try {
     await loadRatedCatalog(true);
     renderAll();
-    window.relyqoSearchOrganizations?.();
   } catch (error) {
     showError(error.message || "Не удалось загрузить каталог RELYQO");
     updateCatalogMode();
@@ -1353,15 +1372,15 @@ for (const id of ["#ratedCategory", "#ratedScoreType"]) {
   $(id).addEventListener("change", reloadRatedCatalog);
 }
 $("#ratedMinScore").addEventListener("input", scheduleRatedReload);
-$("#ratedCountry").addEventListener("change", () => {
+$("#ratedRegion").addEventListener("change", () => {
   $("#ratedCity").value = "ALL";
   updateRatedLocationFilters();
-  window.relyqoLoadCities?.($("#ratedCountry").value);
   reloadRatedCatalog();
 });
 $("#ratedCity").addEventListener("change", reloadRatedCatalog);
 $("#ratedReset").addEventListener("click", async () => {
-  $("#ratedCountry").value = "ALL";
+  $("#ratedCountry").value = "UZ";
+  $("#ratedRegion").value = "ALL";
   updateRatedLocationFilters();
   $("#ratedCity").value = "ALL";
   $("#ratedCategory").value = "ALL";

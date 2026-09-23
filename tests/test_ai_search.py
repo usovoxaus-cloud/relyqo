@@ -28,6 +28,28 @@ def test_country_selection_loads_source_cities_and_rejects_unknown_countries(cli
     assert client.get("/v1/public/search/cities?country_code=XX").status_code == 422
 
 
+def test_uzbekistan_regions_are_complete_and_cities_belong_to_the_selected_region(client, monkeypatch):
+    from app.uzbekistan import DATA, region_for_city
+    assert len(DATA["regions"]) == 14
+    assert {row["region_code"] for row in DATA["cities"]} == {row["code"] for row in DATA["regions"]}
+    for code, city in [("13", "Tashkent"), ("10", "Samarkand"), ("09", "Nukus")]:
+        response = client.get("/v1/public/search/cities", params={"country_code": "UZ", "region_code": code})
+        assert response.status_code == 200
+        assert any(row["city"] == city for row in response.json()["items"])
+        assert all(row["region_code"] == code for row in response.json()["items"])
+    assert region_for_city("Toshkent", "UZ") == "13"
+    assert region_for_city("Chirchiq", "UZ") == "14"
+    assert region_for_city("Tashkent", "KZ") == ""
+    assert client.get("/v1/public/search/cities?country_code=UZ&region_code=99").status_code == 422
+    monkeypatch.setattr(search, "generate_search_plan", lambda ctx: {"city_ids": [], "terms": "стоматология", "category": "DENTAL"})
+    body = {"country_code": "UZ", "region_code": "10", "city": "ALL", "query": "вылечить зуб"}
+    plan = client.post("/v1/public/search/plan", json=body)
+    assert plan.status_code == 200 and plan.json()["ai_generated"]
+    assert plan.json()["text_query"].endswith(", Samarqand viloyati, UZ")
+    assert client.post("/v1/public/search/plan", json={**body, "city": "Tashkent"}).status_code == 422
+    assert client.post("/v1/public/search/plan", json={**body, "country_code": "KZ"}).status_code == 422
+
+
 def test_ai_can_rank_only_existing_cities_of_selected_country_and_results_are_cached(client, monkeypatch):
     allowed = search.CITY_DATA["UZ"][0]["id"]
     foreign = search.CITY_DATA["TR"][0]["id"]

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .categories import BUILTINS, GROUPS, category_catalog, require_category, register_category_routes
 from .geography import directory_city, location_catalog
+from .uzbekistan import REGIONS as UZ_REGIONS, region_for_city
 from .search import router as search_router
 from .analytics import register_analytics_routes
 from .admin_workflow import register_admin_workflow
@@ -3478,6 +3479,7 @@ def public_rated_organizations(
     limit: int = 50,
     q: str = "",
     country_code: str = "",
+    region_code: str = "",
     city: str = "",
     category: str = "ALL",
     score_type: str = "ALL",
@@ -3492,6 +3494,8 @@ def public_rated_organizations(
         raise HTTPException(422, "Количество должно быть от 1 до 100")
     if len(q) > 120:
         raise HTTPException(422, "Поисковый запрос слишком длинный")
+    if region_code and (region_code not in UZ_REGIONS or country_code.upper() != "UZ"):
+        raise HTTPException(422, "Выберите область Узбекистана")
     category_groups = {item["code"]: item["group"] for item in category_catalog(db)}
     if category not in {"ALL", *SERVICE_CATEGORY_GROUPS, *category_groups}:
         raise HTTPException(422, "Неизвестная сфера услуг")
@@ -3596,6 +3600,7 @@ def public_rated_organizations(
     # Starter locations are navigation choices, never synthetic business cards.
     for item in items:
         item["city"] = directory_city(item.get("city"), item.get("country_code"))
+        item["region_code"] = region_for_city(item["city"], item.get("country_code"))
     geography = location_catalog(items, include_starter=include_unrated)
     facets = {
         "countries": [row["country_code"] for row in geography if row["country_code"]],
@@ -3626,6 +3631,8 @@ def public_rated_organizations(
         if score_type == "RATED" and selected_reviews(item) <= 0:
             return False
         if selected_country and item.get("country_code") != selected_country:
+            return False
+        if region_code and item.get("region_code") != region_code:
             return False
         if selected_city and (item.get("city") or "").casefold() != directory_city(selected_city, item.get("country_code")).casefold():
             return False

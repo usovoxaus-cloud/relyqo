@@ -16,9 +16,11 @@ from .ai import AIServiceError, AIUnavailableError, generate_search_plan
 from .categories import category_catalog
 from .config import settings
 from .db import get_db
+from .uzbekistan import CITIES as UZ_CITIES, REGIONS as UZ_REGIONS
 
 router = APIRouter(prefix="/v1/public/search")
 CITY_DATA = json.loads((Path(__file__).parent / "static/search-cities.json").read_text())["countries"]
+CITY_DATA["UZ"] = UZ_CITIES
 _cache = OrderedDict()
 _requests = OrderedDict()
 _lock = Lock()
@@ -32,7 +34,8 @@ class CityChoice(BaseModel):
 
 
 class SearchChoice(CityChoice):
-    city: str = Field(min_length=1, max_length=80)
+    city: str = Field(default="ALL", min_length=1, max_length=80)
+    region_code: str = Field(default="", max_length=2)
     category: str = Field(default="ALL", max_length=40)
     query: str = Field(default="", max_length=160)
 
@@ -84,8 +87,13 @@ def cached_ai(key, request, context, fallback, ttl):
 
 
 @router.get("/cities")
-def search_cities(country_code: str):
-    return {"country_code": country_code, "items": cities_for(country_code), "source": "GeoNames"}
+def search_cities(country_code: str, region_code: str = ""):
+    cities = cities_for(country_code)
+    if region_code:
+        if country_code != "UZ" or region_code not in UZ_REGIONS:
+            raise HTTPException(422, "Выберите область Узбекистана")
+        cities = [row for row in cities if row["region_code"] == region_code]
+    return {"country_code": country_code, "items": cities, "source": "GeoNames"}
 
 
 @router.post("/cities/recommend")
@@ -107,24 +115,33 @@ def recommend_cities(body: CityChoice, request: Request):
 @router.post("/plan")
 def plan_search(body: SearchChoice, request: Request, db: Session = Depends(get_db)):
     cities = cities_for(body.country_code)
+    region = UZ_REGIONS.get(body.region_code) if body.country_code == "UZ" else None
+    if body.region_code and not region:
+        raise HTTPException(422, "Выберите область Узбекистана")
+    if region:
+        cities = [row for row in cities if row["region_code"] == body.region_code]
     city = next((row for row in cities if row["city"] == body.city or row["id"] == body.city), None)
-    if not city:
+    if body.city != "ALL" and not city:
         raise HTTPException(422, "Выберите город выбранной страны")
+    if city and region and city["region_code"] != body.region_code:
+        raise HTTPException(422, "Город не относится к выбранной области")
+    location = city["city"] if city else (region["label_uz"] if region else body.country_code)
     categories = {row["code"]: row["label"] for row in category_catalog(db)}
     if body.category != "ALL" and body.category != "FOOD" and body.category not in categories:
         raise HTTPException(422, "Выберите сферу услуг из списка")
     categories.update({"ALL": "организации и услуги", "FOOD": "рестораны и кафе"})
     fallback = {"terms": body.query.strip() or categories[body.category], "category": body.category, "city_ids": []}
-    context = {"task": "search", "country": body.country_code, "city": city["city"],
+    context = {"task": "search", "country": body.country_code, "city": location,
                "category": body.category, "categories": categories, "query": body.query.strip(), "language": body.language}
-    key = ("search", body.country_code, city["id"], body.category, body.query.strip().casefold(), body.language)
+    key = ("search", body.country_code, body.region_code, city["id"] if city else "ALL", body.category, body.query.strip().casefold(), body.language)
     answer = cached_ai(key, request, context, fallback, 900)
     terms = str(answer.get("terms") or fallback["terms"]).strip()[:160]
     category = answer.get("category") if body.category == "ALL" else body.category
     if category not in categories:
         category = body.category
     return {
-        "text_query": f"{terms}, {city['city']}, {body.country_code}",
+        "text_query": f"{terms}, {location}, {body.country_code}",
+        "region_code": body.region_code,
         "category": category, "city": city, "country_code": body.country_code,
         "ai_generated": answer["ai_generated"], "ai_status": answer["ai_status"],
         "cached": answer.get("cached", False),

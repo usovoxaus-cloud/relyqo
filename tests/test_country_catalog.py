@@ -91,6 +91,12 @@ def test_country_city_catalog_includes_public_unrated_branches_and_excludes_priv
     selected = client.get(path, params={"include_unrated": True, "q": suffix, "country_code": "UZ", "city": "Samarkand"}).json()
     assert selected["total"] == 2
     assert all(item["city"] == "Samarkand" and item["country_code"] == "UZ" for item in selected["items"])
+    region = client.get(path, params={"include_unrated": True, "q": suffix, "country_code": "UZ", "region_code": "10"}).json()
+    assert region["total"] == 2 and all(row["region_code"] == "10" for row in region["items"])
+    capital = client.get(path, params={"include_unrated": True, "q": suffix, "country_code": "UZ", "region_code": "13"}).json()
+    assert capital["total"] == 1 and capital["items"][0]["city"] == "Tashkent"
+    assert client.get(path, params={"include_unrated": True, "q": suffix, "country_code": "UZ", "region_code": "14"}).json()["total"] == 0
+    assert client.get(path, params={"country_code": "KZ", "region_code": "10"}).status_code == 422
     first = client.get(path, params={"include_unrated": True, "q": suffix, "limit": 1}).json()
     second = client.get(path, params={"include_unrated": True, "q": suffix, "limit": 1, "offset": 1}).json()
     assert first["has_more"] and first["items"][0]["object_key"] != second["items"][0]["object_key"]
