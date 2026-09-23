@@ -9,3 +9,5 @@ added RELYQO Russian/Uzbek labels for starter cities; sorted by population.
 GeoNames data is supplied as is and is not a complete list of all settlements.
 
 Unqualified alternate names are retained only for matching. Display labels use curated localized starter names or the primary source name, not arbitrary historical aliases.
+
+Uzbekistan regions (2026-09-23): uzbekistan.json uses GeoNames UZ.zip administrative codes for source city records, plus populated administrative centers (PPLC/PPLA/PPLA2). It is a navigation list, not an exhaustive settlement register or a business database. The 14 first-level region labels were checked against https://gov.uz/en/mc/departments/regional. Tashkent city (13) and Tashkent region (14) are separate. Source: https://download.geonames.org/export/dump/UZ.zip (CC BY 4.0).

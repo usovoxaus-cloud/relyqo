@@ -323,7 +323,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert page.status_code == 200
     assert script.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
-    assert "Найдите нужную услугу" in page.text
+    assert "Найдите услугу в Узбекистане" in page.text
     assert "navigator.geolocation" in script.text
     assert "не сохраняется RELYQO" in page.text
     assert "Оценить в RELYQO" in script.text
@@ -368,7 +368,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "/v1/public/advisor" in script.text
     assert "consumer_is_only_rating_author" not in script.text
     assert "google_place_id: pendingGooglePlaceId" in script.text
-    assert "Выберите город — поиск начнётся автоматически." in script.text
+    assert "Выберите область или напишите, что ищете." in script.text
     assert "matchesRatedFilters" in script.text
     assert "updateRatedLocationFilters" in script.text
     assert 'scoreType === "VERIFIED"' in script.text
