@@ -14,7 +14,7 @@ async function harness(options={}){
  const window={google,relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer},clearTimeout:id=>timers.delete(id)};
  const context={document,window,google,Option:function(text,value=text){const o=document.createElement('option');o.textContent=text;o.value=value;return o},URLSearchParams,Intl,AbortController,Map,Set,setTimeout:window.setTimeout,clearTimeout:window.clearTimeout,localStorage:{getItem:()=>null,setItem(){}},navigator:{language:'ru',geolocation:{getCurrentPosition(){gps++}}},fetch:async(url,opts={})=>{
   const body=opts.body?JSON.parse(opts.body):null;calls.push({url,body});
-  if(url.startsWith('/v1/public/rated-organizations')){if(options.localError)throw Error('Database unavailable');return reply({items:[],total:0,geography:[],facets:{countries:['UZ','KZ'],cities:[]}});}
+  if(url.startsWith('/v1/public/rated-organizations')){if(options.localError)throw Error('Database unavailable');if(options.local)return options.local();return reply({items:[],total:0,geography:[],facets:{countries:['UZ','KZ'],cities:[]}});}
   if(url.startsWith('/static/uzbekistan.json'))return options.locations?options.locations():reply(data);
   if(url==='/v1/public/search/plan'){if(options.planError)throw new Error('signal is aborted without reason');return options.plan?options.plan(body):reply({country_code:'UZ',text_query:'детская стоматология, Ташкент, Узбекистан',category:'DENTAL',ai_generated:true});}
   throw Error('Unexpected '+url);
@@ -35,6 +35,13 @@ test('Uzbekistan is fixed, all 14 regions are available before business data, an
 test('late geographic load preserves current region rather than resetting it',async()=>{
  const slow=deferred(),x=await harness({locations:()=>slow.promise});await x.choose('#ratedRegion','09');slow.resolve(reply(data));await settle();
  assert.equal(x.document.querySelector('#ratedRegion').value,'09');assert.match(x.document.querySelector('#ratedCity').textContent,/Нукус/);assert.doesNotMatch(x.document.querySelector('#ratedCity').textContent,/Ташкент/);
+});
+test('initial loading is not presented as an empty search result',async()=>{
+ const local=deferred(),x=await harness({local:()=>local.promise});
+ assert.match(x.document.querySelector('#results').textContent,/Ищем подходящие организации/);
+ assert.doesNotMatch(x.document.querySelector('#results').textContent,/нет организаций|Каталог пополняется/);
+ local.resolve(reply({items:[],total:0,facets:{countries:['UZ'],cities:[]}}));await settle();
+ assert.doesNotMatch(x.document.querySelector('#results').textContent,/Ищем подходящие организации/);
 });
 test('ordinary results render before the AI planner finishes, without GPS or writes',async()=>{
  const plan=deferred(),x=await harness({plan:()=>plan.promise});await x.choose('#ratedRegion','13');await x.choose('#ratedCity','Tashkent');x.document.querySelector('#catalogQuery').value='вылечить зуб ребёнку';await x.choose('#ratedCategory','HEALTH');await x.runSearch();
