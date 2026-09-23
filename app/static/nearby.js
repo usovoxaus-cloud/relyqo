@@ -826,7 +826,7 @@ function renderList(rows) {
   root.replaceChildren();
   const favorites = readFavorites();
   if (!rows.length) {
-    if (showRatedOnly && window.relyqoSearchPending) {
+    if (showRatedOnly && (window.relyqoSearchPending || window.relyqoLocalSearchPending)) {
       const loading = document.createElement("div");
       loading.className = "empty";
       loading.textContent = "Ищем подходящие организации…";
@@ -960,6 +960,7 @@ function renderAll() {
 async function loadRatedCatalog(reset = true) {
   if (!reset && !ratedCatalogHasMore) return;
   const requestId = ++ratedRequestId;
+  window.relyqoLocalSearchPending = true;
   ++advisorRequestId;
   window.clearTimeout(autoAdvisorTimer);
   $("#advisorResult").classList.add("hidden");
@@ -1006,6 +1007,7 @@ async function loadRatedCatalog(reset = true) {
     if (requestId === ratedRequestId) throw error;
   } finally {
     if (requestId === ratedRequestId) {
+      window.relyqoLocalSearchPending = false;
       button.disabled = false;
       moreButton.disabled = false;
       moreButton.textContent = "Показать ещё";
@@ -1022,6 +1024,7 @@ async function reloadRatedCatalog() {
   ++catalogRequestId;
   updateCatalogMode();
   clearError();
+  window.relyqoLocalSearchPending = true;
   renderAll();
   // Local records and live discovery are independent. A slow database must not block Places.
   window.relyqoSearchOrganizations?.();
@@ -1031,6 +1034,7 @@ async function reloadRatedCatalog() {
   } catch (error) {
     showError(error.message || "Не удалось загрузить каталог RELYQO");
     updateCatalogMode();
+    renderAll();
   }
 }
 
