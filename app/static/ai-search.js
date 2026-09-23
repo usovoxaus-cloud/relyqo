@@ -1,19 +1,39 @@
 /* Source-backed Uzbekistan locations; AI improves intent without delaying live results. */
 (() => {
   let searchRequest = 0, searchTimer;
+  const plans = new Map();
   const language = () => document.documentElement.lang === "uz" ? "uz" : "ru";
   const scope = () => [ratedFilterValue("#ratedRegion"), ratedFilterValue("#ratedCity"), ratedFilterValue("#ratedCategory"), $("#catalogQuery").value.trim()].join("|");
   const status = text => {$("#citySearchStatus").textContent = text;};
   const normalize = value => String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 
-  async function jsonRequest(url, body) {
+  async function jsonRequest(url, body, timeoutMs = 12000) {
     const controller = new AbortController();
-    const deadline = setTimeout(() => controller.abort(), 12000);
+    const deadline = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, body ? {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:controller.signal} : {signal:controller.signal});
       if (!response.ok) throw new Error("Search unavailable");
       return await response.json();
     } finally { clearTimeout(deadline); }
+  }
+
+  function searchPlan(body) {
+    const key = JSON.stringify(body), now = Date.now();
+    const existing = plans.get(key);
+    if (existing && existing.expires > now) return existing.promise;
+    // Reuse both pending and successful plans when Find/Enter or filters repeat
+    // the same intent. Failed plans remain retryable. Nothing is saved to disk.
+    const entry = {expires:now + 30000};
+    entry.promise = jsonRequest("/v1/public/search/plan", body, 30000).catch(() => null).then(plan => {
+      if (plans.get(key) === entry) {
+        if (plan?.ai_generated) entry.expires = Date.now() + 300000;
+        else plans.delete(key);
+      }
+      return plan;
+    });
+    plans.set(key, entry);
+    while (plans.size > 24) plans.delete(plans.keys().next().value);
+    return entry.promise;
   }
 
   const locationsReady = jsonRequest("/static/uzbekistan.json?v=20260923").then(data => {
@@ -57,7 +77,7 @@
     const current = () => request === searchRequest && key === scope() && showRatedOnly;
     const body = {country_code:"UZ", region_code:ratedFilterValue("#ratedRegion") === "ALL" ? "" : ratedFilterValue("#ratedRegion"), city:ratedFilterValue("#ratedCity"), category:ratedFilterValue("#ratedCategory"), query:$("#catalogQuery").value.trim(), language:language()};
     // The planner and provider load in parallel; ordinary results never wait for the planner.
-    const advice = body.query ? jsonRequest("/v1/public/search/plan", body).catch(() => null) : Promise.resolve(null);
+    const advice = body.query ? searchPlan(body) : Promise.resolve(null);
     const library = loadGooglePlaces();
     try {
       const data = await locationsReady;
@@ -86,20 +106,23 @@
       let found = await find(plainQuery);
       if (!current()) return;
       lastCityPlaces = found;
-      window.relyqoSearchPending = false;
+      window.relyqoSearchPending = Boolean(body.query && !found.length);
       renderAll();
-      status(found.length ? `Найдено организаций: ${found.length}.` : "По этому запросу организации не найдены. Попробуйте другую услугу или всю область.");
+      status(body.query
+        ? (found.length ? `Найдено организаций: ${found.length}. ИИ уточняет запрос…` : "ИИ уточняет запрос. Поиск продолжается…")
+        : found.length ? `Найдено организаций: ${found.length}.` : "По этому запросу организации не найдены. Попробуйте другую услугу или всю область.");
       const plan = await advice;
       if (!current()) return;
+      const interpreted = plan?.interpreted_query ? ` Запрос: «${plan.interpreted_query}».` : "";
       if (plan?.ai_generated && plan.text_query && normalize(plan.text_query) !== normalize(plainQuery)) {
         // Keep the first results visible if enrichment fails or produces nothing.
         try {
           const refined = await find(plan.text_query);
           if (!current()) return;
           if (refined.length) {found = refined; lastCityPlaces = refined; renderAll();}
-          status(refined.length ? `ИИ уточнил запрос. Найдено организаций: ${found.length}.` : "ИИ не нашёл дополнительных совпадений. Показаны результаты обычного поиска.");
+          status(refined.length ? `ИИ уточнил запрос.${interpreted} Найдено организаций: ${found.length}.` : "ИИ не нашёл дополнительных совпадений. Показаны результаты обычного поиска.");
         } catch (_) {if (current()) status("Показаны результаты поиска. Уточнение с ИИ сейчас недоступно.");}
-      } else if (plan?.ai_generated) status(`ИИ уточнил запрос. Найдено организаций: ${found.length}.`);
+      } else if (plan?.ai_generated) status(`ИИ уточнил запрос.${interpreted} Найдено организаций: ${found.length}.`);
       else if (body.query) status(found.length ? `Найдено организаций: ${found.length}. ИИ сейчас недоступен — обычный поиск работает.` : "Организации не найдены. Попробуйте короткий запрос, например «стоматология».");
     } catch (_) {
       if (current()) status("Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO. Нажмите «Найти с ИИ», чтобы повторить.");

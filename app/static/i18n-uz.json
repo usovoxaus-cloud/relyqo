@@ -1685,5 +1685,8 @@
   "Показаны результаты поиска. Уточнение с ИИ сейчас недоступно.": "Qidiruv natijalari ko‘rsatilgan. Sun’iy intellekt hozircha mavjud emas.",
   "ИИ сейчас недоступен — обычный поиск работает.": "Sun’iy intellekt hozircha mavjud emas — oddiy qidiruv ishlaydi.",
   "Организации не найдены. Попробуйте короткий запрос, например «стоматология».": "Tashkilot topilmadi. Masalan, «stomatologiya» kabi qisqa so‘rovni kiriting.",
-  "Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO. Нажмите «Найти с ИИ», чтобы повторить.": "Yangi tashkilotlarni qidirish vaqtincha mavjud emas. RELYQO natijalari ko‘rsatilgan. Qayta urinish uchun «AI bilan topish» tugmasini bosing."
+  "Поиск новых организаций временно недоступен. Показаны найденные записи RELYQO. Нажмите «Найти с ИИ», чтобы повторить.": "Yangi tashkilotlarni qidirish vaqtincha mavjud emas. RELYQO natijalari ko‘rsatilgan. Qayta urinish uchun «AI bilan topish» tugmasini bosing.",
+  "ИИ уточняет запрос…": "Sun’iy intellekt so‘rovni aniqlashtirmoqda…",
+  "ИИ уточняет запрос. Поиск продолжается…": "Sun’iy intellekt so‘rovni aniqlashtirmoqda. Qidiruv davom etmoqda…",
+  "Запрос:": "So‘rov:"
 }

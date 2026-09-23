@@ -96,3 +96,45 @@ def test_provider_failure_and_public_budget_leave_plain_search_available(client,
     for _ in range(13):
         result = client.post("/v1/public/search/plan", json={**body, "query": uuid.uuid4().hex})
     assert result.json()["ai_status"] == "BUSY" and not result.json()["ai_generated"]
+
+
+def test_search_releases_database_connection_before_external_ai(client, monkeypatch):
+    sessions = []
+    catalog = search.category_catalog
+
+    def capture(db):
+        rows = catalog(db)
+        assert db.in_transaction()
+        sessions.append(db)
+        return rows
+
+    def generate(context):
+        assert not sessions[0].in_transaction()
+        return {"city_ids": [], "terms": "ремонт стиральных машин", "category": "APPLIANCE_REPAIR"}
+
+    monkeypatch.setattr(search, "category_catalog", capture)
+    monkeypatch.setattr(search, "generate_search_plan", generate)
+    result = client.post("/v1/public/search/plan", json={"country_code": "UZ", "city": "Tashkent", "query": "починить стиральную машину"})
+    assert result.status_code == 200
+    assert result.json()["interpreted_query"] == "ремонт стиральных машин"
+    assert result.json()["ai_generated"]
+
+
+def test_search_provider_diagnostics_never_log_queries_credentials_or_error_bodies(monkeypatch, caplog):
+    import sys
+    from types import SimpleNamespace
+    from app.ai import generate_search_plan
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.responses = self
+
+        def create(self, **kwargs):
+            raise RuntimeError("private-api-key provider response body")
+
+    monkeypatch.setattr(settings, "openai_api_key", "private-api-key")
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(OpenAI=FakeOpenAI))
+    with pytest.raises(AIServiceError):
+        generate_search_plan({"query": "private user search"})
+    assert "AI search failed kind=RuntimeError" in caplog.text
+    assert "private" not in caplog.text and "response body" not in caplog.text

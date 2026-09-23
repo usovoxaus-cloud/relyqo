@@ -79,7 +79,7 @@ def cached_ai(key, request, context, fallback, ttl):
     finally:
         _slots.release()
     with _lock:
-        _cache[key] = (now + ttl, answer)
+        _cache[key] = (monotonic() + ttl, answer)
         _cache.move_to_end(key)
         while len(_cache) > 256:
             _cache.popitem(last=False)
@@ -127,6 +127,9 @@ def plan_search(body: SearchChoice, request: Request, db: Session = Depends(get_
         raise HTTPException(422, "Город не относится к выбранной области")
     location = city["city"] if city else (region["label_uz"] if region else body.country_code)
     categories = {row["code"]: row["label"] for row in category_catalog(db)}
+    # All required category data is materialized; release the database connection
+    # before waiting for an external model, including on the cache-hit path.
+    db.close()
     if body.category != "ALL" and body.category != "FOOD" and body.category not in categories:
         raise HTTPException(422, "Выберите сферу услуг из списка")
     categories.update({"ALL": "организации и услуги", "FOOD": "рестораны и кафе"})
@@ -141,6 +144,7 @@ def plan_search(body: SearchChoice, request: Request, db: Session = Depends(get_
         category = body.category
     return {
         "text_query": f"{terms}, {location}, {body.country_code}",
+        "interpreted_query": terms,
         "region_code": body.region_code,
         "category": category, "city": city, "country_code": body.country_code,
         "ai_generated": answer["ai_generated"], "ai_status": answer["ai_status"],
