@@ -37,6 +37,7 @@ function MobileApp() {
   const [keyboard, setKeyboard] = useState(false);
   const [active, setActive] = useState(AppState.currentState === 'active');
   const pendingQr = useRef<string | null>(null);
+  const loadFailed = useRef(false);
   const externalPrompt = useRef(false);
   const copy = strings[language];
   const source = useMemo(() => ({ uri }), [uri]);
@@ -44,6 +45,7 @@ function MobileApp() {
   const navigate = useCallback((url: string, keepQr = false) => {
     if (!isInternalUrl(url)) return;
     if (!keepQr) pendingQr.current = null;
+    loadFailed.current = false;
     setMenu(false); setFailed(false); setLoading(true); setCanGoBack(false);
     setTab(tabForUrl(url)); currentUrl.current = url;
     if (url === uri) setWebKey(key => key + 1);
@@ -79,7 +81,7 @@ function MobileApp() {
   useEffect(() => {
     if (!loading || !initialized) { setSlow(false); return; }
     const wake = setTimeout(() => setSlow(true), 12000);
-    const timeout = setTimeout(() => { web.current?.stopLoading(); setFailed(true); setLoading(false); }, 90000);
+    const timeout = setTimeout(() => { loadFailed.current = true; web.current?.stopLoading(); setFailed(true); setLoading(false); }, 90000);
     return () => { clearTimeout(wake); clearTimeout(timeout); };
   }, [loading, initialized, webKey, uri]);
 
@@ -132,7 +134,7 @@ function MobileApp() {
     navigate(tabUrl('qr', language), true);
   }
 
-  function pageFailed() { setFailed(true); setLoading(false); }
+  function pageFailed() { loadFailed.current = true; setFailed(true); setLoading(false); }
 
   return <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
     <StatusBar style="light"/>
@@ -161,8 +163,8 @@ function MobileApp() {
         }}
         onNavigationStateChange={navigationChanged} onMessage={onMessage}
         injectedJavaScript={MOBILE_BRIDGE}
-        onLoadStart={() => { setLoading(true); setFailed(false); }}
-        onLoad={() => { setLoading(false); setFailed(false); }}
+        onLoadStart={() => { loadFailed.current = false; setLoading(true); setFailed(false); }}
+        onLoad={() => { setLoading(false); if (!loadFailed.current) setFailed(false); }}
         onError={pageFailed} onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 400 && nativeEvent.url === currentUrl.current) pageFailed(); }}
         onContentProcessDidTerminate={pageFailed} onRenderProcessGone={pageFailed}
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
