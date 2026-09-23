@@ -78,7 +78,7 @@ try:
     adb("shell", "svc", "data", "disable")
     adb("shell", "am", "force-stop", PACKAGE)
     launch()
-    wait_label("Ulanib bo‘lmadi")
+    wait_label("Ulanib bo‘lmadi", timeout=20)
     wait_label("Qayta urinish")
     shot("06-offline")
     tap("QR")

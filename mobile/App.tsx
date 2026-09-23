@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, AppState, BackHandler, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { getLocales } from 'expo-localization';
@@ -10,6 +10,7 @@ import { MOBILE_BRIDGE, deliverQrScript } from './src/bridge';
 import { Icon } from './src/Icon';
 import { Scanner } from './src/Scanner';
 import { strings } from './src/strings';
+import { pageLoad } from './src/page-load';
 import { ORIGIN, isInternalUrl, languageFromUrl, navigationKind, tabForUrl, tabUrl, withLanguage } from './src/navigation';
 import type { Language, Tab } from './src/navigation';
 
@@ -29,15 +30,15 @@ function MobileApp() {
   const [tab, setTab] = useState<Tab>('search');
   const [webKey, setWebKey] = useState(0);
   const [canGoBack, setCanGoBack] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [pageState, loadEvent] = useReducer(pageLoad, 'loading');
+  const loading = pageState === 'loading';
+  const failed = pageState === 'failed';
   const [slow, setSlow] = useState(false);
-  const [failed, setFailed] = useState(false);
   const [scanner, setScanner] = useState(false);
   const [menu, setMenu] = useState(false);
   const [keyboard, setKeyboard] = useState(false);
   const [active, setActive] = useState(AppState.currentState === 'active');
   const pendingQr = useRef<string | null>(null);
-  const loadFailed = useRef(false);
   const externalPrompt = useRef(false);
   const copy = strings[language];
   const source = useMemo(() => ({ uri }), [uri]);
@@ -45,12 +46,14 @@ function MobileApp() {
   const navigate = useCallback((url: string, keepQr = false) => {
     if (!isInternalUrl(url)) return;
     if (!keepQr) pendingQr.current = null;
-    loadFailed.current = false;
-    setMenu(false); setFailed(false); setLoading(true); setCanGoBack(false);
+    loadEvent('retry');
+    setMenu(false); setCanGoBack(false);
     setTab(tabForUrl(url)); currentUrl.current = url;
     if (url === uri) setWebKey(key => key + 1);
     else setUri(url);
   }, [uri]);
+
+  const goBack = useCallback(() => { loadEvent('retry'); web.current?.goBack(); }, []);
 
   useEffect(() => {
     let alive = true;
@@ -71,17 +74,17 @@ function MobileApp() {
     const listener = BackHandler.addEventListener('hardwareBackPress', () => {
       if (scanner) { setScanner(false); return true; }
       if (menu) { setMenu(false); return true; }
-      if (canGoBack) { web.current?.goBack(); return true; }
+      if (canGoBack) { goBack(); return true; }
       if (tab !== 'search') { navigate(tabUrl('search', language)); return true; }
       return false;
     });
     return () => listener.remove();
-  }, [canGoBack, scanner, menu, tab, language, navigate]);
+  }, [canGoBack, scanner, menu, tab, language, navigate, goBack]);
 
   useEffect(() => {
     if (!loading || !initialized) { setSlow(false); return; }
     const wake = setTimeout(() => setSlow(true), 12000);
-    const timeout = setTimeout(() => { loadFailed.current = true; web.current?.stopLoading(); setFailed(true); setLoading(false); }, 90000);
+    const timeout = setTimeout(() => { loadEvent('error'); web.current?.stopLoading(); }, 90000);
     return () => { clearTimeout(wake); clearTimeout(timeout); };
   }, [loading, initialized, webKey, uri]);
 
@@ -134,12 +137,12 @@ function MobileApp() {
     navigate(tabUrl('qr', language), true);
   }
 
-  function pageFailed() { loadFailed.current = true; setFailed(true); setLoading(false); }
+  function pageFailed() { loadEvent('error'); }
 
   return <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
     <StatusBar style="light"/>
     <View style={styles.header}>
-      {canGoBack ? <Pressable accessibilityRole="button" accessibilityLabel={copy.back} onPress={() => web.current?.goBack()} style={styles.iconButton}><Icon name="back" color="#eaf9f4"/></Pressable> : <View style={styles.mark}><Text style={styles.markText}>R</Text></View>}
+      {canGoBack ? <Pressable accessibilityRole="button" accessibilityLabel={copy.back} onPress={goBack} style={styles.iconButton}><Icon name="back" color="#eaf9f4"/></Pressable> : <View style={styles.mark}><Text style={styles.markText}>R</Text></View>}
       <View style={styles.brand}><Text style={styles.brandText}>RELYQO</Text><Text style={styles.country}>{copy.country}</Text></View>
       <Pressable accessibilityRole="button" accessibilityLabel={copy.language} style={styles.language} onPress={() => {
         const next = language === 'ru' ? 'uz' : 'ru'; rememberLanguage(next); navigate(withLanguage(currentUrl.current, next));
@@ -163,9 +166,9 @@ function MobileApp() {
         }}
         onNavigationStateChange={navigationChanged} onMessage={onMessage}
         injectedJavaScript={MOBILE_BRIDGE}
-        onLoadStart={() => { loadFailed.current = false; setLoading(true); setFailed(false); }}
-        onLoad={() => { setLoading(false); if (!loadFailed.current) setFailed(false); }}
-        onError={pageFailed} onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 400 && nativeEvent.url === currentUrl.current) pageFailed(); }}
+        onLoadStart={() => loadEvent('start')}
+        onLoad={() => loadEvent('success')}
+        onError={event => { event.preventDefault(); pageFailed(); }} onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 400 && nativeEvent.url === currentUrl.current) pageFailed(); }}
         onContentProcessDidTerminate={pageFailed} onRenderProcessGone={pageFailed}
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
         mixedContentMode="never" allowFileAccess={false} allowFileAccessFromFileURLs={false}
