@@ -1,0 +1,7 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Tashrif QR-kodini skanerlash yoki bahoga surat qo‘shish.",
+    "NSLocationWhenInUseUsageDescription": "Xaritada qidirishni tanlaganingizda yaqin tashkilotlarni ko‘rsatish.",
+    "NSPhotoLibraryUsageDescription": "Tashkilotga bergan baho uchun surat tanlash."
+  }
+}

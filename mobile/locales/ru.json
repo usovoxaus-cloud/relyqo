@@ -1,0 +1,7 @@
+{
+  "ios": {
+    "NSCameraUsageDescription": "Отсканировать QR посещения или добавить фото к оценке.",
+    "NSLocationWhenInUseUsageDescription": "Показать организации рядом, когда вы выбираете поиск на карте.",
+    "NSPhotoLibraryUsageDescription": "Выбрать фотографию для вашей оценки организации."
+  }
+}
