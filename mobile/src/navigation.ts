@@ -1,7 +1,7 @@
 export const ORIGIN = 'https://relyqo.onrender.com';
 export type Language = 'ru' | 'uz';
-export type Tab = 'search' | 'qr' | 'top' | 'account';
-const paths: Record<Tab, string> = { search: '/nearby', qr: '/', top: '/rankings', account: '/me' };
+export type Tab = 'search' | 'qr' | 'account';
+const paths: Record<Tab, string> = { search: '/nearby', qr: '/', account: '/me' };
 
 export function isInternalUrl(value: string): boolean {
   try {
@@ -10,7 +10,22 @@ export function isInternalUrl(value: string): boolean {
   } catch { return false; }
 }
 
+// UI separation only; the server continues to enforce every administrative permission.
+export function isManagementUrl(value: string): boolean {
+  if (!isInternalUrl(value)) return false;
+  try {
+    const path = decodeURIComponent(new URL(value).pathname).toLowerCase();
+    return /^\/(?:static\/)?(?:admin(?:[-/.]|$)|business(?:[-/.]|$)|owner(?:[/.]|$)|staff(?:[/.]|$)|review(?:[/.]|$))/.test(path)
+      || /^\/v1\/(?:admin|owner|staff|business)(?:\/|$)/.test(path);
+  } catch { return true; }
+}
+
+export function isConsumerUrl(value: string): boolean {
+  return isInternalUrl(value) && !isManagementUrl(value);
+}
+
 export function navigationKind(value: string): 'internal' | 'external' | 'blocked' {
+  if (isManagementUrl(value)) return 'blocked';
   if (isInternalUrl(value)) return 'internal';
   try {
     const url = new URL(value);
@@ -34,8 +49,8 @@ export function tabForUrl(value: string): Tab {
   if (!isInternalUrl(value)) return 'search';
   const path = new URL(value).pathname;
   if (path === '/' || path === '/consumer') return 'qr';
-  if (path === '/rankings') return 'top';
-  if (['/me', '/recover', '/forgot-password', '/reset-password', '/account-security', '/admin', '/business-owner', '/owner'].some(p => path === p || path.startsWith(p + '/'))) return 'account';
+  if (path === '/rankings') return 'search';
+  if (['/me', '/recover', '/forgot-password', '/reset-password', '/account-security'].some(p => path === p || path.startsWith(p + '/'))) return 'account';
   return 'search';
 }
 

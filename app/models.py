@@ -436,3 +436,13 @@ class BackupAgent(Base):
     last_export_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_saved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     latest_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class AppContent(Base):
+    __tablename__ = "app_content"
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    content_json: Mapped[str] = mapped_column(Text)
+    previous_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)

@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from app.config import settings
-from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto
+from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent
 from app.analytics import AnalyticsFilter, build_report
 from app.backups import create_snapshot, restore_snapshot
 
@@ -31,6 +31,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     # Remove only the new, empty tables to reproduce an actual pre-0024 schema.
     with engine.begin() as c:
         for table in (
+            "app_content",
             "backup_agents",
             "improvement_events",
             "improvement_actions",
@@ -94,6 +95,9 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         )
         assert report["summary"]["new_respondents"] == 1
         assert report["comparison"]["summary"]["included"] == 0
+    with Session(engine) as db:
+        db.add(AppContent(key="home", content_json='{"ru":{"title":"Проверка","hint":"Сохранено"},"uz":{"title":"Sinov","hint":"Saqlandi"}}', previous_json=None, version=1, updated_by=db.scalar(select(User.id))))
+        db.commit()
     phrase = "ci-only-backup-encryption-passphrase"
     archive = create_snapshot(engine, phrase)
     admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
@@ -103,8 +107,10 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     restore_snapshot(target, archive, phrase)
     with Session(target) as db:
         assert db.get(Rating, rating_id).comment == "Restore fixture"
+        assert db.get(AppContent, "home").version == 1
+        assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0024"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0025"
     with pytest.raises(ValueError):
         restore_snapshot(target, archive, phrase)
     target.dispose()

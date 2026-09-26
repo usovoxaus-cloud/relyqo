@@ -11,11 +11,11 @@ import { Icon } from './src/Icon';
 import { Scanner } from './src/Scanner';
 import { strings } from './src/strings';
 import { pageLoad } from './src/page-load';
-import { ORIGIN, isInternalUrl, languageFromUrl, navigationKind, tabForUrl, tabUrl, withLanguage } from './src/navigation';
+import { ORIGIN, isInternalUrl, isConsumerUrl, languageFromUrl, navigationKind, tabForUrl, tabUrl, withLanguage } from './src/navigation';
 import type { Language, Tab } from './src/navigation';
 
 const LANGUAGE_KEY = 'relyqo.mobile.language';
-const tabs: Tab[] = ['search', 'qr', 'top', 'account'];
+const tabs: Tab[] = ['search', 'qr', 'account'];
 
 export default function App() {
   return <SafeAreaProvider><MobileApp/></SafeAreaProvider>;
@@ -44,7 +44,7 @@ function MobileApp() {
   const source = useMemo(() => ({ uri }), [uri]);
 
   const navigate = useCallback((url: string, keepQr = false) => {
-    if (!isInternalUrl(url)) return;
+    if (!isConsumerUrl(url)) return;
     if (!keepQr) pendingQr.current = null;
     loadEvent('retry');
     setMenu(false); setCanGoBack(false);
@@ -95,7 +95,7 @@ function MobileApp() {
   }
 
   function navigationChanged(state: WebViewNavigation) {
-    if (!isInternalUrl(state.url)) return;
+    if (!isConsumerUrl(state.url)) return;
     currentUrl.current = state.url;
     setCanGoBack(state.canGoBack);
     setTab(tabForUrl(state.url));
@@ -161,7 +161,7 @@ function MobileApp() {
           return false;
         }}
         onOpenWindow={({ nativeEvent }) => {
-          if (isInternalUrl(nativeEvent.targetUrl)) navigate(nativeEvent.targetUrl);
+          if (isConsumerUrl(nativeEvent.targetUrl)) navigate(nativeEvent.targetUrl);
           else openExternal(nativeEvent.targetUrl);
         }}
         onNavigationStateChange={navigationChanged} onMessage={onMessage}
@@ -190,11 +190,11 @@ function MobileApp() {
       <View style={[styles.tabIcon, item === tab && styles.activeIcon]}><Icon name={item} color={item === tab ? '#76e4c0' : '#8aa1aa'}/></View>
       <Text style={[styles.tabText, item === tab && styles.activeText]}>{copy[item]}</Text>
     </Pressable>)}</View>}
-    <Modal visible={scanner} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setScanner(false)}>{scanner && <Scanner copy={copy} active={active} onClose={() => setScanner(false)} onToken={receiveToken}/>}</Modal>
+    <Modal visible={scanner} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setScanner(false)}>{scanner && <Scanner copy={copy} active={active} onClose={() => setScanner(false)} onToken={receiveToken} onBrowse={() => { setScanner(false); navigate(tabUrl('search', language)); }}/>}</Modal>
     <Modal visible={menu} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setMenu(false)}>
       <SafeAreaView style={styles.root}><View style={styles.menuHeader}><Text style={styles.brandText}>RELYQO</Text><Pressable accessibilityRole="button" accessibilityLabel={copy.close} style={styles.iconButton} onPress={() => setMenu(false)}><Icon name="close" color="#fff"/></Pressable></View>
         <ScrollView contentContainerStyle={styles.menuContent}><Text style={styles.errorBody}>{copy.about}</Text>
-          {[[copy.business, '/business-owner'], [copy.admin, '/admin'], [copy.privacy, '/privacy'], [copy.terms, '/terms']].map(([label, path]) => <Pressable key={path} accessibilityRole="button" style={styles.menuItem} onPress={() => navigate(withLanguage(ORIGIN + path, language))}><Text style={styles.lightText}>{label}</Text><Text style={styles.arrow}>›</Text></Pressable>)}
+          {[[copy.top, '/rankings'], [copy.privacy, '/privacy'], [copy.terms, '/terms']].map(([label, path]) => <Pressable key={path} accessibilityRole="button" style={styles.menuItem} onPress={() => navigate(withLanguage(ORIGIN + path, language))}><Text style={styles.lightText}>{label}</Text><Text style={styles.arrow}>›</Text></Pressable>)}
           <Pressable accessibilityRole="button" style={styles.menuItem} onPress={() => navigate(currentUrl.current)}><Text style={styles.lightText}>{copy.refresh}</Text><Icon name="refresh" color="#76e4c0"/></Pressable>
           <Text style={styles.version}>{copy.preview}</Text>
         </ScrollView>

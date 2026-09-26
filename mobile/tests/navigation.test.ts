@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ORIGIN, isInternalUrl, navigationKind, readVisitToken, tabForUrl, tabUrl, withLanguage, languageFromUrl } from '../src/navigation.ts';
+import { ORIGIN, isInternalUrl, navigationKind, readVisitToken, tabForUrl, tabUrl, withLanguage, languageFromUrl, isManagementUrl, isConsumerUrl } from '../src/navigation.ts';
 
 test('only the exact HTTPS service origin stays inside the app', () => {
   assert.equal(isInternalUrl(ORIGIN + '/me?lang=ru'), true);
@@ -28,12 +28,17 @@ test('language changes preserve organization and recovery URL parameters', () =>
   assert.equal(languageFromUrl('https://evil.test/?lang=uz'), null);
   assert.equal(withLanguage('https://evil.test/', 'ru'), tabUrl('search', 'ru'));
 });
-test('tab matching keeps details and role-specific login screens accessible', () => {
+test('consumer tabs keep details and profile accessible', () => {
   assert.equal(tabForUrl(ORIGIN + '/nearby'), 'search');
   assert.equal(tabForUrl(ORIGIN + '/place?id=1'), 'search');
   assert.equal(tabForUrl(ORIGIN + '/me/rating?id=1'), 'account');
-  assert.equal(tabForUrl(ORIGIN + '/business-owner'), 'account');
-  assert.equal(tabForUrl(ORIGIN + '/admin'), 'account');
-  assert.equal(tabForUrl(ORIGIN + '/rankings'), 'top');
+  assert.equal(tabForUrl(ORIGIN + '/rankings'), 'search');
   assert.equal(tabForUrl(ORIGIN + '/'), 'qr');
+});
+
+test('management paths are blocked inside the consumer app', () => {
+ for (const path of ['/admin','/admin/control','/business-owner','/owner','/staff','/review','/%61dmin','/static/admin.html','/v1/admin/app-content']) {
+  assert.equal(isManagementUrl(ORIGIN+path),true,path);assert.equal(isConsumerUrl(ORIGIN+path),false,path);assert.equal(navigationKind(ORIGIN+path),'blocked',path);
+ }
+ for (const path of ['/me','/account-security','/community-rate','/rating-detail','/nearby','/place']) assert.equal(isConsumerUrl(ORIGIN+path),true,path);
 });
