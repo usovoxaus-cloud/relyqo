@@ -31,6 +31,7 @@ from .geography import directory_city, location_catalog
 from .uzbekistan import REGIONS as UZ_REGIONS, region_for_city
 from .search import router as search_router
 from .analytics import register_analytics_routes
+from .app_editor import register_editor_routes
 from .admin_workflow import register_admin_workflow
 from .scheduled_backups import register_scheduled_backups
 from .operations import register_operations_routes
@@ -4770,3 +4771,10 @@ register_scheduled_backups(app, session_user)
 register_i18n(app, session_user)
 
 app.include_router(search_router)
+
+
+register_editor_routes(app, session_user)
+
+@app.get("/admin/editor", include_in_schema=False)
+def app_editor_page():
+    return FileResponse(static / "admin-editor.html")

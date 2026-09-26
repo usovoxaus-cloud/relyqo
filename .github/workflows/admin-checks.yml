@@ -43,7 +43,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --prefix /tmp/relyqo-dom linkedom@0.18.12 acorn@8.15.0
-      - run: node --test tests/admin-analytics-ui.cjs tests/trust-ui.cjs tests/performance-ui.cjs tests/password-recovery-client.test.cjs tests/admin-workflow-ui.cjs tests/backup-download-ui.cjs tests/core-flow-ui.cjs tests/ai-search-ui.cjs
+      - run: node --test tests/admin-analytics-ui.cjs tests/trust-ui.cjs tests/performance-ui.cjs tests/password-recovery-client.test.cjs tests/admin-workflow-ui.cjs tests/backup-download-ui.cjs tests/core-flow-ui.cjs tests/ai-search-ui.cjs tests/consumer-simple-ui.cjs tests/app-editor-ui.cjs
         env:
           NODE_PATH: /tmp/relyqo-dom/node_modules
   windows-backup:

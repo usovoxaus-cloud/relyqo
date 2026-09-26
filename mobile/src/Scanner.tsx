@@ -6,7 +6,7 @@ import { Icon } from './Icon';
 import { readVisitToken } from './navigation';
 import type { Copy } from './strings';
 
-export function Scanner({ copy, active, onClose, onToken }: { copy: Copy; active: boolean; onClose: () => void; onToken: (token: string) => void }) {
+export function Scanner({ copy, active, onClose, onToken, onBrowse }: { copy: Copy; active: boolean; onClose: () => void; onToken: (token: string) => void; onBrowse: () => void }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [manual, setManual] = useState(false);
   const [code, setCode] = useState('');
@@ -44,13 +44,13 @@ export function Scanner({ copy, active, onClose, onToken }: { copy: Copy; active
           }}><Text style={styles.buttonText}>{permission && !permission.canAskAgain ? copy.openSettings : copy.allowCamera}</Text></Pressable>
         </View>}
         <Pressable accessibilityRole="button" onPress={() => { setManual(!manual); setTorch(false); }} style={styles.secondary}><Text style={styles.light}>{manual ? copy.allowCamera : copy.manual}</Text></Pressable>
-        {(manual || cameraFailed || !permission?.granted) && <View style={styles.form}>
+        {(manual || cameraFailed) && <View style={styles.form}>
           <Text style={styles.label}>{copy.code}</Text>
           <TextInput accessibilityLabel={copy.code} style={styles.input} value={code} onChangeText={setCode} autoCorrect={false} autoCapitalize="none" maxLength={4096} multiline numberOfLines={3} placeholder={copy.code} placeholderTextColor="#7c929c"/>
           <Pressable accessibilityRole="button" disabled={!code.trim()} accessibilityState={{ disabled: !code.trim() }} onPress={() => accept(code)} style={[styles.button, !code.trim() && styles.disabled]}><Text style={styles.buttonText}>{copy.verify}</Text></Pressable>
         </View>}
         {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-        <Text style={styles.note}>{copy.cameraHint}</Text>
+        <Pressable accessibilityRole="button" onPress={onBrowse} style={styles.secondary}><Text style={styles.light}>{copy.browse}</Text></Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;

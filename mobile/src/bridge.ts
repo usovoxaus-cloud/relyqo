@@ -1,3 +1,4 @@
+import { CONSUMER_PRESENTATION } from './consumer.ts';
 import { ORIGIN } from './navigation.ts';
 
 // This bridge only adapts presentation and requests a scanner. It cannot log in,
@@ -11,6 +12,7 @@ export const MOBILE_BRIDGE = `
     style.textContent = '.languageBar,main>header.top,main>header.homeHeader{display:none!important} body{padding-top:0!important} main.shell,main{padding-top:14px!important} .page-index .heroCard{display:none!important} input,select,textarea{font-size:16px!important} .page-nearby .results{height:auto!important;max-height:none!important}';
     document.head.appendChild(style);
   }
+  ${CONSUMER_PRESENTATION}
   if (!window.__relyqoNativeBridge) {
     window.__relyqoNativeBridge = true;
     document.addEventListener('click', function (event) {
