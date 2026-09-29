@@ -39,4 +39,5 @@ services:
     ipAllowList: []
 databases:
   - name: relyqo-db
+    # Keep the existing database on paid compute to avoid free-tier expiry.
     plan: 0.1c-256mb
