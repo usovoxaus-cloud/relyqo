@@ -7,7 +7,7 @@ from threading import Lock
 from typing import Literal
 from fastapi import Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .db import get_db
@@ -150,6 +150,11 @@ def register_editor_routes(app, session_user):
         return {
             **current(db),
             "categories": category_catalog(db),
+            "category_previous": {
+                row.key.removeprefix("category:"): json.loads(row.previous_json)
+                for row in db.scalars(select(AppContent).where(AppContent.key.like("category:%")))
+                if row.previous_json
+            },
             "groups": GROUPS,
             "ai_configured": bool(settings.openai_api_key),
         }
@@ -213,7 +218,7 @@ def register_editor_routes(app, session_user):
         relyqo_session: str | None = Cookie(default=None),
         db: Session = Depends(get_db),
     ):
-        session_user(relyqo_session, db, "RELYQO_ADMIN")
+        user = session_user(relyqo_session, db, "RELYQO_ADMIN")
         row = db.get(ServiceCategory, code)
         if not row:
             raise HTTPException(
@@ -244,6 +249,15 @@ def register_editor_routes(app, session_user):
             if result.rowcount != 1:
                 db.rollback()
                 raise HTTPException(409, "Категория уже изменена. Обновите список.")
+            history = db.get(AppContent, "category:" + code)
+            if history is None:
+                history = AppContent(key="category:" + code, version=0)
+            history.previous_json = json.dumps({"label": body.expected_label, "group": body.expected_group}, ensure_ascii=False)
+            history.content_json = json.dumps({"label": body.label, "group": body.group}, ensure_ascii=False)
+            history.version += 1
+            history.updated_by = user.id
+            history.updated_at = datetime.utcnow()
+            db.add(history)
             db.add(
                 AuditLog(
                     actor_type="RELYQO_ADMIN",
@@ -257,7 +271,8 @@ def register_editor_routes(app, session_user):
             db.rollback()
             raise HTTPException(409, "Такое название уже существует")
         response.headers["Cache-Control"] = "no-store"
-        return {"code": code, "label": body.label, "group": body.group, "custom": True}
+        return {"code": code, "label": body.label, "group": body.group, "custom": True,
+                "previous": {"label": body.expected_label, "group": body.expected_group}}
 
     @app.post("/v1/admin/app-editor/draft")
     def draft(

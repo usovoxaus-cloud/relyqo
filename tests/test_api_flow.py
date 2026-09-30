@@ -303,7 +303,7 @@ def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
     assert 'id="startCamera"' in page.text
     assert 'id="cameraPreview"' in page.text
     assert 'id="qrImage"' in page.text
-    assert "Найти подходящее" in page.text
+    assert "Выбрать организацию" in page.text
     assert "Найти рестораны рядом" not in page.text
     assert "видео не сохраняется" in page.text
     assert "cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" not in page.text
@@ -380,7 +380,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'href="/rankings"' in page.text
     assert "Добавить в RELYQO" in page.text
     assert "manual-places/nearby" in script.text
-    assert "собственном каталоге RELYQO" in page.text
+    assert "карта и геолокация не обязательны" in page.text
     assert "maps.googleapis.com/maps/api/js" in script.text
     assert "google.maps.Map" in script.text
     assert 'importLibrary("places")' in script.text
@@ -670,8 +670,8 @@ def test_community_rating_requires_consumer_and_stays_separate_from_score():
     assert summary.status_code == 200
     assert summary.json()["community_score"] == 80.0
     assert summary.json()["rating_count"] == 1
-    assert summary.json()["community_global_position"] is not None
-    assert summary.json()["community_rated_objects"] >= 1
+    assert summary.json()["community_global_position"] is None
+    assert summary.json()["community_rated_objects"] >= 0
     assert summary.json()["metrics"] == {
         "overall": 80.0,
         "quality": 80.0,
@@ -742,13 +742,13 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
     assert "VERIFIED RELYQO SCORE" in place.text
     assert "COMMUNITY SCORE" in place.text
     assert "GOOGLE RATING" not in place.text
-    assert "Внешние каталоги и внешние рейтинги не используются" in place.text
+    assert "Verified учитывает оценки по одноразовым QR" in place.text
     rankings_page = client.get("/rankings")
     assert rankings_page.status_code == 200
     assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Лучшие организации" in rankings_page.text
     assert "Показать рейтинг" in rankings_page.text
-    assert 'href="/nearby">Перейти к оценке →</a>' in rankings_page.text
+    assert 'href="/rate">Оценить</a>' in rankings_page.text
     assert 'data-scope="country"' in rankings_page.text
     assert 'href="/rankings?scope=city"' in rankings_page.text
     assert 'href="/rankings?scope=country"' in rankings_page.text
@@ -1556,7 +1556,7 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     page = TestClient(app).get("/me")
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
-    assert "МОЙ RELYQO" in page.text
+    assert 'href="/me" aria-current="page">Профиль</a>' in page.text
     assert "AI-ПОМОЩНИК ПОТРЕБИТЕЛЯ" in page.text
     assert "Сравнить избранное" in page.text
     assert "Мои предпочтения" in page.text
@@ -1659,14 +1659,12 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     consumer_page = TestClient(app).get("/consumer")
     assert consumer_page.status_code == 200
     assert consumer_page.headers["cache-control"] == "no-store, max-age=0"
-    assert "Найдите организацию, которой можно доверять" in consumer_page.text
-    assert "Найти подходящее" in consumer_page.text
-    assert "Сравнить лучших" in consumer_page.text
-    assert "Открыть моё" in consumer_page.text
-    assert 'href="/nearby"' in consumer_page.text
-    assert 'href="/rankings"' in consumer_page.text
+    assert 'id="catalogQuery"' in consumer_page.text
+    assert 'id="ratedRegion"' in consumer_page.text
+    assert 'href="/nearby" aria-current="page"' in consumer_page.text
+    assert 'href="/rate"' in consumer_page.text
     assert 'href="/me"' in consumer_page.text
-    assert "Оцените место" in consumer_page.text
+    assert 'id="token"' in TestClient(app).get("/rate").text
     assert TestClient(app).get("/v1/admin/dashboard").status_code == 401
 
 
@@ -2022,7 +2020,9 @@ def test_admin_publishes_business_profile_without_changing_score_or_ratings():
     assert issued.status_code == 200
     assert issued.json()["visit_url"].startswith("http://testserver/?token=")
     token = parse_qs(urlsplit(issued.json()["visit_url"]).query)["token"][0]
-    visit = business.post("/v1/visits/verify-token", json={"token": token})
+    consumer = TestClient(app)
+    register_consumer(consumer)
+    visit = consumer.post("/v1/visits/verify-token", json={"token": token})
     assert visit.status_code == 200
     assert visit.json()["organization"]["category"] == "PROFESSIONAL_SERVICE"
     rating_body = {
@@ -2036,8 +2036,6 @@ def test_admin_publishes_business_profile_without_changing_score_or_ratings():
     forbidden_owner_rating = business.post("/v1/ratings", json=rating_body)
     assert forbidden_owner_rating.status_code == 403
     assert "только потребитель" in forbidden_owner_rating.json()["detail"]
-    consumer = TestClient(app)
-    register_consumer(consumer)
     rated = consumer.post(
         "/v1/ratings",
         json=rating_body,

@@ -324,13 +324,27 @@ function hasRelyqoRatings(item) {
   return reviewCount(item) > 0;
 }
 
+function normalizeSearch(value) {
+  const letters = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo", "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "x", "ы": "i", "э": "e", "ь": "", "ъ": "", "ж": "j", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "shch", "ю": "yu", "я": "ya", "ў": "o", "ғ": "g", "қ": "q", "ҳ": "h"};
+  return String(value || "").normalize("NFKC").toLocaleLowerCase("ru").split("").map(c => letters[c] ?? c).join("").replace(/['‘’ʻʼ`ʹ]/gu, "").replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
+}
+
+function displayedCount(item) {
+  const type = ratedFilterValue("#ratedScoreType");
+  return type === "COMMUNITY" ? Number(item.community_rating_count) || 0 : type === "VERIFIED" ? Number(item.verified_rating_count) || 0 : Number(item.verified_rating_count) || Number(item.community_rating_count) || 0;
+}
+function displayedScore(item) {
+  const type = ratedFilterValue("#ratedScoreType");
+  return type === "COMMUNITY" ? Number(item.community_score) || 0 : type === "VERIFIED" ? Number(item.relyqo_score) || 0 : scoreFor(item);
+}
+
 function sortRows(rows) {
   const mode = $("#sortMode").value;
   rows.sort((a, b) => {
     const aDistance = a.distance != null && Number.isFinite(Number(a.distance)) ? Number(a.distance) : Number.POSITIVE_INFINITY;
     const bDistance = b.distance != null && Number.isFinite(Number(b.distance)) ? Number(b.distance) : Number.POSITIVE_INFINITY;
-    if (mode === "rating") return scoreFor(b) - scoreFor(a) || aDistance - bDistance;
-    if (mode === "reviews") return reviewCount(b) - reviewCount(a) || aDistance - bDistance;
+    if (mode === "rating") return Number(displayedCount(b) >= 20) - Number(displayedCount(a) >= 20) || displayedScore(b) - displayedScore(a) || displayedCount(b) - displayedCount(a) || aDistance - bDistance;
+    if (mode === "reviews") return displayedCount(b) - displayedCount(a) || aDistance - bDistance;
     if (mode === "name") return (a.title || "").localeCompare(b.title || "", "ru");
     return aDistance - bDistance || scoreFor(b) - scoreFor(a);
   });
@@ -379,8 +393,7 @@ function viewRows() {
       item.kind === "external"
       && (item._citySearch || query === remoteSearchQuery)
       && (item._citySearch || remoteSearchIds.has(item.id))
-    ) || [item.title, item.address, item.city, item.description, categoryNames[item.category]]
-      .filter(Boolean).join(" ").toLocaleLowerCase("ru").includes(query));
+    ) || normalizeSearch(query).split(" ").every(token => normalizeSearch(item.search_text || [item.title, item.address, item.city, item.description, categoryNames[item.category]].filter(Boolean).join(" ")).includes(token)));
   }
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
   if (showRatedOnly && ratedFilterValue("#ratedScoreType") === "RATED") rows = rows.filter(hasRelyqoRatings);
@@ -600,6 +613,7 @@ function markerCardId(item) {
 
 function drawMap(rows) {
   if (!currentCenter) return;
+  rows = rows.filter(hasMapLocation);
   if (googleMap) {
     for (const marker of googleMarkers) marker.setMap(null);
     googleMarkers = [];
@@ -652,24 +666,7 @@ function drawMap(rows) {
 }
 
 function profileUrl(item) {
-  const params = new URLSearchParams({
-    object_key: objectKey(item),
-    source: sourceFor(item),
-    name: item.title,
-    address: item.address || "",
-    category: categoryNames[item.category] || "Другая услуга",
-    category_code: item.category || "OTHER",
-    description: item.description || "",
-    profile_status: item.profile_status || "",
-    verified_score: item.relyqo_score || "",
-    verified_count: item.verified_rating_count || "",
-    branch_id: item.branch_id || "",
-    city: item.city || "",
-    country_code: item.country_code || "",
-    latitude: item.latitude || "",
-    longitude: item.longitude || "",
-  });
-  return `/place?${params}`;
+  return `/place?${new URLSearchParams({object_key: objectKey(item)})}`;
 }
 
 function ratingUrl(item) {
@@ -797,6 +794,8 @@ function openManualDialog(item = null, action = "save") {
     $("#manualCountry").value = item.country_code || "XX";
   } else {
     $("#manualForm").reset();
+    const selectedCity = ratedFilterValue("#ratedCity");
+    if (selectedCity !== "ALL") $("#manualCity").value = selectedCity;
   }
   const submit = $("#manualForm").querySelector('[type="submit"]');
   submit.textContent = action === "rate" ? "Продолжить к оценке" : "Добавить в RELYQO";
@@ -840,9 +839,9 @@ function renderList(rows) {
         : "Организации не найдены. Измените радиус или сферу и повторите поиск."}</div>`;
     if (showRatedOnly) {
       const hint = document.createElement("p"), link = document.createElement("a");
-      hint.textContent = "Каталог пополняется. Можно выбрать другой город или зарегистрировать свою организацию.";
-      link.href = "/business-owner"; link.textContent = "Добавить свою организацию";
-      root.firstElementChild.append(hint, link);
+      hint.textContent = "Не нашли нужное место? Добавьте название и адрес. Карта и геолокация не обязательны.";
+      const add = document.createElement("button"); add.type = "button"; add.textContent = "Добавить заведение"; add.addEventListener("click", () => openManualDialog());
+      root.firstElementChild.append(hint, add);
     }
     $("#listCount").textContent = "0 найдено";
     return;
@@ -853,7 +852,7 @@ function renderList(rows) {
     const topTitle = document.createElement("strong");
     topTitle.textContent = "ТОП ОРГАНИЗАЦИЙ";
     const topExplanation = document.createElement("span");
-    topExplanation.textContent = "Лидеры по выбранному виду рейтинга. Место рассчитывается автоматически; бизнес не может купить или изменить его.";
+    topExplanation.textContent = "Сначала места с 20 и более оценками выбранного типа, затем предварительные результаты. Verified и Community не суммируются. Бизнес не может купить место.";
     topIntro.append(topTitle, topExplanation);
     root.append(topIntro);
   }
@@ -870,7 +869,7 @@ function renderList(rows) {
     badge.className = `badge ${item.kind === "manual" ? "manual" : item.kind === "external" ? "external" : ""}`;
     badge.textContent = item.kind === "partner"
       ? (item.verified_partner ? "ПАРТНЁР RELYQO" : "ПРОФИЛЬ RELYQO")
-      : item.kind === "manual" ? "ДОБАВЛЕНО ПОТРЕБИТЕЛЕМ" : "НАЙДЕНО · Google Maps";
+      : item.kind === "manual" ? (item.source_url ? "АДРЕС ПО САЙТУ ЗАВЕДЕНИЯ" : "ДОБАВЛЕНО ПОТРЕБИТЕЛЕМ") : "НАЙДЕНО · Google Maps";
     const heading = document.createElement("h2");
     heading.textContent = item.title;
     if (showRatedOnly && topRank > 0) {
@@ -887,6 +886,7 @@ function renderList(rows) {
       ? `${Number(item.relyqo_score).toFixed(1)}/100`
       : Number(item.community_rating_count) > 0 ? `${Number(item.community_score).toFixed(1)}/100`
         : item.kind === "external" ? "НА КАРТЕ" : "НЕТ ОЦЕНОК";
+    if (showRatedOnly && item.kind !== "external") score.textContent = displayedCount(item) ? `${displayedScore(item).toFixed(1)}/100` : "НЕТ ОЦЕНОК";
     top.append(title, score);
     const address = document.createElement("p");
     address.className = "address";
@@ -905,6 +905,12 @@ function renderList(rows) {
       categoryNames[item.category] || "Другая услуга",
       ratingMeta,
     ]);
+    if (item.kind !== "external") {
+      const community = showRatedOnly && ratedFilterValue("#ratedScoreType") === "COMMUNITY" || !(Number(item.verified_rating_count) > 0);
+      const count = community ? Number(item.community_rating_count) || 0 : Number(item.verified_rating_count) || 0;
+      const latest = community ? item.community_last_rating_at : item.verified_last_rating_at;
+      addMeta(meta, [count < 20 ? "Мало оценок: результат предварительный" : "20+ оценок: участвует в рейтинге", latest ? `Последняя оценка: ${new Date(latest).toLocaleDateString(document.documentElement.lang || "ru")}` : "Дата последней оценки отсутствует", ...(item.kind === "partner" ? [`${Number(item.verified_visit_count) || 0} принятых QR-посещений`] : [])]);
+    }
     card.append(
       top,
       address,
@@ -1434,8 +1440,8 @@ document.addEventListener("keydown", (event) => {
 
 $("#manualForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const locationForPlace = pendingManualLocation || currentCenter;
-  if (!locationForPlace) return;
+  // GPS describes the visitor, not necessarily the business. Only use confirmed place coordinates.
+  const locationForPlace = pendingManualLocation;
   const submit = event.submitter;
   submit.disabled = true;
   $("#manualError").classList.add("hidden");
@@ -1446,8 +1452,8 @@ $("#manualForm").addEventListener("submit", async (event) => {
     address: $("#manualAddress").value,
     city: $("#manualCity").value,
     country_code: $("#manualCountry").value.toUpperCase(),
-    latitude: locationForPlace.lat,
-    longitude: locationForPlace.lng,
+    latitude: locationForPlace?.lat ?? null,
+    longitude: locationForPlace?.lng ?? null,
     google_place_id: pendingGooglePlaceId,
   };
   try {
@@ -1459,7 +1465,7 @@ $("#manualForm").addEventListener("submit", async (event) => {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || "Не удалось добавить место");
-    data.item.distance_km = currentCenter ? distanceKm(currentCenter, {
+    data.item.distance_km = currentCenter && hasMapLocation(data.item) ? distanceKm(currentCenter, {
       lat: Number(data.item.latitude),
       lng: Number(data.item.longitude),
     }) : null;

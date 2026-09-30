@@ -26,6 +26,12 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
+from .web_ui import consumer_html
+from .business import business_dashboard
+from .rating_guards import reserve_rating_window
+from .public_trust import organization_evidence, register_public_profiles, timestamp, rating_confidence
+from .search_text import ALIASES, normalize_search, search_matches
+from .admin_directory import register_admin_directory
 from .categories import BUILTINS, GROUPS, category_catalog, require_category, register_category_routes
 from .geography import directory_city, location_catalog
 from .uzbekistan import REGIONS as UZ_REGIONS, region_for_city
@@ -311,6 +317,8 @@ def issue_visit_token(
 
 
 def recalculate_organization(org: Organization, db: Session) -> None:
+    # Every caller (submission and moderation) shares the same aggregate lock.
+    db.execute(select(Organization.id).where(Organization.id == org.id).with_for_update())
     rows = db.execute(
         select(Rating.ces, Rating.trust_weight, Rating.included).where(
             Rating.organization_id == org.id
@@ -332,6 +340,7 @@ STAFF_ROLE = "FREGAT_STAFF"
 REVIEWER_ROLE = "RELYQO_REVIEWER"
 CONSUMER_ROLE = "CONSUMER"
 BUSINESS_OWNER_ROLE = "BUSINESS_OWNER"
+BUSINESS_STAFF_ROLE = "BUSINESS_STAFF"
 ADMIN_ROLE = "RELYQO_ADMIN"
 _DUMMY_PASSWORD_HASH = password_hash("dummy-password-used-for-timing-only")
 AI_CACHE_MINUTES = 10
@@ -1068,40 +1077,18 @@ def business_profile_payload(user: User, db: Session) -> dict:
     }
 
 
-def consumer_html(filename: str) -> HTMLResponse:
-    """Add the shared ad surface only to consumer-facing pages."""
-    content = (static / filename).read_text(encoding="utf-8")
-    if filename == "index.html" and not settings.demo_mode:
-        content = content.replace(
-            'id="demo" class="secondary"',
-            'id="demo" class="secondary hidden" disabled aria-hidden="true"',
-            1,
-        )
-    content = content.replace(
-        "</head>",
-        '<link rel="stylesheet" href="/static/ads.css?v=ads-3"></head>',
-        1,
-    )
-    content = content.replace(
-        "</body>",
-        '<script src="/static/ads.js?v=ads-3"></script></body>',
-        1,
-    )
-    return HTMLResponse(
-        content=content,
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
 
 
+@app.get("/rate", include_in_schema=False)
 @app.get("/", include_in_schema=False)
 def web():
     return consumer_html("index.html")
 
 
 @app.get("/consumer", include_in_schema=False)
-def consumer_entry_web():
-    """Explicit consumer entrance, separate from protected workspaces."""
-    return consumer_html("index.html")
+def consumer_entry_web(request: Request):
+    """Search entrance; existing QR links still open the rating form."""
+    return consumer_html("index.html" if "token" in request.query_params else "nearby.html")
 
 
 @app.get("/owner", include_in_schema=False)
@@ -1197,6 +1184,11 @@ def admin_web():
         static / "admin.html",
         headers={"Cache-Control": "no-store, max-age=0"},
     )
+
+
+@app.get("/admin/settings", include_in_schema=False)
+def admin_settings_web():
+    return FileResponse(static / "admin-settings.html", headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.post("/v1/auth/login")
@@ -2135,7 +2127,7 @@ def business_owner_visit_token(
     user = session_user(
         relyqo_session,
         db,
-        {BUSINESS_OWNER_ROLE, OWNER_ROLE},
+        {BUSINESS_OWNER_ROLE, OWNER_ROLE, BUSINESS_STAFF_ROLE, STAFF_ROLE},
     )
     organization = db.get(Organization, user.organization_id)
     if not organization or organization.profile_status != "VERIFIED_PARTNER":
@@ -2716,7 +2708,7 @@ def create_recovery_code(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    user = session_user(relyqo_session, db, {OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
+    user = session_user(relyqo_session, db, {OWNER_ROLE, BUSINESS_OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
     if not verify_password(body.current_password, user.password_hash):
         db.add(
             AuditLog(
@@ -2758,7 +2750,7 @@ def recover_account(
     username = body.username.strip().lower()
     user = db.scalar(select(User).where(User.username == username))
     supplied_hash = token_hash(body.recovery_code.strip())
-    valid_role = bool(user and user.role in {OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
+    valid_role = bool(user and user.role in {OWNER_ROLE, BUSINESS_OWNER_ROLE, REVIEWER_ROLE, CONSUMER_ROLE})
     valid_code = bool(
         valid_role
         and user.recovery_code_hash
@@ -2807,7 +2799,7 @@ def create_staff_account(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    owner = session_user(relyqo_session, db, {OWNER_ROLE, BUSINESS_OWNER_ROLE})
     username = body.username.strip().lower()
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{2,79}", username):
         raise HTTPException(
@@ -2819,7 +2811,7 @@ def create_staff_account(
     staff = User(
         username=username,
         password_hash=password_hash(body.password),
-        role=STAFF_ROLE,
+        role=STAFF_ROLE if owner.role == OWNER_ROLE else BUSINESS_STAFF_ROLE,
         organization_id=owner.organization_id,
     )
     db.add(staff)
@@ -2846,12 +2838,12 @@ def list_staff_accounts(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    owner = session_user(relyqo_session, db, {OWNER_ROLE, BUSINESS_OWNER_ROLE})
     staff = db.scalars(
         select(User)
         .where(
             User.organization_id == owner.organization_id,
-            User.role == STAFF_ROLE,
+            User.role.in_({STAFF_ROLE, BUSINESS_STAFF_ROLE}),
         )
         .order_by(User.username)
     ).all()
@@ -2875,11 +2867,11 @@ def set_staff_status(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    owner = session_user(relyqo_session, db, {OWNER_ROLE, BUSINESS_OWNER_ROLE})
     staff = db.get(User, user_id)
     if (
         not staff
-        or staff.role != STAFF_ROLE
+        or staff.role not in {STAFF_ROLE, BUSINESS_STAFF_ROLE}
         or staff.organization_id != owner.organization_id
     ):
         raise HTTPException(404, "Сотрудник не найден")
@@ -2910,11 +2902,11 @@ def reset_staff_password(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    owner = session_user(relyqo_session, db, {OWNER_ROLE, BUSINESS_OWNER_ROLE})
     staff = db.get(User, user_id)
     if (
         not staff
-        or staff.role != STAFF_ROLE
+        or staff.role not in {STAFF_ROLE, BUSINESS_STAFF_ROLE}
         or staff.organization_id != owner.organization_id
     ):
         raise HTTPException(404, "Сотрудник не найден")
@@ -2948,7 +2940,7 @@ def owner_qr_log(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    owner = session_user(relyqo_session, db, OWNER_ROLE)
+    owner = session_user(relyqo_session, db, {OWNER_ROLE, BUSINESS_OWNER_ROLE})
     rows = db.execute(
         select(VisitToken, Branch)
         .join(Branch, VisitToken.branch_id == Branch.id)
@@ -3013,38 +3005,7 @@ def owner_visit_token(
     relyqo_session: str | None = Cookie(default=None),
     db: Session = Depends(get_db),
 ):
-    user = session_user(relyqo_session, db, {OWNER_ROLE, STAFF_ROLE})
-    _, branch = ensure_fregat(db)
-    existing = db.scalar(
-        select(VisitToken).where(
-            VisitToken.branch_id == branch.id,
-            VisitToken.transaction_reference == body.transaction_reference,
-        )
-    )
-    if existing:
-        raise HTTPException(409, "Для этого чека QR уже выпускался")
-    if user.organization_id != branch.organization_id:
-        raise HTTPException(403, "Нет доступа к этому ресторану")
-    token = issue_visit_token(branch, db, user.id)
-    record = db.scalar(
-        select(VisitToken).where(VisitToken.token_hash == token_hash(token))
-    )
-    record.transaction_reference = body.transaction_reference
-    db.add(
-        AuditLog(
-            actor_type=user.role,
-            action="VISIT_TOKEN_ISSUED",
-            entity_type="VISIT_TOKEN",
-            entity_id=record.id,
-        )
-    )
-    db.commit()
-    base_url = str(request.base_url).rstrip("/")
-    return {
-        "expires_in": 10800,
-        "visit_url": f"{base_url}/?token={token}",
-        "qr_url": f"{base_url}/v1/qr.png?token={token}",
-    }
+    return business_owner_visit_token(body, request, relyqo_session, db)
 
 
 @app.get("/v1/qr.png", include_in_schema=False)
@@ -3164,6 +3125,7 @@ def public_nearby_branches(
                 CommunityRating.object_key,
                 func.avg(CommunityRating.community_score),
                 func.count(CommunityRating.id),
+                func.max(CommunityRating.created_at),
             )
             .where(
                 CommunityRating.object_key.in_(community_keys),
@@ -3178,6 +3140,7 @@ def public_nearby_branches(
         row[0]: {
             "community_score": round(float(row[1]), 1),
             "community_rating_count": int(row[2]),
+            "community_last_rating_at": timestamp(row[3]),
         }
         for row in community_rows
     }
@@ -3211,6 +3174,7 @@ def public_nearby_branches(
         for row in metric_rows
         if all(value is not None for value in row[1:])
     }
+    evidence = organization_evidence(db)
     items = []
     for branch, organization in rows:
         distance = haversine_km(
@@ -3247,6 +3211,7 @@ def public_nearby_branches(
                 {"community_score": 0.0, "community_rating_count": 0},
             )
         )
+        item.update(evidence.get(organization.id, {}))
         items.append(item)
     items.sort(key=lambda item: item["distance_km"])
     return {
@@ -3277,6 +3242,8 @@ def manual_place_item(
         "distance_km": round(distance_km, 2) if distance_km is not None else None,
         "source": "MANUAL",
         "verified": False,
+        "source_url": place.source_url,
+        "source_checked_at": timestamp(place.source_checked_at),
     }
     item.update(
         community_stats or {"community_score": 0.0, "community_rating_count": 0}
@@ -3292,6 +3259,8 @@ def create_manual_place(
     rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
     db: Session = Depends(get_db),
 ):
+    if (body.latitude is None) != (body.longitude is None):
+        raise HTTPException(422, "Укажите обе координаты или оставьте их пустыми")
     require_category(db, body.category)
     name = " ".join(body.name.split())
     address = " ".join(body.address.split())
@@ -3311,8 +3280,8 @@ def create_manual_place(
             address.casefold(),
             city.casefold(),
             country_code,
-            f"{body.latitude:.4f}",
-            f"{body.longitude:.4f}",
+            f"{body.latitude:.4f}" if body.latitude is not None else "",
+            f"{body.longitude:.4f}" if body.longitude is not None else "",
         )
     )
     identity_hash = token_hash(identity)
@@ -3431,6 +3400,7 @@ def public_manual_places_nearby(
                 CommunityRating.object_key,
                 func.avg(CommunityRating.community_score),
                 func.count(CommunityRating.id),
+                func.max(CommunityRating.created_at),
             )
             .where(
                 CommunityRating.object_key.in_(community_keys),
@@ -3445,6 +3415,7 @@ def public_manual_places_nearby(
         row[0]: {
             "community_score": round(float(row[1]), 1),
             "community_rating_count": int(row[2]),
+            "community_last_rating_at": timestamp(row[3]),
         }
         for row in community_rows
     }
@@ -3511,6 +3482,7 @@ def public_rated_organizations(
             CommunityRating.object_key,
             func.avg(CommunityRating.community_score),
             func.count(CommunityRating.id),
+            func.max(CommunityRating.created_at),
         )
         .where(CommunityRating.included.is_(True))
         .group_by(CommunityRating.object_key)
@@ -3519,9 +3491,11 @@ def public_rated_organizations(
         row[0]: {
             "community_score": round(float(row[1]), 1),
             "community_rating_count": int(row[2]),
+            "community_last_rating_at": timestamp(row[3]),
         }
         for row in community_rows
     }
+    evidence = organization_evidence(db)
     items = []
     seen_organizations = set()
     partner_rows = db.execute(
@@ -3565,6 +3539,7 @@ def public_rated_organizations(
                 "relyqo_score": round(organization.score, 1),
                 "verified_rating_count": verified_count,
                 **community,
+                **evidence.get(organization.id, {}),
                 "score_type": "VERIFIED" if verified_count else "COMMUNITY",
                 "display_score": round(organization.score, 1)
                 if verified_count
@@ -3600,6 +3575,9 @@ def public_rated_organizations(
     # Normalize known spelling variants only within the recorded country.
     # Starter locations are navigation choices, never synthetic business cards.
     for item in items:
+        count = item["verified_rating_count"] or item["community_rating_count"]
+        item["sample_status"] = rating_confidence(count)
+        item["search_text"] = normalize_search(" ".join(str(item.get(field) or "") for field in ("name", "address", "city", "description", "category")) + " " + ALIASES.get(category_groups.get(item.get("category"), item.get("category")), ""))
         item["city"] = directory_city(item.get("city"), item.get("country_code"))
         item["region_code"] = region_for_city(item["city"], item.get("country_code"))
     geography = location_catalog(items, include_starter=include_unrated)
@@ -3626,7 +3604,7 @@ def public_rated_organizations(
             return int(item["verified_rating_count"])
         if score_type == "COMMUNITY":
             return int(item["community_rating_count"])
-        return int(item["verified_rating_count"] + item["community_rating_count"])
+        return int(item["verified_rating_count"] or item["community_rating_count"])
 
     def matches(item: dict) -> bool:
         if score_type == "RATED" and selected_reviews(item) <= 0:
@@ -3653,20 +3631,8 @@ def public_rated_organizations(
             return False
         if selected_score(item) < min_score:
             return False
-        if query:
-            searchable = " ".join(
-                str(item.get(field) or "")
-                for field in (
-                    "name",
-                    "address",
-                    "city",
-                    "country_code",
-                    "category",
-                    "description",
-                )
-            ).casefold()
-            if query not in searchable:
-                return False
+        if query and not search_matches(query, item["search_text"]):
+            return False
         return True
 
     filtered_items = [item for item in items if matches(item)]
@@ -3707,9 +3673,9 @@ def public_rated_organizations(
     else:
         filtered_items.sort(
             key=lambda item: (
+                -(selected_reviews(item) >= TOP_ORGANIZATION_MIN_RATINGS),
                 -selected_score(item),
-                -int(item["verified_rating_count"]),
-                -int(item["community_rating_count"]),
+                -selected_reviews(item),
                 item["name"].casefold(),
             )
         )
@@ -3726,7 +3692,7 @@ def public_rated_organizations(
         "includes_unrated": include_unrated,
         "score_policy": "VERIFIED_AND_COMMUNITY_SEPARATE",
         "top_policy": {
-            "calculation": "deterministic_score_then_rating_count_v1",
+            "calculation": "minimum_sample_then_score_v2",
             "limit": TOP_ORGANIZATION_LIMIT,
             "minimum_ratings": TOP_ORGANIZATION_MIN_RATINGS,
             "paid_placement": False,
@@ -3758,6 +3724,7 @@ def community_summary(object_key: str, db: Session) -> dict:
         )
         .where(CommunityRating.included.is_(True))
         .group_by(CommunityRating.object_key)
+        .having(func.count(CommunityRating.id) >= TOP_ORGANIZATION_MIN_RATINGS)
         .subquery()
     )
     ranked = select(
@@ -4216,7 +4183,11 @@ def demo_visit(request: Request, db: Session = Depends(get_db)):
 
 
 @app.post("/v1/visits/verify-token")
-def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
+def verify_visit(
+    body: VerifyVisit, response: Response, request: Request,
+    rater_cookie: str | None = Cookie(default=None, alias=COMMUNITY_COOKIE),
+    db: Session = Depends(get_db),
+):
     try:
         data = verify_signature(body.token)
     except Exception as exc:
@@ -4231,11 +4202,25 @@ def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
     if record.expires_at < datetime.utcnow():
         raise HTTPException(410, "QR истёк")
     branch = db.get(Branch, record.branch_id)
+    if not branch or not branch.active:
+        raise HTTPException(410, "Филиал больше не принимает оценки")
     org = db.get(Organization, branch.organization_id)
+    if not org or org.profile_status != "VERIFIED_PARTNER":
+        raise HTTPException(410, "Подтверждённые посещения организации недоступны")
     if data["branch_id"] != branch.id:
         raise HTTPException(400, "QR не соответствует филиалу")
-    visit = Visit(branch_id=branch.id)
-    record.used_at = datetime.utcnow()
+    # Compare-and-set also protects SQLite, where FOR UPDATE is ignored.
+    claimed = db.execute(update(VisitToken).where(
+        VisitToken.id == record.id, VisitToken.used_at.is_(None),
+        VisitToken.expires_at >= datetime.utcnow(),
+    ).values(used_at=datetime.utcnow())).rowcount
+    if claimed != 1:
+        raise HTTPException(409, "QR уже использован или истёк")
+    rater_id = verified_community_rater(rater_cookie)
+    cookie_value = rater_cookie
+    if not rater_id:
+        rater_id, cookie_value = new_community_rater()
+    visit = Visit(branch_id=branch.id, rater_hash=token_hash(rater_id))
     db.add(visit)
     db.flush()
     db.add(
@@ -4247,6 +4232,9 @@ def verify_visit(body: VerifyVisit, db: Session = Depends(get_db)):
         )
     )
     db.commit()
+    response.set_cookie(COMMUNITY_COOKIE, cookie_value, max_age=365 * 24 * 3600,
+                        httponly=True, secure=request.url.scheme == "https",
+                        samesite="strict", path="/")
     return {
         "status": "VERIFIED",
         "visit_id": visit.id,
@@ -4278,8 +4266,23 @@ def rate(
     visit = db.get(Visit, body.visit_id)
     if not visit:
         raise HTTPException(404, "Посещение не найдено")
+    rater_id = verified_community_rater(rater_cookie)
+    cookie_value = rater_cookie
+    if visit.rater_hash and (not rater_id or not hmac.compare_digest(visit.rater_hash, token_hash(rater_id))):
+        raise HTTPException(403, "Отправьте оценку в браузере, где вы открыли QR")
+    if visit.verified_at < datetime.utcnow() - timedelta(hours=24):
+        raise HTTPException(410, "Срок отправки оценки истёк (24 часа)")
+    if not rater_id:
+        rater_id, cookie_value = new_community_rater()
     branch = db.get(Branch, visit.branch_id)
-    org = db.get(Organization, branch.organization_id)
+    if not branch or not branch.active:
+        raise HTTPException(410, "Филиал больше не принимает оценки")
+    org = db.scalar(select(Organization).where(Organization.id == branch.organization_id).with_for_update())
+    if not org or org.profile_status != "VERIFIED_PARTNER":
+        raise HTTPException(410, "Подтверждённые посещения организации недоступны")
+    if db.scalar(select(Rating.id).where(Rating.visit_id == visit.id)):
+        raise HTTPException(409, "Для этого посещения оценка уже поставлена")
+    reserve_rating_window(db, org.id, rater_id, consumer.id if consumer else None)
     ces = calculate_ces(
         body.overall, body.food, body.service, body.cleanliness, body.value
     )
@@ -4337,10 +4340,6 @@ def rate(
                 entity_id=org.id,
             )
         )
-    rater_id = verified_community_rater(rater_cookie)
-    cookie_value = rater_cookie
-    if not rater_id:
-        rater_id, cookie_value = new_community_rater()
     response.set_cookie(
         COMMUNITY_COOKIE,
         cookie_value,
@@ -4563,6 +4562,31 @@ def decide_rating_review(
     }
 
 
+@app.get("/v1/business-owner/dashboard")
+def business_owner_dashboard(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, {BUSINESS_OWNER_ROLE, OWNER_ROLE})
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    org = db.get(Organization, user.organization_id)
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+    return business_dashboard(org, db)
+
+
+@app.get("/v1/business-owner/ai-insights")
+def business_owner_ai_insights(
+    response: Response,
+    relyqo_session: str | None = Cookie(default=None),
+    db: Session = Depends(get_db),
+):
+    user = session_user(relyqo_session, db, {BUSINESS_OWNER_ROLE, OWNER_ROLE})
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return business_ai_insights(user, db)
+
+
 @app.get("/v1/business/fregat")
 def fregat_business_dashboard(response: Response, db: Session = Depends(get_db)):
     """Read-only aggregate view. No Business mutation endpoints exist."""
@@ -4570,111 +4594,7 @@ def fregat_business_dashboard(response: Response, db: Session = Depends(get_db))
     org = db.scalar(select(Organization).where(Organization.name == "Fregat"))
     if not org:
         raise HTTPException(404, "Fregat ещё не создан")
-    branch = db.scalar(select(Branch).where(Branch.organization_id == org.id).limit(1))
-    averages = db.execute(
-        select(
-            func.avg(Rating.overall),
-            func.avg(Rating.food),
-            func.avg(Rating.service),
-            func.avg(Rating.cleanliness),
-            func.avg(Rating.value),
-        ).where(Rating.organization_id == org.id, Rating.included.is_(True))
-    ).one()
-    verified_visits = db.scalar(
-        select(func.count(Visit.id))
-        .join(Branch, Visit.branch_id == Branch.id)
-        .where(Branch.organization_id == org.id)
-    )
-    submitted_ratings = db.scalar(
-        select(func.count(Rating.id)).where(Rating.organization_id == org.id)
-    )
-    pending_review = db.scalar(
-        select(func.count(Rating.id)).where(
-            Rating.organization_id == org.id,
-            Rating.status == "PENDING_REVIEW",
-        )
-    )
-    history = db.scalars(
-        select(ScoreHistory)
-        .where(ScoreHistory.organization_id == org.id)
-        .order_by(ScoreHistory.calculated_at.desc())
-        .limit(12)
-    ).all()
-
-    def metric(value):
-        return round(float(value) * 10, 1) if value is not None else 0.0
-
-    metrics = {
-        "overall": metric(averages[0]),
-        "food": metric(averages[1]),
-        "service": metric(averages[2]),
-        "cleanliness": metric(averages[3]),
-        "value": metric(averages[4]),
-    }
-    category_labels = {
-        "food": "Качество еды",
-        "service": "Обслуживание",
-        "cleanliness": "Чистота",
-        "value": "Цена и качество",
-    }
-    category_metrics = {key: metrics[key] for key in category_labels}
-    strongest = max(category_metrics, key=category_metrics.get)
-    weakest = min(category_metrics, key=category_metrics.get)
-    visit_count = verified_visits or 0
-    submitted_count = submitted_ratings or 0
-    sample_target = 20
-
-    return {
-        "organization": {
-            "id": org.id,
-            "name": org.name,
-            "city": org.city,
-            "branch": branch.name if branch else None,
-        },
-        "relyqo_score": org.score,
-        "rating_count": org.rating_count,
-        "verified_visits": visit_count,
-        "metrics": metrics,
-        "pilot": {
-            "sample_status": "EARLY" if org.rating_count < sample_target else "READY",
-            "sample_target": sample_target,
-            "remaining_to_target": max(0, sample_target - org.rating_count),
-            "submitted_ratings": submitted_count,
-            "completion_rate": (
-                round(submitted_count / visit_count * 100, 1) if visit_count else 0.0
-            ),
-            "incomplete_visits": max(0, visit_count - submitted_count),
-            "pending_review": pending_review or 0,
-            "strongest_category": {
-                "key": strongest,
-                "label": category_labels[strongest],
-                "score": category_metrics[strongest],
-            },
-            "weakest_category": {
-                "key": weakest,
-                "label": category_labels[weakest],
-                "score": category_metrics[weakest],
-            },
-        },
-        "history": [
-            {"score": item.score, "calculated_at": item.calculated_at.isoformat() + "Z"}
-            for item in reversed(history)
-        ],
-        "permissions": {
-            "ratings_create": False,
-            "ratings_update": False,
-            "ratings_delete": False,
-            "score_update": False,
-        },
-        "ai": {
-            "configured": bool(settings.openai_api_key),
-            "model": settings.openai_model if settings.openai_api_key else None,
-            "affects_score": False,
-            "can_change_ratings": False,
-            "can_decide_reviews": False,
-        },
-        "calculation": "deterministic_weighted_ces_v1",
-    }
+    return business_dashboard(org, db)
 
 
 @app.get("/v1/business/fregat/ai-insights")
@@ -4685,14 +4605,23 @@ def fregat_ai_insights(
 ):
     user = session_user(relyqo_session, db, OWNER_ROLE)
     response.headers["Cache-Control"] = "no-store, max-age=0"
+    return business_ai_insights(user, db)
+
+
+def business_ai_insights(user: User, db: Session):
     if not settings.openai_api_key:
         raise HTTPException(
             503,
             "AI-аналитик ещё не подключён: добавьте OPENAI_API_KEY в Render",
         )
-    dashboard = fregat_business_dashboard(Response(), db)
+    org = db.get(Organization, user.organization_id)
+    if not org:
+        raise HTTPException(404, "Организация не найдена")
+    dashboard = business_dashboard(org, db)
     payload = {
-        "restaurant": dashboard["organization"]["name"],
+        "organization": dashboard["organization"]["name"],
+        "category": dashboard["organization"]["category"],
+        "category_labels": dashboard["metric_labels"],
         "city": dashboard["organization"]["city"],
         "relyqo_score": dashboard["relyqo_score"],
         "score_source": dashboard["calculation"],
@@ -4704,7 +4633,7 @@ def fregat_ai_insights(
     from .i18n import language_context
 
     payload["language"] = language_context.get()
-    signature = token_hash(json.dumps(payload, sort_keys=True))
+    signature = token_hash(user.organization_id + json.dumps(payload, sort_keys=True))
     now = datetime.utcnow()
     with _ai_lock:
         cached = _ai_cache.get(signature)
@@ -4758,6 +4687,8 @@ def fregat_ai_insights(
 register_recovery_routes(app, session_user, revoke_user_sessions)
 
 register_category_routes(app, session_user)
+register_admin_directory(app, session_user)
+register_public_profiles(app)
 register_analytics_routes(app, session_user)
 
 register_feedback_routes(app, session_user, recalculate_organization)

@@ -1,0 +1,14 @@
+.managementNav{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0 24px;padding:8px;border:1px solid #315363;border-radius:16px;background:#0a1d2c}
+.managementNav a{display:block;min-height:44px;padding:12px 14px;border-radius:10px;text-decoration:none;color:#c2d5de;font:700 13px/1.4 system-ui}
+.managementNav a[aria-current=page]{background:#75e3bf;color:#06281e}
+.managementNav a:focus-visible{outline:3px solid #a2bfff;outline-offset:2px}
+.sidebar .managementNav{display:grid;padding:0;border:0;background:none;margin:0}
+.sidebar:has(.managementNav){overflow-y:auto}
+.sidebar:has(.managementNav) .sideFooter{position:static;margin-top:20px}
+.managementMobile{display:none}
+.settingsGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.settingsGrid .panel{margin-top:0}
+.settingsGrid a{display:block;padding:12px 0;min-height:44px}
+.settingsRoles{width:100%;border-collapse:collapse}
+.settingsRoles th,.settingsRoles td{padding:12px;text-align:left;border-bottom:1px solid #315363;vertical-align:top}
+@media(max-width:800px){.managementMobile{display:block}.managementNav{flex-wrap:nowrap;overflow-x:auto}.managementNav a{flex:none}.settingsGrid{grid-template-columns:1fr}}

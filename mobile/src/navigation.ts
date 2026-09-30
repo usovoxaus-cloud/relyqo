@@ -1,7 +1,7 @@
 export const ORIGIN = 'https://relyqo.onrender.com';
 export type Language = 'ru' | 'uz';
 export type Tab = 'search' | 'qr' | 'account';
-const paths: Record<Tab, string> = { search: '/nearby', qr: '/', account: '/me' };
+const paths: Record<Tab, string> = { search: '/nearby', qr: '/rate', account: '/me' };
 
 export function isInternalUrl(value: string): boolean {
   try {
@@ -48,7 +48,7 @@ export function withLanguage(value: string, language: Language): string {
 export function tabForUrl(value: string): Tab {
   if (!isInternalUrl(value)) return 'search';
   const path = new URL(value).pathname;
-  if (path === '/' || path === '/consumer') return 'qr';
+  if (path === '/' || path === '/rate' || path === '/community-rate' || (path === '/consumer' && new URL(value).searchParams.has('token'))) return 'qr';
   if (path === '/rankings') return 'search';
   if (['/me', '/recover', '/forgot-password', '/reset-password', '/account-security'].some(p => path === p || path.startsWith(p + '/'))) return 'account';
   return 'search';
@@ -61,7 +61,7 @@ export function readVisitToken(value: string): string | null {
   if (/^https?:/i.test(token)) {
     if (!isInternalUrl(token)) return null;
     const url = new URL(token);
-    if (!['/', '/consumer'].includes(url.pathname)) return null;
+    if (!['/', '/consumer', '/rate'].includes(url.pathname)) return null;
     const tokens = url.searchParams.getAll('token');
     if (tokens.length !== 1) return null;
     token = tokens[0];

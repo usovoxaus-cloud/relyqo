@@ -213,6 +213,11 @@ def test_category_create_edit_conflict_and_builtin_guard(setup, monkeypatch):
         r["label"] == "Веломастерские"
         for r in client.get("/v1/public/service-categories").json()["items"]
     )
+    previous = client.get("/v1/admin/app-editor").json()["category_previous"][row["code"]]
+    assert previous == {"label": "Ремонт велосипедов", "group": "OTHER"}
+    restored = client.put(path, json={**previous, "expected_label": "Веломастерские", "expected_group": "OTHER"})
+    assert restored.status_code == 200
+    assert restored.json()["label"] == "Ремонт велосипедов"
     login("editor-consumer")
     assert client.put(path, json=body).status_code == 403
 

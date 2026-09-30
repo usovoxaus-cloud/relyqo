@@ -75,12 +75,14 @@ class ManualPlace(Base):
     address: Mapped[str] = mapped_column(String(255))
     city: Mapped[str] = mapped_column(String(80))
     country_code: Mapped[str] = mapped_column(String(2))
-    latitude: Mapped[float] = mapped_column(Float, index=True)
-    longitude: Mapped[float] = mapped_column(Float, index=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True, index=True)
     google_place_id: Mapped[str | None] = mapped_column(
         String(255), nullable=True, unique=True
     )
     created_by_hash: Mapped[str] = mapped_column(String(64), index=True)
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
@@ -123,6 +125,13 @@ class Visit(Base):
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"))
     verified_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
     verification_score: Mapped[float] = mapped_column(Float, default=0.95)
+    rater_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class RatingCooldown(Base):
+    __tablename__ = "rating_cooldowns"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
 class Rating(Base):
