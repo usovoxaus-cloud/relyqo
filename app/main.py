@@ -3062,6 +3062,7 @@ def public_maps_config(response: Response):
         "external_place_sources": True,
         "external_place_storage": "none",
         "external_ratings_used": False,
+        "google_ratings_displayed_separately": True,
         "search_radius_km": 50,
         "result_limit": 200,
         "location_storage": "none",

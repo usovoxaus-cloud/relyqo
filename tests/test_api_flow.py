@@ -385,8 +385,8 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert "google.maps.Map" in script.text
     assert 'importLibrary("places")' in script.text
     assert "Place.searchNearby" in script.text
-    assert "userRatingCount" not in script.text
-    assert '"rating", "userRatingCount"' not in script.text
+    assert '"rating", "userRatingCount"' in script.text
+    assert "google_details" in script.text
     assert 'rate.textContent = "Оценить в RELYQO"' in script.text
     assert 'openManualDialog(item, "rate")' in script.text
     assert "location.href = ratingUrl(addedItem)" in script.text
@@ -414,6 +414,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
         "external_place_sources": True,
         "external_place_storage": "none",
         "external_ratings_used": False,
+        "google_ratings_displayed_separately": True,
         "search_radius_km": 50,
         "result_limit": 200,
         "location_storage": "none",

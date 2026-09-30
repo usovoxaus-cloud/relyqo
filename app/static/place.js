@@ -20,6 +20,7 @@
       const response = await fetch(`/v1/public/place?object_key=${encodeURIComponent(objectKey)}`, {cache: 'no-store'});
       if (!response.ok) throw Error(response.status === 404 ? 'Организация не найдена. Вернитесь в поиск.' : 'Не удалось загрузить карточку. Обновите страницу.');
       const data = await response.json();
+      window.relyqoGoogleRating?.mount($('googleRating'), data.google_reference || {});
       // URL text, scores and status are never trusted. The object key only identifies the record.
       $('name').textContent = data.name;
       $('address').textContent = [data.category_label, data.address].filter(Boolean).join(' · ');

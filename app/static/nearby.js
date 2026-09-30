@@ -698,7 +698,7 @@ function criteriaNode(item) {
   }
   box.className = "criteriaNote";
   box.textContent = item.kind === "external"
-    ? "Google помогает найти адрес. Рейтинги Google не импортируются и не влияют на RELYQO."
+    ? "Общий рейтинг Google показывается отдельно и не меняет оценки потребителей RELYQO."
     : "Отраслевые показатели появятся после оценок потребителей.";
   return box;
 }
@@ -919,6 +919,11 @@ function renderList(rows) {
       criteriaNode(item),
       item.kind === "external" ? externalActions(item) : internalActions(item, favorites),
     );
+    if (item.kind === "external" && item.google_details && window.relyqoGoogleRating) {
+      const googleRating = document.createElement('div');
+      window.relyqoGoogleRating.render(googleRating, item.google_details, true);
+      meta.after(googleRating);
+    }
     root.append(card);
   }
   $("#listCount").textContent = showRatedOnly
@@ -1121,7 +1126,7 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
   for (const center of centers) {
     if (!isCurrent()) return [];
     const request = {
-      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
+      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents", "rating", "userRatingCount", "attributions"],
       locationRestriction: { center, radius: Math.min(50000, zoneRadius * 1000) },
       maxResultCount: 20,
       rankPreference: SearchNearbyRankPreference.POPULARITY,
@@ -1146,11 +1151,12 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
         country_code: addressPart(place, "country", "shortText").toUpperCase() || "XX",
         category,
         primaryType: place.primaryType || "",
-        description: `${categoryNames[category] || "Организация"}, найденная в Google Maps. Внешние рейтинги не используются RELYQO.`,
+        description: `${categoryNames[category] || "Организация"}, найденная в Google Maps. Рейтинг Google показан отдельно от оценок RELYQO.`,
         latitude: coordinates.lat,
         longitude: coordinates.lng,
         distance,
         mapsUri: place.googleMapsURI || "",
+        google_details: {rating:place.rating, userRatingCount:place.userRatingCount, googleMapsURI:place.googleMapsURI, attributions:place.attributions},
       });
     }
   }
@@ -1172,11 +1178,12 @@ function externalPlaceItem(place, origin = currentCenter) {
     country_code: addressPart(place, "country", "shortText").toUpperCase() || "XX",
     category,
     primaryType: place.primaryType || "",
-    description: `${categoryNames[category] || "Организация"}, найденная в Google Maps. Внешние рейтинги не используются RELYQO.`,
+    description: `${categoryNames[category] || "Организация"}, найденная в Google Maps. Рейтинг Google показан отдельно от оценок RELYQO.`,
     latitude: coordinates.lat,
     longitude: coordinates.lng,
     distance: origin ? distanceKm(origin, coordinates) : null,
     mapsUri: place.googleMapsURI || "",
+    google_details: {rating:place.rating, userRatingCount:place.userRatingCount, googleMapsURI:place.googleMapsURI, attributions:place.attributions},
   };
 }
 
@@ -1210,7 +1217,7 @@ async function searchCatalog() {
     if (searchId !== catalogRequestId) return;
     const { places } = await withDeadline(Place.searchByText({
       textQuery: query,
-      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents"],
+      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents", "rating", "userRatingCount", "attributions"],
       locationBias: { center: currentCenter, radius: Math.min(50000, selectedRadius() * 1000) },
       maxResultCount: Math.min(20, selectedLimit()),
       rankPreference: SearchByTextRankPreference.RELEVANCE,
