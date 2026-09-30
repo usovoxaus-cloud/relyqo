@@ -29,7 +29,7 @@
       $('source').textContent = partner ? 'ПАРТНЁР RELYQO' : data.source_url ? 'АДРЕС ПО САЙТУ ЗАВЕДЕНИЯ' : data.source === 'MANUAL' ? 'ДОБАВЛЕНО ПОТРЕБИТЕЛЕМ' : 'ПРОФИЛЬ RELYQO';
       $('hero').classList.toggle('partner', partner);
       if (data.source_url?.startsWith('https://')) {
-        const reference = document.createElement('a'); reference.href = data.source_url; reference.target = '_blank'; reference.rel = 'noopener'; reference.className = 'button'; reference.textContent = `Источник адреса · проверен ${date(data.source_checked_at)}`; $('address').after(reference);
+        const reference = document.createElement('a'); reference.href = data.source_url; reference.target = '_blank'; reference.rel = 'noopener'; reference.className = 'sourceReference'; reference.textContent = `Источник адреса · проверен ${date(data.source_checked_at)}`; $('address').after(reference);
       }
       $('verifiedScore').textContent = data.verified_rating_count ? `${Number(data.relyqo_score).toFixed(1)}/100` : '—';
       $('verifiedCaption').textContent = `${caption(data.verified_rating_count, data.verified_last_rating_at, data.minimum_ratings)}. ${data.verified_visit_count} принятых QR-посещений. Оценки всей организации.`;
