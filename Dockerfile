@@ -6,5 +6,4 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 RUN pip install --no-cache-dir .
 ENV PORT=8000
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
-
+CMD ["python", "-m", "app.startup"]

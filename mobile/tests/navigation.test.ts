@@ -17,6 +17,7 @@ test('QR accepts a raw RELYQO token or an exact first-party visit URL', () => {
   assert.equal(readVisitToken('  ' + token + '\n'), token);
   assert.equal(readVisitToken(ORIGIN + '/?token=' + token), token);
   assert.equal(readVisitToken(ORIGIN + '/consumer?token=' + token), token);
+  assert.equal(readVisitToken(ORIGIN + '/rate?token=' + token), token);
   for (const value of [ORIGIN + '/me?token=' + token, 'https://evil.test/?token=' + token, 'http://relyqo.onrender.com/?token=' + token, ORIGIN + '/?token=' + token + '&token=' + token, 'not a visit', 'x'.repeat(4097), '<script>alert(1)</script>', 'a'.repeat(40) + '.' + 'b'.repeat(42)]) assert.equal(readVisitToken(value), null, value.slice(0, 100));
 });
 test('language changes preserve organization and recovery URL parameters', () => {
@@ -34,6 +35,10 @@ test('consumer tabs keep details and profile accessible', () => {
   assert.equal(tabForUrl(ORIGIN + '/me/rating?id=1'), 'account');
   assert.equal(tabForUrl(ORIGIN + '/rankings'), 'search');
   assert.equal(tabForUrl(ORIGIN + '/'), 'qr');
+  assert.equal(tabForUrl(ORIGIN + '/rate'), 'qr');
+  assert.equal(tabForUrl(ORIGIN + '/community-rate'), 'qr');
+  assert.equal(tabForUrl(ORIGIN + '/consumer'), 'search');
+  assert.equal(tabForUrl(ORIGIN + '/consumer?token=old'), 'qr');
 });
 
 test('management paths are blocked inside the consumer app', () => {

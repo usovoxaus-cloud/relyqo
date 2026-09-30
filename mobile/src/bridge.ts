@@ -29,7 +29,7 @@ export const MOBILE_BRIDGE = `
 export function deliverQrScript(token: string): string {
   // JSON serialization prevents scanned text becoming executable JavaScript.
   return `(function () {
-    if (location.origin !== ${JSON.stringify(ORIGIN)} || !['/', '/consumer'].includes(location.pathname)) return;
+    if (location.origin !== ${JSON.stringify(ORIGIN)} || !['/', '/consumer', '/rate'].includes(location.pathname)) return;
     var input = document.getElementById('token'), button = document.getElementById('verify');
     if (!input || !button || button.disabled) return;
     input.value = ${JSON.stringify(token)};

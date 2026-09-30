@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#071b2c">
-  <title>Fregat — панель RELYQO</title>
+  <title>Аналитика организации — RELYQO</title>
   <style>
     :root{font-family:Inter,Segoe UI,Arial,sans-serif;color:#f7fbff;background:#07111f;color-scheme:dark}
     *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 0,#123f4d 0,transparent 34%),radial-gradient(circle at 100% 20%,#251d55 0,transparent 28%),#07111f}
@@ -23,12 +23,12 @@
 <link rel="stylesheet" href="/static/feedback.css"><script src="/static/account-onboarding.js" defer></script></head>
 <body>
   <main class="dashboard">
-    <header class="topbar"><span class="logo">R</span><span class="brand">RELYQO BUSINESS</span><span class="badge">ТОЛЬКО ПРОСМОТР</span></header>
+    <header class="topbar"><span class="logo">R</span><span class="brand">RELYQO BUSINESS</span><a href="/business-owner" style="color:inherit;margin-left:auto">← Кабинет бизнеса</a></header>
     <div class="notice"><b>Это информационная панель организации.</b> RELYQO автоматически считает результат по подтверждённым оценкам потребителей. Организация не может менять оценки или Score.<div class="refreshRow"><button id="refresh" class="refreshButton" type="button">Обновить данные</button><span id="updated" class="updated">Подключаемся к серверу…</span></div></div>
-    <div id="error" class="error hidden"></div>
+    <div id="error" class="error hidden" role="alert"></div><p id="businessLogin" class="hidden"><a class="aiLogin" href="/business-owner">Войти в кабинет бизнеса →</a></p>
     <section id="content" class="grid">
       <article class="card">
-        <p class="eyebrow">Организация и филиал</p><h1 id="name">Fregat</h1><p id="location" class="location"></p>
+        <p class="eyebrow">Организация и филиал</p><h1 id="name">Ваша организация</h1><p id="location" class="location"></p>
         <div class="scoreBox"><span class="scoreLabel">RELYQO SCORE — итоговая оценка</span><div class="scoreRow"><span id="score" class="scoreBig">—</span><span class="outof">из 100</span></div><p class="scoreHelp">Чем выше число, тем лучше подтверждённый опыт гостей.</p></div>
         <div class="kpis"><div class="kpi ratings"><span>Оценки гостей</span><b id="ratings">0</b></div><div class="kpi visits"><span>Подтверждённые посещения</span><b id="visits">0</b></div></div>
         <p class="readonlyText">Режим Business — только чтение. Здесь нельзя создавать, исправлять или удалять оценки.</p>
@@ -40,7 +40,8 @@
   </main>
   <script>
     const $ = (selector) => document.querySelector(selector);
-    const labels = {overall:'Общее впечатление',food:'Качество еды',service:'Обслуживание',cleanliness:'Чистота',value:'Соотношение цены и качества'};
+    let labels = {overall:'Общее впечатление',food:'Качество еды',service:'Обслуживание',cleanliness:'Чистота',value:'Соотношение цены и качества'};
+    const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     let loading=false;
     let aiLoading=false;
     async function loadDashboard(){
@@ -48,17 +49,17 @@
       loading=true;
       $('#refresh').disabled=true;
       try{
-        const response=await fetch(`/v1/business/fregat?t=${Date.now()}`,{cache:'no-store'});
+        const response=await fetch(`/v1/business-owner/dashboard?t=${Date.now()}`,{cache:'no-store'});
         const data=await response.json();
-        if(!response.ok)throw new Error(data.detail||'Не удалось загрузить данные');
-        $('#name').textContent=data.organization.name;
+        if(!response.ok){if([401,403].includes(response.status)){$('#businessLogin').classList.remove('hidden');document.querySelectorAll('.grid,.pilot,.aiCard').forEach(x=>x.classList.add('hidden'));}throw new Error(data.detail||'Не удалось загрузить данные');}$('#businessLogin').classList.add('hidden');document.querySelectorAll('.grid,.pilot,.aiCard').forEach(x=>x.classList.remove('hidden'));
+        labels=data.metric_labels||labels;$('#name').textContent=data.organization.name;document.title=data.organization.name+' — аналитика RELYQO';
         $('#location').textContent=`${data.organization.branch} · ${data.organization.city}`;
-        $('#score').textContent=Number(data.relyqo_score).toFixed(1);
+        $('#score').textContent=data.rating_count?Number(data.relyqo_score).toFixed(1):'—';
         $('#ratings').textContent=data.rating_count;
         $('#visits').textContent=data.verified_visits;
         const pilot=data.pilot;
         $('#runAI').disabled=!data.ai.configured||aiLoading;
-        $('#aiStatus').textContent=data.ai.configured?`Подключён ${data.ai.model}. Доступно владельцу Fregat.`:'Нужно подключить OpenAI API в Render.';
+        $('#aiStatus').textContent=data.ai.configured?'Рекомендации по показателям вашей организации.':'Аналитика с ИИ пока недоступна.';
         const samplePercent=Math.min(100,data.rating_count/pilot.sample_target*100);
         $('#sampleFill').style.width=`${samplePercent}%`;
         $('#sampleCount').textContent=`${data.rating_count} из ${pilot.sample_target} учтённых оценок`;
@@ -72,7 +73,7 @@
         $('#strongest').textContent=data.rating_count?`${pilot.strongest_category.label} · ${Number(pilot.strongest_category.score).toFixed(1)}/100`:'Пока нет данных';
         $('#weakest').textContent=data.rating_count?`${pilot.weakest_category.label} · ${Number(pilot.weakest_category.score).toFixed(1)}/100`:'Пока нет данных';
         $('#sampleWarning').textContent=pilot.sample_status==='EARLY'?`Важно: текущая выборка — ${data.rating_count}. Этого недостаточно для кадровых или финансовых решений. Соберите ещё ${pilot.remaining_to_target} оценок, не меняя и не удаляя текущие результаты.`:'Минимальная выборка собрана. Используйте динамику и категории вместе, а не одну отдельную оценку.';
-        $('#metrics').innerHTML=Object.entries(data.metrics).map(([key,value])=>`<div class="metric-${key}"><div class="barTop"><span>${labels[key]}</span><b>${Number(value).toFixed(1)} / 100</b></div><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,value))}%"></div></div></div>`).join('');
+        $('#metrics').innerHTML=Object.entries(data.metrics).map(([key,value])=>`<div class="metric-${key}"><div class="barTop"><span>${escapeHtml(labels[key])}</span><b>${Number(value).toFixed(1)} / 100</b></div><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,value))}%"></div></div></div>`).join('');
         $('#history').innerHTML=data.history.length?data.history.map(item=>`<i style="height:${Math.max(4,item.score)}%" title="Score ${item.score}"></i>`).join(''):'<span class="empty">График появится после первой завершённой оценки гостя.</span>';
         $('#updated').textContent=`Обновлено: ${new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}`;
         $('#error').classList.add('hidden');
@@ -86,9 +87,9 @@
       }
     }
     $('#refresh').addEventListener('click',loadDashboard);
-    $('#runAI').addEventListener('click',async()=>{if(aiLoading)return;aiLoading=true;const button=$('#runAI');button.disabled=true;$('#aiError').classList.add('hidden');$('#aiOutput').classList.add('hidden');$('#aiStatus').textContent='AI анализирует показатели…';try{const response=await fetch(`/v1/business/fregat/ai-insights?t=${Date.now()}`,{cache:'no-store'});const data=await response.json();if(!response.ok){if(response.status===401)throw new Error('Сначала войдите в Owner-панель, затем вернитесь сюда.');throw new Error(data.detail||'Не удалось получить AI-анализ');}$('#aiOutput').textContent=data.analysis;$('#aiOutput').classList.remove('hidden');$('#aiDisclaimer').textContent=data.disclaimer;$('#aiStatus').textContent=data.cached?'Показан сохранённый анализ текущих данных.':`Новый анализ готов · ${data.model}`;}catch(error){const box=$('#aiError');box.textContent=`${error.message} `;const link=document.createElement('a');link.className='aiLogin';link.href='/owner';link.textContent='Открыть Owner';box.appendChild(link);box.classList.remove('hidden');$('#aiStatus').textContent='AI-анализ не выполнен';}finally{aiLoading=false;button.disabled=false;}});
+    $('#runAI').addEventListener('click',async()=>{if(aiLoading)return;aiLoading=true;const button=$('#runAI');button.disabled=true;$('#aiError').classList.add('hidden');$('#aiOutput').classList.add('hidden');$('#aiStatus').textContent='AI анализирует показатели…';try{const response=await fetch(`/v1/business-owner/ai-insights?t=${Date.now()}`,{cache:'no-store'});const data=await response.json();if(!response.ok){if(response.status===401)throw new Error('Войдите в кабинет бизнеса, затем вернитесь сюда.');throw new Error(data.detail||'Не удалось получить AI-анализ');}$('#aiOutput').textContent=data.analysis;$('#aiOutput').classList.remove('hidden');$('#aiDisclaimer').textContent=data.disclaimer;$('#aiStatus').textContent=data.cached?'Показан сохранённый анализ текущих данных.':`Новый анализ готов · ${data.model}`;}catch(error){const box=$('#aiError');box.textContent=`${error.message} `;const link=document.createElement('a');link.className='aiLogin';link.href='/business-owner';link.textContent='Войти в кабинет бизнеса';box.appendChild(link);box.classList.remove('hidden');$('#aiStatus').textContent='AI-анализ не выполнен';}finally{aiLoading=false;button.disabled=false;}});
     loadDashboard();
-    setInterval(loadDashboard,10000);
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadDashboard();});
   </script>
 </body>
 </html>

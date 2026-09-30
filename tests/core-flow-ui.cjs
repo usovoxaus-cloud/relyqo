@@ -47,7 +47,7 @@ test('business profile opens while category catalog is pending and retains its c
  const {document,window}=dom('business-owner.html'),categories=deferred(),requests=[];
  for(const form of document.querySelectorAll('form'))Object.defineProperty(form,'elements',{value:{namedItem:name=>form.querySelector(`[name="${name}"]`)}});
  window.relyqoCategoriesReady=categories.promise;window.relyqoCategoryLabel=()=>undefined;window.relyqoApplyCategoryOptions=()=>{};
- const context={document,window,FormData,location:{},navigator:{},fetch:async url=>{requests.push(url);return reply({username:'owner',organization_name:'School',category:'CUSTOM_SCHOOL',profile_status:'PUBLISHED',city:'Tashkent'})}};
+ const context={document,window,FormData,URLSearchParams,location:{},navigator:{},fetch:async url=>{requests.push(url);return reply({username:'owner',organization_name:'School',category:'CUSTOM_SCHOOL',profile_status:'PUBLISHED',city:'Tashkent'})}};
  vm.runInNewContext([...document.querySelectorAll('script:not([src])')].map(s=>s.textContent).join('\n'),context);await settle();
  assert.deepEqual(requests,['/v1/business-owner/profile']);assert.equal(document.querySelector('#dashboard').classList.contains('hidden'),false);assert.equal(document.querySelector('#profileForm [name="category"]').value,'CUSTOM_SCHOOL');
  document.dispatchEvent(new window.Event('DOMContentLoaded'));window.relyqoCategoryLabel=code=>code==='CUSTOM_SCHOOL'?'Школа':undefined;categories.resolve([]);await settle();assert.match(document.querySelector('#organizationLead').textContent,/Школа/);assert.equal(document.querySelector('#profileForm [name="category"]').value,'CUSTOM_SCHOOL');

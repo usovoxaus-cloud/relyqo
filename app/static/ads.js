@@ -4,12 +4,13 @@
     "/": "HOME",
     "/nearby": "MAP",
     "/rankings": "RANKINGS",
-    "/consumer": "PROFILE",
+    "/consumer": "MAP",
+    "/rate": "HOME",
     "/me": "PROFILE",
   };
 
   function currentPageScope() {
-    if (location.pathname.startsWith("/me") || location.pathname === "/consumer") {
+    if (location.pathname.startsWith("/me")) {
       return "PROFILE";
     }
     return pageScopes[location.pathname] || "HOME";

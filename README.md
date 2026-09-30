@@ -2,6 +2,8 @@
 
 Рабочий vertical slice: одноразовый подписанный QR → Verified Visit → оценка → PostgreSQL → детерминированный RELYQO Score → PWA.
 
+Актуальная [структура программы и порядок публикации](docs/PROGRAM_STRUCTURE_RU.md): потребительское приложение, центр управления, кабинет бизнеса и границы доступа сотрудников.
+
 ## Локальный запуск (Docker Desktop)
 
 ```powershell
@@ -245,7 +247,7 @@ Backend tests verify authorization, export, receipt validation, revocation/passw
 
 ### Pilot readiness
 
-Use 3–5 consenting organizations and 30–50 invited consumers for an initial pilot. On real phones, verify registration, email confirmation, QR submission, rating/comment/photo, recovery, and complaints in both languages. In the admin panel, verify notifications, an application decision, report filters/export, and one completed improvement task. Start with real pilot activity; synthetic fixtures belong only in isolated tests and must never inflate the public rating. Before accepting irreplaceable data, save a copy and practice a separate restore; resolve the current database expiry before 28 September 2026.
+Use 3–5 consenting organizations and 30–50 invited consumers for an initial pilot. On real phones, verify registration, email confirmation, QR submission, rating/comment/photo, recovery, and complaints in both languages. In the admin panel, verify notifications, an application decision, report filters/export, and one completed improvement task. Start with real pilot activity; synthetic fixtures belong only in isolated tests and must never inflate the public rating. Before accepting irreplaceable data, save a copy and practice a separate restore; the expired database was upgraded and available on 30 September 2026. See [launch readiness](docs/LAUNCH_READINESS_RU.md) for the current work and remaining device checks.
 
 ### Faster admin workflow (20 September 2026)
 

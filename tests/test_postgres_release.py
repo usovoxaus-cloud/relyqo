@@ -81,6 +81,14 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         )
         db.commit()
         rating_id = rating.id
+    # Reproduce the actual 0025 layout, not fresh metadata from legacy 0001.
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE visits DROP COLUMN rater_hash"))
+        connection.execute(text("DROP TABLE rating_cooldowns"))
+        connection.execute(text("ALTER TABLE manual_places DROP COLUMN source_url"))
+        connection.execute(text("ALTER TABLE manual_places DROP COLUMN source_checked_at"))
+        connection.execute(text("ALTER TABLE manual_places ALTER COLUMN latitude SET NOT NULL"))
+        connection.execute(text("ALTER TABLE manual_places ALTER COLUMN longitude SET NOT NULL"))
     command.upgrade(cfg, "head")
     with Session(engine) as db:
         assert db.get(Rating, rating_id).comment == "Restore fixture"
@@ -110,7 +118,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0025"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0027"
     with pytest.raises(ValueError):
         restore_snapshot(target, archive, phrase)
     target.dispose()

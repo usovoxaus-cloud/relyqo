@@ -13,6 +13,8 @@ class Settings:
     """Environment configuration without runtime schema coercion."""
 
     def __init__(self):
+        if os.getenv("RENDER") and not os.getenv("DATABASE_URL", "").startswith(("postgres://", "postgresql://", "postgresql+psycopg://")):
+            raise RuntimeError("Render requires a persistent PostgreSQL DATABASE_URL")
         self.database_url = postgres_url(
             os.getenv("DATABASE_URL", "sqlite:///./relyqo.db")
         )
