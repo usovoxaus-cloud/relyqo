@@ -1716,5 +1716,11 @@
   "Срок отправки оценки истёк (24 часа)": "Baho yuborish muddati tugadi (24 soat)",
   "Филиал больше не принимает оценки": "Filial endi baholarni qabul qilmaydi",
   "Подтверждённые посещения организации недоступны": "Tashkilotning tasdiqlangan tashriflari mavjud emas",
-  "Не нашли нужное место? Добавьте название и адрес. Карта и геолокация не обязательны.": "Kerakli joy topilmadimi? Nomi va manzilini kiriting. Xarita va geolokatsiya shart emas."
+  "Не нашли нужное место? Добавьте название и адрес. Карта и геолокация не обязательны.": "Kerakli joy topilmadimi? Nomi va manzilini kiriting. Xarita va geolokatsiya shart emas.",
+  "Выберите вашу оценку": "O‘z bahoingizni tanlang",
+  "Выберите вашу оценку по каждому критерию от 1 до 10.": "Har bir mezon bo‘yicha 1 dan 10 gacha o‘z bahoingizni tanlang.",
+  "Ваши оценки: выберите от 1 до 10 по каждому критерию.": "Sizning baholaringiz: har bir mezon uchun 1 dan 10 gacha tanlang.",
+  "Общий рейтинг Google показывается отдельно и не меняет оценки потребителей RELYQO.": "Google umumiy reytingi alohida ko‘rsatiladi va RELYQO iste’molchilari baholarini o‘zgartirmaydi.",
+  "Рейтинг Google показан отдельно от оценок RELYQO.": "Google reytingi RELYQO baholaridan alohida ko‘rsatilgan.",
+  "Google Places используется для живого поиска и показа рейтинга Google.": "Google Places jonli qidiruv va Google reytingini ko‘rsatish uchun ishlatiladi."
 }

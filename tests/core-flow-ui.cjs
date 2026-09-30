@@ -35,12 +35,28 @@ function qrHarness(){
  const context={document,window,URL,URLSearchParams,location:{search:''},navigator:{},setTimeout,Error,fetch:async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});return url.includes('verify-token')?verification.promise:submission.promise;}};
  vm.runInNewContext(read('app.js'),context);return{document,window,context,calls,verification,submission};
 }
+test('QR metrics begin empty and incomplete choices never submit a review',async()=>{
+ const x=qrHarness();const inputs=[...x.document.querySelectorAll('#sliders select')];
+ assert.equal(inputs.length,5);assert(inputs.every(input=>input.value===''));
+ await x.document.querySelector('#submit').onclick();assert.equal(x.calls.length,0);
+ inputs[0].value='7';await x.document.querySelector('#submit').onclick();assert.equal(x.calls.length,0);
+ assert.match(x.document.querySelector('#rateError').textContent,/по каждому критерию/);
+});
+test('Community metrics begin empty; submission does not open login or send untouched default scores',async()=>{
+ const {document,window}=dom('community-rate.html'),requests=[];
+ window.relyqoRatingPhoto=()=>({value:()=>null});
+ const context={document,window,URLSearchParams,location:{pathname:'/community-rate',search:'?object_key=manual%3Aone&source=MANUAL'},fetch:async url=>{requests.push(url);return reply({role:'CONSUMER'});}};
+ vm.runInNewContext([...document.querySelectorAll('script:not([src])')].map(s=>s.textContent).join('\n'),context);await settle();
+ assert([...document.querySelectorAll('#metrics select')].every(input=>input.value===''));
+ document.querySelector('#submit').click();await settle();assert.deepEqual(requests,['/v1/auth/me']);
+ assert(document.querySelector('#authGate').classList.contains('hidden'));assert.match(document.querySelector('#error').textContent,/по каждому критерию/);
+});
 test('QR pasted as a full link is accepted once, without overlapping verification requests',async()=>{
  const x=qrHarness();x.document.querySelector('#token').value='https://relyqo.onrender.com/?token=visit-secret';const b=x.document.querySelector('#verify');const a=b.onclick(),c=b.onclick();assert.equal(x.calls.length,1);assert.equal(x.calls[0].body.token,'visit-secret');assert.equal(b.disabled,true);
  x.verification.resolve(reply({visit_id:'visit-1',organization:{name:'Place',category:'OTHER'},branch:{name:'Branch'}}));await Promise.all([a,c]);assert.equal(x.document.querySelector('#rating').classList.contains('hidden'),false);await b.onclick();assert.equal(x.calls.length,1);
 });
 test('rating double clicks send once and failures preserve scores for a deliberate retry',async()=>{
- const x=qrHarness(),b=x.document.querySelector('#submit');x.document.querySelector('#overall').value='3';const a=b.onclick(),c=b.onclick();assert.equal(x.calls.length,1);assert.equal(b.disabled,true);x.submission.resolve({ok:false,status:503,json:async()=>{throw Error('html')}});await Promise.all([a,c]);assert.equal(b.disabled,false);assert.equal(x.document.querySelector('#overall').value,'3');assert.match(x.document.querySelector('#rateError').textContent,/Попробуйте позже/);
+ const x=qrHarness(),b=x.document.querySelector('#submit');for(const input of x.document.querySelectorAll('#sliders select'))input.value='6';x.document.querySelector('#overall').value='3';const a=b.onclick(),c=b.onclick();assert.equal(x.calls.length,1);assert.equal(b.disabled,true);x.submission.resolve({ok:false,status:503,json:async()=>{throw Error('html')}});await Promise.all([a,c]);assert.equal(b.disabled,false);assert.equal(x.document.querySelector('#overall').value,'3');assert.match(x.document.querySelector('#rateError').textContent,/Попробуйте позже/);
  x.context.fetch=async()=>{x.calls.push({});return reply({relyqo_score:50,ces_score:30,rating_count:1,status:'INCLUDED'})};await b.onclick();await b.onclick();assert.equal(x.calls.length,2);assert.equal(b.disabled,true);
 });
 test('business profile opens while category catalog is pending and retains its custom category',async()=>{
@@ -59,7 +75,7 @@ test('community categories update criteria without clearing scores; publishing c
  vm.runInNewContext([...document.querySelectorAll('script:not([src])')].map(s=>s.textContent).join('\n'),context);await settle();
  // linkedom does not reflect label.htmlFor into its HTML attribute.
  for(const label of document.querySelectorAll('#metrics label'))label.setAttribute('for',label.htmlFor);
- document.querySelector('#quality').value='4';document.dispatchEvent(new window.Event('DOMContentLoaded'));categories.resolve([]);await settle();assert.equal(document.querySelector('label[for="quality"]').textContent,'Качество помощи');assert.equal(document.querySelector('#quality').value,'4');
+ for(const input of document.querySelectorAll('#metrics select'))input.value='6';document.querySelector('#quality').value='4';document.dispatchEvent(new window.Event('DOMContentLoaded'));categories.resolve([]);await settle();assert.equal(document.querySelector('label[for="quality"]').textContent,'Качество помощи');assert.equal(document.querySelector('#quality').value,'4');
  const b=document.querySelector('#submit');b.dispatchEvent(new window.Event('click'));b.dispatchEvent(new window.Event('click'));assert.equal(requests.filter(r=>r.url==='/v1/community-ratings').length,1);assert.equal(JSON.parse(requests.at(-1).options.body).quality,4);
  submission.resolve(reply({community_score:40,rating_count:1}));await settle();b.dispatchEvent(new window.Event('click'));assert.equal(requests.filter(r=>r.url==='/v1/community-ratings').length,1);assert.equal(document.querySelector('#done').classList.contains('hidden'),false);
 });

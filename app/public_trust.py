@@ -51,6 +51,7 @@ def register_public_profiles(app):
                 Rating.organization_id == org.id, Rating.included.is_(True))).one()
             profile["verified_metrics"] = dict(zip(("quality", "service", "cleanliness", "value"),
                 (round(float(v) * 10, 1) if v is not None else 0 for v in averages)))
+            google_reference = branch
         elif kind == "manual":
             place = db.get(ManualPlace, identifier)
             if not place or not place.active:
@@ -59,6 +60,7 @@ def register_public_profiles(app):
                        "category": place.category, "source": "MANUAL", "profile_status": "COMMUNITY",
                        "relyqo_score": 0, "score_scope": "PLACE", "verified_metrics": {},
                        "source_url": place.source_url, "source_checked_at": timestamp(place.source_checked_at)}
+            google_reference = place
         else:
             raise HTTPException(404, "Организация не найдена")
         count, score, latest, *metrics = db.execute(select(func.count(CommunityRating.id),
@@ -78,5 +80,13 @@ def register_public_profiles(app):
         labels = metric_labels(profile["category"], db)
         profile["metric_labels"] = {"quality": labels["food"], **{k: labels[k] for k in ("service", "cleanliness", "value")}}
         profile["minimum_ratings"] = MINIMUM_RATINGS
+        # Only identity is persisted; Google scores are fetched live by the browser.
+        profile["google_reference"] = {
+            "google_place_id": google_reference.google_place_id,
+            "name": profile["name"], "address": profile["address"],
+            "latitude": google_reference.latitude, "longitude": google_reference.longitude,
+            "city": google_reference.city,
+            "country_code": google_reference.country_code or "UZ",
+        }
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return profile

@@ -19,8 +19,8 @@ const renderMetrics = (category = "OTHER") => {
   const group = window.relyqoCategoryGroup?.(category) || (foodCategories.has(category) ? "FOOD" : category);
   const labels = metricSets[group] || metricSets.OTHER;
   metrics = ["overall", "food", "service", "cleanliness", "value"].map((id, index) => [id, labels[index]]);
-  $("#sliders").innerHTML = metrics.map(([id, label]) => `<div class="metric"><div class="metricTop"><label for="${id}">${label}</label><output id="${id}Out">8</output></div><input id="${id}" type="range" min="1" max="10" value="8" aria-label="${label}"></div>`).join("");
-  metrics.forEach(([id]) => { $("#" + id).oninput = (event) => { $("#" + id + "Out").value = event.target.value; }; });
+  $("#sliders").innerHTML = metrics.map(([id, label]) => `<div class="metric"><div class="metricTop"><label for="${id}">${label}</label><output id="${id}Out">—</output></div><select id="${id}" required aria-label="${label}"><option value="">Выберите вашу оценку</option>${Array.from({length:10}, (_, i) => `<option value="${i+1}">${i+1} / 10</option>`).join('')}</select></div>`).join("");
+  metrics.forEach(([id]) => { $("#" + id).onchange = (event) => { $("#" + id + "Out").textContent = event.target.value || '—'; }; });
 };
 renderMetrics();
 
@@ -219,6 +219,7 @@ $("#verify").onclick = async () => {
     $("#branch").textContent = result.branch.name;
     const category = result.organization.category || "OTHER";
     renderMetrics(category);
+    window.relyqoGoogleRating?.forObject($("#googleRating"), `relyqo:${result.branch.id}`);
     Promise.resolve(window.relyqoCategoriesReady).then(() => {
       const labels = metricSets[window.relyqoCategoryGroup?.(category)];
       if (!labels) return;
@@ -243,6 +244,12 @@ $("#demo").onclick = async () => {
 
 $("#submit").onclick = async () => {
   if (ratingPending || ratingSaved) return;
+  const missing = metrics.find(([id]) => !/^(10|[1-9])$/.test($("#" + id).value));
+  if (missing) {
+    $("#rateError").textContent = "Выберите вашу оценку по каждому критерию от 1 до 10.";
+    $("#" + missing[0]).focus();
+    return;
+  }
   ratingPending = true;
   $("#submit").disabled = true;
   $("#submit").setAttribute("aria-busy", "true");

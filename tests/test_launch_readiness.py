@@ -142,12 +142,18 @@ def test_public_card_is_canonical_and_does_not_expose_private_feedback(fixture):
     client=TestClient(app); account(client,fixture)
     payload=body(claim(client,fixture)); payload['comment']='private customer text'
     assert client.post('/v1/ratings',json=payload).status_code==200
+    with fixture[0]() as db:
+        db.get(Branch,fixture[1][1]).google_place_id='fixture-google-id';db.commit()
     key='relyqo:'+fixture[1][1]
-    response=client.get('/v1/public/place',params={'object_key':key,'verified_score':100,'name':'Fake'})
+    response=client.get('/v1/public/place',params={'object_key':key,'verified_score':100,'name':'Fake','google_place_id':'wrong-place','google_rating':5})
     data=response.json()
     assert data['name']=='Fregat sinov' and data['relyqo_score']==80
     assert data['verified_rating_count']==data['verified_visit_count']==1
     assert data['verified_last_rating_at'].endswith('Z')
+    assert data['google_reference']['google_place_id']=='fixture-google-id'
+    assert data['google_reference']['name']=='Fregat sinov'
+    assert data['google_reference']['city']=='Tashkent'
+    assert 'google_rating' not in data and 'rating' not in data['google_reference']
     assert 'private customer text' not in response.text and 'consumer_user_id' not in response.text
     with fixture[0]() as db:
         db.get(Organization,fixture[1][0]).profile_status='REJECTED';db.commit()
