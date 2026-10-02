@@ -851,12 +851,18 @@ function renderList(rows) {
   root.replaceChildren();
   const favorites = readFavorites();
   if (!rows.length) {
-    if (showRatedOnly && (window.relyqoSearchPending || window.relyqoLocalSearchPending)) {
+    const waitingHere = document.body.classList.contains('findingCurrentPlace') && (!locationFix || window.relyqoNearbyPending);
+    if (waitingHere || (showRatedOnly && (window.relyqoSearchPending || window.relyqoLocalSearchPending))) {
       const loading = document.createElement("div");
       loading.className = "empty";
-      loading.textContent = "Ищем подходящие организации…";
+      const uz = document.documentElement.lang === 'uz';
+      loading.textContent = waitingHere
+        ? !locationFix
+          ? (uz ? '300 m radiusda qidirish uchun joylashuvni kutyapmiz…' : 'Ожидаем местоположение для поиска в радиусе 300 м…')
+          : (uz ? '300 m ichida tashkilotlarni izlayapmiz…' : 'Ищем организации в пределах 300 м…')
+        : "Ищем подходящие организации…";
       root.append(loading);
-      $("#listCount").textContent = "Поиск…";
+      $("#listCount").textContent = uz ? 'Qidiruv…' : "Поиск…";
       return;
     }
     root.innerHTML = `<div class="empty">${showRatedOnly
