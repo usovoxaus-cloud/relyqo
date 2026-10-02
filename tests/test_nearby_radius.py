@@ -79,3 +79,16 @@ def test_exact_300m_is_inclusive_before_rounding(catalog, endpoint):
     rows = response.json()['items']
     assert len(rows) == 1 and rows[0]['distance_km'] == .3
     assert rows[0]['branch' if endpoint == 'branches' else 'name'] == 'edge'
+
+
+@pytest.mark.parametrize('endpoint', ['branches', 'manual-places'])
+@pytest.mark.parametrize('radius_km, expected_count', [(.1, 8), (.75, 32), (1, 32), (50, 32)])
+def test_user_selected_radius_is_accepted_in_kilometres(catalog, endpoint, radius_km, expected_count):
+    response = TestClient(app).post(f'/v1/public/{endpoint}/nearby', json={
+        'latitude':41.3, 'longitude':69.2, 'radius_km':radius_km, 'limit':200,
+    })
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data['radius_km'] == radius_km and data['location_stored'] is False
+    assert len(data['items']) == expected_count
+    assert all(haversine_km(41.3,69.2,row['latitude'],row['longitude']) <= radius_km for row in data['items'])

@@ -7,6 +7,14 @@
 body.ratingDiscovery .intro,body.ratingDiscovery .viewLinks,body.ratingDiscovery .catalogTabs,body.ratingDiscovery .advisor,body.ratingDiscovery .advisorDisclosure,body.ratingDiscovery .topOrganizationsIntro{display:none!important}
 body.ratingDiscovery .layout{grid-template-columns:1fr!important}body.ratingDiscovery .results{height:auto!important;max-height:none!important;overflow:visible!important}
 .ratingDiscoveryActions{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+.ratingRadiusControl{box-sizing:border-box;min-width:0;margin:14px 0;padding:14px;border:1px solid #47796b;border-radius:14px;background:#10342e}
+.ratingRadiusHeading{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;margin-bottom:12px}.ratingRadiusHeading strong{font-size:16px;color:#dcfff2}
+body.ratingDiscovery .ratingRadiusControl button{box-sizing:border-box;width:auto;min-height:44px;margin:0;padding:9px 13px;border:1px solid #56867a;border-radius:10px;background:#193f39;color:#dcfff2;font:700 15px/1.4 system-ui;cursor:pointer}
+body.ratingDiscovery .ratingRadiusControl #discoveryHere,body.ratingDiscovery .ratingRadiusControl button[aria-pressed=true]{background:#78e3c0;color:#06281e;border-color:#78e3c0}
+.ratingRadiusPresets{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.ratingRadiusForm{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px;max-width:430px}.ratingRadiusForm label{display:block;min-width:0;color:#c1ddd4;font-size:14px;line-height:1.5}.ratingRadiusForm input{box-sizing:border-box;width:100%;min-width:0;min-height:44px;margin:4px 0 0;padding:9px 12px;border:1px solid #56867a;border-radius:10px;background:#092922;color:#dcfff2;font:16px/1.4 system-ui}.ratingRadiusForm input[aria-invalid=true]{border-color:#f3a7a7}
+.ratingRadiusControl p{margin:8px 0 0;font-size:13px;line-height:1.5;color:#b3cfc5;overflow-wrap:anywhere}.ratingRadiusControl #currentRadiusError{color:#ffc4c4}.ratingRadiusControl #currentRadiusError[hidden]{display:none}
+@media(max-width:360px){.ratingRadiusForm{grid-template-columns:minmax(0,1fr)}body.ratingDiscovery .ratingRadiusForm button{width:100%}.ratingRadiusControl{padding:12px}}
 body.ratingDiscovery .ratingDiscoveryActions button,body.ratingDiscovery .ratingDiscoveryActions a{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 14px;margin:0!important;width:auto!important;border:1px solid #416a76;border-radius:12px;background:#12323f;color:#d8f8ee;font:700 14px/1.4 system-ui;text-decoration:none;cursor:pointer}
 body.ratingDiscovery .ratingDiscoveryActions button[aria-pressed=true]{background:#78e3c0;color:#06281e}
 body.ratingDiscovery #status{display:block!important;margin:12px 0;line-height:1.5}body.ratingDiscovery #status:empty{display:none!important}

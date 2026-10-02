@@ -13,6 +13,7 @@ let ratedCatalogFacets = { countries: [], cities: [] };
 let ratedSearchTimer = null;
 let currentCenter = null;
 let locationFix = null;
+let currentPlaceRadiusMeters = 300;
 let centerLabel = "Вы находитесь здесь";
 let lastMapView = "";
 let showFavoritesOnly = false;
@@ -112,9 +113,16 @@ function clearError() {
 }
 
 function selectedRadius() {
-  if (document.body.classList.contains('findingCurrentPlace')) return 0.3;
+  if (document.body.classList.contains('findingCurrentPlace')) return currentPlaceRadiusMeters / 1000;
   const value = Number($("#radius").value);
   return Number.isFinite(value) && value > 0 ? value : 15;
+}
+
+function currentPlaceRadiusLabel() {
+  const uz = document.documentElement.lang === 'uz';
+  const km = currentPlaceRadiusMeters >= 1000;
+  const value = new Intl.NumberFormat(uz ? 'uz' : 'ru', {maximumFractionDigits:6}).format(km ? currentPlaceRadiusMeters / 1000 : currentPlaceRadiusMeters);
+  return `${value} ${km ? (uz ? 'km' : 'км') : (uz ? 'm' : 'м')}`;
 }
 
 function selectedLimit() {
@@ -158,9 +166,10 @@ function updateSearchScope() {
   const radius = selectedRadius();
   $("#mapRadius").textContent = radius;
   if (document.body.classList.contains('findingCurrentPlace')) {
+    const label = currentPlaceRadiusLabel();
     $("#scopeHint").textContent = document.documentElement.lang === 'uz'
-      ? 'Qidiruv aniqlangan nuqtadan 300 m bilan cheklangan.'
-      : 'Поиск ограничен 300 м от определённой точки.';
+      ? `Qidiruv aniqlangan nuqtadan ${label} bilan cheklangan.`
+      : `Поиск ограничен ${label} от определённой точки.`;
     return;
   }
   $("#scopeHint").textContent = radius > 50
@@ -381,7 +390,7 @@ function viewRows() {
   const findingHere = document.body.classList.contains('findingCurrentPlace');
   const withinHere = items => items.filter(item => item.country_code === 'UZ' && hasMapLocation(item))
     .map(item => ({...item, distance: distanceKm(currentCenter, {lat:Number(item.latitude), lng:Number(item.longitude)})}))
-    .filter(item => Number.isFinite(item.distance) && item.distance <= 0.3 + 1e-9);
+    .filter(item => Number.isFinite(item.distance) && item.distance <= selectedRadius() + 1e-9);
   const favorites = readFavorites();
   const query = $("#catalogQuery").value.trim().toLocaleLowerCase("ru");
   let internalRows = [
@@ -851,19 +860,34 @@ function renderList(rows) {
   root.replaceChildren();
   const favorites = readFavorites();
   if (!rows.length) {
-    const waitingHere = document.body.classList.contains('findingCurrentPlace') && (!locationFix || window.relyqoNearbyPending);
+    const findingHere = document.body.classList.contains('findingCurrentPlace');
+    const waitingHere = findingHere && (!locationFix || window.relyqoNearbyPending);
+    if (findingHere && window.relyqoCurrentRadiusInvalid) {
+      const invalid = document.createElement('div');invalid.className='empty';
+      invalid.textContent = document.documentElement.lang === 'uz' ? 'Qidirish uchun 100 dan 50 000 m gacha radius kiriting.' : 'Для поиска укажите радиус от 100 до 50 000 м.';
+      root.append(invalid);$("#listCount").textContent='';return;
+    }
     if (waitingHere || (showRatedOnly && (window.relyqoSearchPending || window.relyqoLocalSearchPending))) {
       const loading = document.createElement("div");
       loading.className = "empty";
       const uz = document.documentElement.lang === 'uz';
+      const label = findingHere ? currentPlaceRadiusLabel() : '';
       loading.textContent = waitingHere
         ? !locationFix
-          ? (uz ? '300 m radiusda qidirish uchun joylashuvni kutyapmiz…' : 'Ожидаем местоположение для поиска в радиусе 300 м…')
-          : (uz ? '300 m ichida tashkilotlarni izlayapmiz…' : 'Ищем организации в пределах 300 м…')
+          ? (uz ? `${label} radiusda qidirish uchun joylashuvni kutyapmiz…` : `Ожидаем местоположение для поиска в радиусе ${label}…`)
+          : (uz ? `${label} ichida tashkilotlarni izlayapmiz…` : `Ищем организации в пределах ${label}…`)
         : "Ищем подходящие организации…";
       root.append(loading);
       $("#listCount").textContent = uz ? 'Qidiruv…' : "Поиск…";
       return;
+    }
+    if (findingHere) {
+      const empty = document.createElement('div');empty.className='empty';
+      const label=currentPlaceRadiusLabel(),failed=window.relyqoNearbyState?.localFailed || window.relyqoNearbyState?.googleFailed;
+      empty.textContent=document.documentElement.lang==='uz'
+        ? failed ? `${label} radiusdagi barcha natijalarni yuklab bo‘lmadi. Qayta urinib ko‘ring.` : `Mavjud manbalarda ${label} ichida hech narsa topilmadi.`
+        : failed ? `Не удалось загрузить все результаты в радиусе ${label}. Повторите поиск.` : `В доступных источниках в пределах ${label} ничего не найдено.`;
+      root.append(empty);$("#listCount").textContent='';return;
     }
     root.innerHTML = `<div class="empty">${showRatedOnly
       ? "По выбранным фильтрам пока нет организаций в каталоге RELYQO."
@@ -1288,6 +1312,7 @@ function withDeadline(task, milliseconds) {
 
 async function refreshCatalog() {
   if (!currentCenter) return;
+  if (document.body.classList.contains('findingCurrentPlace') && window.relyqoValidateCurrentRadius?.() === false) {renderAll();return;}
   const requestId = ++catalogRequestId;
   const isCurrent = () => requestId === catalogRequestId;
   const t = (ru, uz) => document.documentElement.lang === 'uz' ? uz : ru;
@@ -1304,11 +1329,11 @@ async function refreshCatalog() {
     const errors = [];
     if (state.localFailed) errors.push(t('Часть каталога RELYQO недоступна. Результаты Google показываются независимо.', 'RELYQO katalogining bir qismi mavjud emas. Google natijalari mustaqil ko‘rsatiladi.'));
     if (state.googleFailed) errors.push(t('Google Карта не загрузилась или поиск недоступен. Доступные организации RELYQO остаются в списке.', 'Google xaritasi yuklanmadi yoki qidiruv mavjud emas. Mavjud RELYQO tashkilotlari ro‘yxatda qoladi.'));
-    if (errors.length) showError(errors.join(' '));
+    if (errors.length) showError((findingHere ? t(`Поиск в радиусе ${currentPlaceRadiusLabel()}. `, `${currentPlaceRadiusLabel()} radiusdagi qidiruv. `) : '') + errors.join(' '));
     renderAll();
     const localCount = lastPartners.length + lastManualPlaces.length;
     $("#status").textContent = window.relyqoNearbyPending
-      ? findingHere ? t('Загружаем организации в радиусе 300 м. Результаты появляются по мере готовности…', '300 m radiusdagi tashkilotlar yuklanmoqda. Natijalar tayyor bo‘lishi bilan ko‘rinadi…')
+      ? findingHere ? t(`Загружаем организации в радиусе ${currentPlaceRadiusLabel()}. Результаты появляются по мере готовности…`, `${currentPlaceRadiusLabel()} radiusdagi tashkilotlar yuklanmoqda. Natijalar tayyor bo‘lishi bilan ko‘rinadi…`)
         : localCount ? t('Объекты RELYQO загружены. Дополняем карту…', 'RELYQO joylari yuklandi. Xarita to‘ldirilmoqda…') : t('Ищем организации рядом…', 'Yaqin tashkilotlarni izlayapmiz…')
       : errors.length ? t('Поиск завершён с ограничениями. Показаны доступные результаты.', 'Qidiruv cheklovlar bilan yakunlandi. Mavjud natijalar ko‘rsatilgan.')
         : t(`Готово: ${localCount} объектов RELYQO и ${lastExternalPlaces.length} организаций найдено на карте.`, `Tayyor: ${localCount} ta RELYQO joyi va xaritada ${lastExternalPlaces.length} ta tashkilot topildi.`);

@@ -22,13 +22,32 @@
   const nearby = document.getElementById('locate');nearby.textContent=t('Найти рядом','Yaqin joylarni topish');
   const mapButton = node('button',t('Выбрать на карте','Xaritadan tanlash'),'discoveryMap');mapButton.type='button';
   const qr = node('a',t('У меня есть QR','Menda QR bor'));qr.href='/rate?find=qr';
-  actions.append(here,byName,nearby,mapButton,qr);
-  const panel = document.getElementById('directoryPanel');panel.append(actions);
+  actions.append(byName,nearby,mapButton,qr);
+  const radiusControl=node('section','','currentRadiusControl');radiusControl.className='ratingRadiusControl';
+  const radiusHeading=node('div','');radiusHeading.className='ratingRadiusHeading';
+  const radiusLabel=node('strong',t('Радиус поиска','Qidiruv radiusi'),'currentRadiusLabel');
+  radiusHeading.append(here,radiusLabel);
+  const presets=node('div','');presets.className='ratingRadiusPresets';presets.setAttribute('role','group');presets.setAttribute('aria-labelledby','currentRadiusLabel');
+  for(const meters of [300,500,1000,3000,5000]){
+    const button=node('button',meters<1000?t(`${meters} м`,`${meters} m`):t(`${meters/1000} км`,`${meters/1000} km`));
+    button.type='button';button.dataset.radius=String(meters);button.setAttribute('aria-pressed',String(meters===currentPlaceRadiusMeters));
+    button.addEventListener('click',()=>{radiusInput.value=String(meters);applyRadius();});presets.append(button);
+  }
+  const radiusForm=node('form','');radiusForm.className='ratingRadiusForm';radiusForm.noValidate=true;
+  const customLabel=node('label',t('Своё расстояние, м','O‘z masofangiz, m'));customLabel.htmlFor='currentRadiusMeters';
+  const radiusInput=node('input','','currentRadiusMeters');radiusInput.type='text';radiusInput.inputMode='decimal';radiusInput.value=String(currentPlaceRadiusMeters);
+  radiusInput.autocomplete='off';radiusInput.setAttribute('aria-describedby','currentRadiusHint currentRadiusError');
+  const apply=node('button',t('Применить','Qo‘llash'));apply.type='submit';
+  customLabel.append(radiusInput);radiusForm.append(customLabel,apply);
+  const radiusHint=node('p',t('От 100 до 50 000 м. Своё расстояние: «Применить» или Enter.','100 dan 50 000 m gacha. O‘z masofangiz: «Qo‘llash» yoki Enter.'),'currentRadiusHint');
+  const radiusError=node('p','','currentRadiusError');radiusError.setAttribute('role','alert');radiusError.hidden=true;
+  radiusControl.append(radiusHeading,presets,radiusForm,radiusHint,radiusError);
+  const panel = document.getElementById('directoryPanel');panel.append(radiusControl,actions);
   const status = document.getElementById('status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   panel.append(status,document.getElementById('error'));
   const currentPlace = node('section','','currentPlace');currentPlace.className='currentPlace hidden';
   currentPlace.setAttribute('aria-labelledby','currentPlaceTitle');
-  const currentTitle = node('h2',t('Организации в радиусе 300 м','300 m radiusdagi tashkilotlar'),'currentPlaceTitle');
+  const currentTitle = node('h2',t(`Организации в радиусе ${currentPlaceRadiusLabel()}`,`${currentPlaceRadiusLabel()} radiusdagi tashkilotlar`),'currentPlaceTitle');
   const currentMessage = node('p','','currentPlaceMessage');currentMessage.setAttribute('role','status');
   const candidates = node('div','','currentPlaceCandidates');
   const retry = node('button',t('Определить ещё раз','Qayta aniqlash'),'currentPlaceRetry');retry.type='button';
@@ -40,12 +59,39 @@
   new MutationObserver(()=>{searchArea.disabled=!googleMap;}).observe(document.getElementById('map'),{attributes:true,attributeFilter:['class']});
 
   let operation = 0, findingHere = false, locating = false, savedScope = null;
+  function validateRadius() {
+    const raw=radiusInput.value.trim(),value=Number(raw.replace(',','.'));
+    const valid=/^\d+(?:[.,]\d+)?$/.test(raw) && Number.isFinite(value) && value>=100 && value<=50000;
+    window.relyqoCurrentRadiusInvalid=!valid;
+    radiusInput.setAttribute('aria-invalid',String(!valid));radiusError.hidden=valid;
+    radiusError.textContent=valid?'':t('Введите расстояние от 100 до 50 000 м.','100 dan 50 000 m gacha masofa kiriting.');
+    return valid;
+  }
+  window.relyqoValidateCurrentRadius=validateRadius;
+  function commitRadius() {
+    if(!validateRadius())return false;
+    currentPlaceRadiusMeters=Number(radiusInput.value.trim().replace(',','.'));
+    for(const button of presets.children)button.setAttribute('aria-pressed',String(Number(button.dataset.radius)===currentPlaceRadiusMeters));
+    currentTitle.textContent=t(`Организации в радиусе ${currentPlaceRadiusLabel()}`,`${currentPlaceRadiusLabel()} radiusdagi tashkilotlar`);
+    return true;
+  }
+  async function applyRadius() {
+    if(!commitRadius())return;
+    if(!findingHere)return;
+    document.getElementById('radius').value=String(currentPlaceRadiusMeters/1000);updateSearchScope();
+    // Keep an outstanding GPS request; a known fix is reused for every radius change.
+    if(currentCenter && locationFix)await refreshCatalog();
+    else renderAll();
+  }
+  radiusInput.addEventListener('input',validateRadius);
+  radiusInput.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();applyRadius();}});
+  radiusForm.addEventListener('submit',event=>{event.preventDefault();applyRadius();});
   function choose(selected) {
     findingHere=selected===here;
     const controls=['radius','resultLimit','sortMode'].map(id=>document.getElementById(id));
     if(findingHere && !savedScope){
       savedScope=controls.map(control=>({value:control.value,disabled:control.disabled}));
-      controls.forEach((control,index)=>{control.value=['0.3','20','distance'][index];control.disabled=true;});
+      controls.forEach((control,index)=>{control.value=[String(currentPlaceRadiusMeters/1000),'20','distance'][index];control.disabled=true;});
     }else if(!findingHere && savedScope){
       controls.forEach((control,index)=>{control.value=savedScope[index].value;control.disabled=savedScope[index].disabled;});
       savedScope=null;
@@ -92,23 +138,26 @@
   window.relyqoRenderCurrentPlace = rows => {
     if(!findingHere)return;
     candidates.replaceChildren();
-    if(locating && !locationFix){currentMessage.textContent=t('Разрешите доступ к местоположению для поиска организаций в радиусе 300 м…','300 m radiusdagi tashkilotlarni topish uchun joylashuvga ruxsat bering…');return;}
+    const label=currentPlaceRadiusLabel();
+    currentTitle.textContent=t(`Организации в радиусе ${label}`,`${label} radiusdagi tashkilotlar`);
+    if(window.relyqoCurrentRadiusInvalid && !rows.length){currentMessage.textContent=t('Для поиска укажите радиус от 100 до 50 000 м.','Qidirish uchun 100 dan 50 000 m gacha radius kiriting.');return;}
+    if(locating && !locationFix){currentMessage.textContent=t(`Разрешите доступ к местоположению для поиска организаций в радиусе ${label}…`,`${label} radiusdagi tashkilotlarni topish uchun joylashuvga ruxsat bering…`);return;}
     if(!currentCenter || !locationFix)return;
     const accuracy=locationFix.accuracy;
     const near=rows.filter(item=>item.country_code==='UZ' && hasMapLocation(item))
       .map(item=>({...item,meters:distanceKm(currentCenter,{lat:Number(item.latitude),lng:Number(item.longitude)})*1000}))
-      .filter(item=>item.meters<=300+1e-6).sort((a,b)=>a.meters-b.meters);
+      .filter(item=>item.meters<=currentPlaceRadiusMeters+1e-6).sort((a,b)=>a.meters-b.meters);
     const selection=near;
     const state=window.relyqoNearbyState;
     const failed=state && (state.localFailed || state.googleFailed);
     const precision=accuracy===null?t('Точность местоположения неизвестна. ','Joylashuv aniqligi noma’lum. '):t(`Точность местоположения: около ${Math.ceil(accuracy)} м. `,`Joylashuv aniqligi: taxminan ${Math.ceil(accuracy)} m. `);
     const lowAccuracy=accuracy===null || accuracy>150
-      ? t('GPS неточный: поиск ограничен 300 м от определённой точки, радиус не расширяется. Проверьте адрес. ', 'GPS noaniq: qidiruv aniqlangan nuqtadan 300 m bilan cheklangan, radius kengaytirilmaydi. Manzilni tekshiring. ') : '';
+      ? t(`GPS неточный: поиск ограничен ${label} от определённой точки, радиус не расширяется. Проверьте адрес. `, `GPS noaniq: qidiruv aniqlangan nuqtadan ${label} bilan cheklangan, radius kengaytirilmaydi. Manzilni tekshiring. `) : '';
     currentMessage.textContent=precision+lowAccuracy+(selection.length
-      ? t('Выберите организацию в радиусе 300 м. Ближайшие показаны первыми.', '300 m radiusdagi tashkilotni tanlang. Eng yaqinlari avval ko‘rsatilgan.')
-      : window.relyqoNearbyPending?t('Ищем организации в пределах 300 м…','300 m ichida tashkilotlarni izlayapmiz…')
-        : failed?t('Не удалось загрузить все источники. Повторите поиск или найдите организацию по названию.', 'Barcha manbalarni yuklab bo‘lmadi. Qidiruvni takrorlang yoki tashkilotni nomi bo‘yicha toping.')
-          : t('В доступных источниках в пределах 300 м ничего не найдено. Найдите организацию по названию или выберите место на карте.', 'Mavjud manbalarda 300 m ichida hech narsa topilmadi. Tashkilotni nomi bo‘yicha yoki xaritadan toping.'));
+      ? t(`Выберите организацию в радиусе ${label}. Ближайшие показаны первыми.`, `${label} radiusdagi tashkilotni tanlang. Eng yaqinlari avval ko‘rsatilgan.`)
+      : window.relyqoNearbyPending?t(`Ищем организации в пределах ${label}…`,`${label} ichida tashkilotlarni izlayapmiz…`)
+        : failed?t(`Не удалось загрузить все источники в радиусе ${label}. Повторите поиск или найдите организацию по названию.`, `${label} radiusdagi barcha manbalarni yuklab bo‘lmadi. Qidiruvni takrorlang yoki tashkilotni nomi bo‘yicha toping.`)
+          : t(`В доступных источниках в пределах ${label} ничего не найдено. Найдите организацию по названию или выберите место на карте.`, `Mavjud manbalarda ${label} ichida hech narsa topilmadi. Tashkilotni nomi bo‘yicha yoki xaritadan toping.`));
     for(const item of selection){
       const card=node('article','');card.className='currentPlaceCandidate';
       const name=node('h3',item.title);name.setAttribute('data-user-content','');
@@ -125,11 +174,12 @@
       }
       card.append(select);candidates.append(card);
     }
-    const note=node('p',t('Google возвращает до 20 мест за запрос; список может быть неполным. Загрузка не добавляет организации в RELYQO. Подтверждённое посещение — по одноразовому QR.', 'Google bitta so‘rovda 20 tagacha joy qaytaradi; ro‘yxat to‘liq bo‘lmasligi mumkin. Yuklash tashkilotlarni RELYQO’ga qo‘shmaydi. Tasdiqlangan tashrif — bir martalik QR orqali.'));note.className='currentPlaceNote';candidates.append(note);
+    const note=node('p',t('Google показывает до 20 мест; список может быть неполным. Подтверждённое посещение — по одноразовому QR.', 'Google 20 tagacha joy ko‘rsatadi; ro‘yxat to‘liq bo‘lmasligi mumkin. Tasdiqlangan tashrif — bir martalik QR orqali.'));note.className='currentPlaceNote';candidates.append(note);
   };
   async function findHere() {
+    if(!commitRadius())return;
     const request=++operation;cancelPending();choose(here);locating=true;
-    // Current venue discovery always uses a fresh, small search area, regardless of saved map settings.
+    // Fresh coordinates keep the chosen radius, independently of ordinary map settings.
     locationFix=null;currentCenter=null;nearMode();here.disabled=true;retry.disabled=true;
     const success=await locate({fresh:true});
     if(request!==operation){here.disabled=false;retry.disabled=false;return;}

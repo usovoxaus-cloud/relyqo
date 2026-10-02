@@ -256,13 +256,15 @@ test('late local and Google replies from an old fix cannot replace a newer searc
   assert.deepEqual(names(x),['Local 80','Google 90']);assert.equal(x.gps(),2);
 });
 
-test('current-place radius controls are fixed and ordinary map settings are restored',async()=>{
+test('current-place scope stays separate from ordinary map settings and restores them on exit',async()=>{
   const x=await harness({search:'?find=map'});const radius=x.document.getElementById('radius'),limit=x.document.getElementById('resultLimit');
   radius.value='8';limit.value='50';await x.click('#discoveryHere');
   assert.equal(radius.value,'0.3');assert.equal(radius.disabled,true);assert.equal(limit.disabled,true);
   assert.equal(x.document.getElementById('sortMode').disabled,true);
+  await editRadius(x,'750');assertScope(x,750);
   await x.click('#discoveryMap');assert.equal(radius.value,'8');assert.equal(limit.value,'50');assert.equal(radius.disabled,false);
   assert.equal(x.calls.filter(c=>c.url?.endsWith('/nearby')).at(-1).body.radius_km,8);
+  await x.click('#discoveryHere');assertScope(x,750);
 });
 
 test('Uzbek current-place loading, empty, failure and low-accuracy messages describe 300m and provider limits',async()=>{
@@ -272,8 +274,124 @@ test('Uzbek current-place loading, empty, failure and low-accuracy messages desc
   pending.resolve({places:[]});await settle();assert.match(x.document.getElementById('currentPlaceMessage').textContent,/300 m.*hech narsa topilmadi/);
   assert.match(x.document.querySelector('.currentPlaceNote').textContent,/20 tagacha.*to‘liq bo‘lmasligi/);
   const failed=await harness({search:'',uz:true,localNearby:()=>{throw Error('offline')},nearby:()=>{throw Error('offline')}});
-  assert.match(failed.document.getElementById('currentPlaceMessage').textContent,/Barcha manbalarni yuklab bo‘lmadi/);
+  assert.match(failed.document.getElementById('currentPlaceMessage').textContent,/300 m radiusdagi barcha manbalarni yuklab bo‘lmadi/);
   assert(!failed.document.getElementById('currentPlaceMessage').textContent.includes('hech narsa topilmadi'));
+});
+
+async function editRadius(x,value,apply=true){
+  const input=x.document.getElementById('currentRadiusMeters');input.value=value;input.dispatchEvent(new x.events.Event('input'));await settle();
+  if(apply){x.document.querySelector('.ratingRadiusForm').dispatchEvent(new x.events.Event('submit',{cancelable:true}));await settle();}
+}
+const nearbyCalls=x=>x.calls.filter(c=>c.url?.endsWith('/nearby'));
+function assertScope(x,meters){
+  const local=nearbyCalls(x).slice(-2);assert.equal(local.length,2);assert(local.every(c=>c.body.radius_km===meters/1000));
+  assert.equal(x.calls.filter(c=>c.nearby).at(-1).nearby.locationRestriction.radius,meters);
+  assert.equal(x.document.getElementById('mapRadius').textContent,String(meters/1000));
+}
+
+test('1km preset updates both APIs and all views, includes its boundary, and does not request GPS again',async()=>{
+  const local=[1100,1000,250,999.99,1000.01,800].map(localAt),google=[500,1000,1000.01].map(googleAt);
+  const x=await harness({search:'',localPlaces:local,nearby:()=>({places:google})});
+  assertScope(x,300);assert.equal(x.document.getElementById('currentRadiusMeters').value,'300');
+  assert.deepEqual(names(x),['Local 250']);
+  await x.click('[data-radius="1000"]');assertScope(x,1000);assert.equal(x.gps(),1);
+  assert.deepEqual(names(x),['Local 250','Google 500','Local 800','Local 999.99','Local 1000','Google 1000']);
+  assert.equal(x.document.querySelectorAll('#results .place').length,6);
+  assert.equal(x.markers.filter(m=>m.map&&m.title!=='Вы находитесь здесь').length,6);
+  assert(x.markers.filter(m=>m.map).every(m=>m.position.lat<=latitudeAt(1000)+1e-12));
+  assert.match(x.document.getElementById('currentPlaceTitle').textContent,/1 км/);
+  assert.match(x.document.getElementById('scopeHint').textContent,/1 км/);
+  await x.click('[data-radius="300"]');assertScope(x,300);assert.deepEqual(names(x),['Local 250']);assert.equal(x.gps(),1);
+});
+
+test('custom 750m is applied explicitly, supports Enter, and excludes places beyond the unrounded boundary',async()=>{
+  const x=await harness({search:'',localPlaces:[localAt(749.99),localAt(750),localAt(750.01)],nearby:()=>({places:[googleAt(600),googleAt(750),googleAt(750.01)]})});
+  const count=nearbyCalls(x).length;
+  for(const value of ['7','75','750'])await editRadius(x,value,false);
+  assert.equal(nearbyCalls(x).length,count);
+  const enter=new x.events.Event('keydown',{cancelable:true});enter.key='Enter';
+  x.document.getElementById('currentRadiusMeters').dispatchEvent(enter);await settle();
+  assertScope(x,750);assert.equal(x.gps(),1);
+  assert.deepEqual(names(x),['Google 600','Local 749.99','Local 750','Google 750']);
+  assert.match(x.document.getElementById('currentPlaceTitle').textContent,/750 м/);
+  assert([...x.document.querySelectorAll('.ratingRadiusPresets button')].every(b=>b.getAttribute('aria-pressed')==='false'));
+});
+
+test('invalid radius drafts never search, request GPS, clamp silently or reset accepted results',async()=>{
+  const x=await harness({search:''}),original=names(x),count=x.calls.length,gps=x.gps();
+  for(const value of ['', ' ', '99','50001','-500','Infinity','NaN','abc','1e3']){
+    await editRadius(x,value);await x.click('#discoveryHere');
+    assert.equal(x.calls.length,count,value);assert.equal(x.gps(),gps,value);assert.deepEqual(names(x),original,value);
+    assert.equal(x.document.getElementById('currentRadiusMeters').getAttribute('aria-invalid'),'true');
+    assert.equal(x.document.getElementById('currentRadiusError').hidden,false);
+    assert.equal(x.document.getElementById('mapRadius').textContent,'0.3');
+  }
+  await editRadius(x,'750');assertScope(x,750);assert.equal(x.document.getElementById('currentRadiusError').hidden,true);
+});
+
+test('radius remains usable while GPS is pending and the first requests use the latest chosen distance',async()=>{
+  const x=await harness({search:'',gps:'pending'});
+  await x.click('[data-radius="1000"]');await editRadius(x,'750');
+  assert.equal(nearbyCalls(x).length,0);assert.equal(x.gps(),1);
+  assert.equal(x.document.getElementById('currentRadiusMeters').disabled,false);
+  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/750 м/);
+  assert.match(x.document.getElementById('results').textContent,/750 м/);
+  x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();
+  assertScope(x,750);assert.equal(nearbyCalls(x).length,2);assert.equal(x.gps(),1);
+});
+
+test('invalid draft during pending GPS prevents the initial search until corrected without another GPS prompt',async()=>{
+  const x=await harness({search:'',gps:'pending'});await editRadius(x,'50001',false);
+  x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();
+  assert.equal(nearbyCalls(x).length,0);assert(!x.calls.some(c=>c.nearby));
+  assert(!x.document.getElementById('results').textContent.includes('ничего не найдено'));
+  await editRadius(x,'750');assertScope(x,750);assert.equal(x.gps(),1);
+});
+
+test('settings survive denied GPS without an automatic permission retry and fresh retry retains the chosen radius',async()=>{
+  const x=await harness({search:'',gps:'pending'});await x.click('[data-radius="1000"]');
+  x.permission().reject({code:1});await settle();await editRadius(x,'750');
+  assert.equal(x.gps(),1);assert.equal(nearbyCalls(x).length,0);assert.equal(x.document.getElementById('currentRadiusMeters').disabled,false);
+  await x.click('#discoveryHere');assert.equal(x.gps(),2);
+  x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();assertScope(x,750);
+  await x.click('#currentPlaceRetry');assert.equal(x.gps(),3);assert.equal(x.permission().settings.maximumAge,0);
+  x.permission().resolve({coords:{latitude:41.301,longitude:69.201,accuracy:10}});await settle();
+  assertScope(x,750);assert.equal(nearbyCalls(x).at(-1).body.latitude,41.301);
+});
+
+test('late local and Google results from a wider radius cannot replace a newer narrow search',async()=>{
+  const wideLocal=deferred(),wideGoogle=deferred();
+  const x=await harness({search:'',localNearby:(url,body)=>body.radius_km===1?wideLocal.promise:reply({items:url.includes('/manual-places/')?[localAt(150)]:[]}),nearby:body=>body.locationRestriction.radius===1000?wideGoogle.promise:{places:[googleAt(200)]}});
+  await x.click('[data-radius="1000"]');await x.click('[data-radius="300"]');
+  assert.deepEqual(names(x),['Local 150','Google 200']);
+  wideLocal.resolve(reply({items:[localAt(850)]}));wideGoogle.resolve({places:[googleAt(900)]});await settle();
+  assert.deepEqual(names(x),['Local 150','Google 200']);assertScope(x,300);assert.equal(x.gps(),1);
+});
+
+test('dynamic RU/UZ loading, empty, error and low-accuracy text use the chosen radius',async()=>{
+  for(const uz of [false,true]){
+    const answer=deferred();let failing=false;
+    const x=await harness({search:'',uz,accuracy:2000,localPlaces:[],nearby:()=>failing?Promise.reject(Error('offline')):answer.promise});
+    await x.click('[data-radius="1000"]');
+    const unit=uz?'1 km':'1 км';
+    for(const id of ['currentPlaceTitle','currentPlaceMessage','results','status','scopeHint'])assert(x.document.getElementById(id).textContent.includes(unit),id);
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/kengaytirilmaydi/:/не расширяется/);
+    answer.resolve({places:[]});await settle();
+    assert(x.document.getElementById('results').textContent.includes(unit));
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/hech narsa topilmadi/:/ничего не найдено/);
+    failing=true;await editRadius(x,'750');
+    for(const id of ['currentPlaceTitle','currentPlaceMessage','results','error'])assert(x.document.getElementById(id).textContent.includes(uz?'750 m':'750 м'),id);
+  }
+});
+
+test('minimum and maximum custom radii are sent without Google clamping or extra search zones',async()=>{
+  const x=await harness({search:''});
+  for(const meters of [100,50000]){
+    const count=x.calls.filter(c=>c.nearby).length;await editRadius(x,String(meters));
+    assertScope(x,meters);assert.equal(x.calls.filter(c=>c.nearby).length,count+1);
+  }
+  assert.equal(x.gps(),1);
+  assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'||c.url?.includes('/ratings')));
 });
 
 test('pending GPS immediately synchronizes 300m labels and restores the prior scope before a new search finishes',async()=>{
