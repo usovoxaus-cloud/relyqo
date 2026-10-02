@@ -1664,7 +1664,7 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert consumer_page.headers["cache-control"] == "no-store, max-age=0"
     assert 'id="catalogQuery"' in consumer_page.text
     assert 'id="ratedRegion"' in consumer_page.text
-    assert 'href="/nearby" aria-current="page"' in consumer_page.text
+    assert 'href="/consumer" aria-current="page"' in consumer_page.text
     assert 'href="/rate"' in consumer_page.text
     assert 'href="/me"' in consumer_page.text
     assert 'id="directoryPanel"' in TestClient(app).get("/rate").text

@@ -22,3 +22,23 @@ body.ratingDiscovery #status{display:block!important;margin:12px 0;line-height:1
 body.ratingDiscovery .place .rateLink{order:-1;background:#78e3c0!important;color:#06281e!important;border-color:#78e3c0!important;min-height:44px;display:inline-flex;align-items:center;padding:10px 14px}
 .ratingDiscovery button:focus-visible,.ratingDiscovery a:focus-visible,.rateFindActions a:focus-visible,.rateSearch input:focus-visible{outline:3px solid #9dc9ff;outline-offset:3px}
 @media(max-width:520px){.rateFindActions{grid-template-columns:1fr}.rateSearchRow{gap:8px}.ratingDiscoveryActions{display:grid;grid-template-columns:1fr 1fr}.ratingDiscoveryActions>*{width:100%!important}.ratingDiscovery .relyqoMap{height:360px!important;min-height:300px!important}}
+
+/* Simple consumer entrance: one search field, two ways to find a place, one result list. */
+body.ratingDiscovery [hidden]{display:none!important}
+body.ratingDiscovery .intro,body.ratingDiscovery .topOrganizationsIntro,body.ratingDiscovery .consumerSecondary,body.ratingDiscovery .note{display:none!important}
+body.ratingDiscovery .ratingDiscoveryActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0 14px}
+body.ratingDiscovery .ratingDiscoveryActions button{width:100%!important;min-width:0;min-height:52px;font-size:16px;padding:12px 8px}
+body.ratingDiscovery .ratingRadiusControl{padding:0;margin:8px 0 0;border:0;background:transparent}
+.ratingRadiusControl>summary{min-height:44px;padding:10px 0;cursor:pointer;color:#9fe5ce;font-size:15px;font-weight:650}
+.ratingRadiusControl[open]{padding-bottom:10px!important}
+body.ratingDiscovery .listHeader{border:0;padding-bottom:0!important}
+body.ratingDiscovery.findingCurrentPlace .listHeader{display:none}
+body.ratingDiscovery .currentPlace{margin:0;padding:12px 16px;border:0;background:none;border-radius:0}
+body.ratingDiscovery .currentPlace h2{font-size:18px;margin-bottom:4px}
+body.ratingDiscovery .currentPlace>p:empty{display:none}
+body.ratingDiscovery #currentPlaceRetry{background:none;color:#a9ddcf;border:0;padding:4px 0;font-size:13px;margin:0;min-height:44px}
+body.ratingDiscovery .currentPlaceCandidate{min-width:0;overflow-wrap:anywhere;padding:16px 0;margin:0;border:0;border-bottom:1px solid #2b4352;background:none}
+body.ratingDiscovery .currentPlaceCandidate h3{font-size:19px;line-height:1.35}
+body.ratingDiscovery .currentPlaceCandidate .rateLink{display:flex;justify-content:center;width:100%;box-sizing:border-box;min-height:48px;margin-top:12px;font-size:16px}
+.ratingQr{display:block;padding:12px 4px;min-height:44px;color:#a9ddcf;font-size:14px;text-decoration:underline}
+@media(max-width:520px){body.ratingDiscovery .shell{padding:12px}body.ratingDiscovery .consumerTitle{font-size:24px}body.ratingDiscovery .ratingDiscoveryActions{gap:8px}body.ratingDiscovery .directoryPanel{padding:14px!important}}

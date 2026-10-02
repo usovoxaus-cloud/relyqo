@@ -856,6 +856,7 @@ function externalActions(item) {
 }
 
 function renderList(rows) {
+  if (rows.length && window.relyqoRenderRatingRows) {window.relyqoRenderRatingRows(rows);return;}
   const root = $("#results");
   root.replaceChildren();
   const favorites = readFavorites();
@@ -887,6 +888,11 @@ function renderList(rows) {
       empty.textContent=document.documentElement.lang==='uz'
         ? failed ? `${label} radiusdagi barcha natijalarni yuklab bo‘lmadi. Qayta urinib ko‘ring.` : `Mavjud manbalarda ${label} ichida hech narsa topilmadi.`
         : failed ? `Не удалось загрузить все результаты в радиусе ${label}. Повторите поиск.` : `В доступных источниках в пределах ${label} ничего не найдено.`;
+      root.append(empty);$("#listCount").textContent='';return;
+    }
+    if(window.relyqoRenderRatingRows){
+      const empty=document.createElement('p');empty.className='empty';
+      empty.textContent=document.documentElement.lang==='uz'?'Tashkilot topilmadi. Nomini tekshiring.':'Организация не найдена. Проверьте название.';
       root.append(empty);$("#listCount").textContent='';return;
     }
     root.innerHTML = `<div class="empty">${showRatedOnly
@@ -1246,6 +1252,7 @@ function externalPlaceItem(place, origin = currentCenter) {
 }
 
 async function searchCatalog() {
+  if(window.relyqoRatingSearch)return window.relyqoRatingSearch();
   ++catalogRequestId;
   if (showRatedOnly) {
     await reloadRatedCatalog();
@@ -1329,7 +1336,7 @@ async function refreshCatalog() {
     const errors = [];
     if (state.localFailed) errors.push(t('Часть каталога RELYQO недоступна. Результаты Google показываются независимо.', 'RELYQO katalogining bir qismi mavjud emas. Google natijalari mustaqil ko‘rsatiladi.'));
     if (state.googleFailed) errors.push(t('Google Карта не загрузилась или поиск недоступен. Доступные организации RELYQO остаются в списке.', 'Google xaritasi yuklanmadi yoki qidiruv mavjud emas. Mavjud RELYQO tashkilotlari ro‘yxatda qoladi.'));
-    if (errors.length) showError((findingHere ? t(`Поиск в радиусе ${currentPlaceRadiusLabel()}. `, `${currentPlaceRadiusLabel()} radiusdagi qidiruv. `) : '') + errors.join(' '));
+    if (errors.length) showError(document.body.classList.contains('ratingDiscovery') ? t('Часть организаций не загрузилась. Показаны доступные результаты.', 'Ba’zi tashkilotlar yuklanmadi. Mavjud natijalar ko‘rsatilgan.') : errors.join(' '));
     renderAll();
     const localCount = lastPartners.length + lastManualPlaces.length;
     $("#status").textContent = window.relyqoNearbyPending
@@ -1400,9 +1407,18 @@ async function locate(options) {
     return true;
   } catch (error) {
     if (requestId !== locationRequestId) return;
-    showError(error.code === 1
-      ? "Доступ к геолокации запрещён. Найдите организацию по названию или выберите область на карте."
-      : error.message || "Не удалось определить местоположение");
+    if (document.body.classList.contains('ratingDiscovery')) {
+      const uz=document.documentElement.lang==='uz';
+      showError(error.code===1
+        ? (uz?'Joylashuvga ruxsat berilmadi. Tashkilotni ro‘yxatdan tanlang.':'Доступ к геолокации запрещён. Выберите организацию из списка.')
+        : error.code===3
+          ? (uz?'Joylashuvni aniqlashga vaqt yetmadi. Tashkilotni ro‘yxatdan tanlang.':'Не успели определить местоположение. Выберите организацию из списка.')
+          : (uz?'Joylashuvni aniqlab bo‘lmadi. Tashkilotni ro‘yxatdan tanlang.':'Не удалось определить местоположение. Выберите организацию из списка.'));
+    } else {
+      showError(error.code === 1
+        ? "Доступ к геолокации запрещён. Найдите организацию по названию или выберите область на карте."
+        : error.message || "Не удалось определить местоположение");
+    }
     $("#status").textContent = "Поиск не выполнен";
     return false;
   } finally {

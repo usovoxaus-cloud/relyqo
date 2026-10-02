@@ -37,7 +37,7 @@ def test_search_entry_and_old_qr_urls_keep_distinct_flows():
     client = TestClient(main.app)
     search = client.get("/consumer")
     assert 'id="directoryPanel"' in search.text
-    assert '<a href="/nearby" aria-current="page">Найти</a>' in search.text
+    assert '<a href="/consumer" aria-current="page">Найти</a>' in search.text
     assert 'id="token"' not in search.text
     for url in ["/", "/rate?find=qr", "/rate?token=old-link", "/?token=old-link", "/consumer?token=old-link"]:
         page = client.get(url)
@@ -48,7 +48,7 @@ def test_search_entry_and_old_qr_urls_keep_distinct_flows():
     for url in ["/nearby", "/place", "/rankings", "/community-rate", "/me", "/me/rating"]:
         page = client.get(url)
         assert page.text.count('class="consumerNav"') == 1
-        assert all(f'href="{path}"' in page.text for path in ["/nearby", "/rate", "/me"])
+        assert all(f'href="{path}"' in page.text for path in ["/consumer", "/rate", "/me"])
 
 
 def test_rating_entry_offers_name_location_and_map_without_replacing_qr():
