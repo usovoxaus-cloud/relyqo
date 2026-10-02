@@ -7,7 +7,7 @@ from .config import settings
 
 STATIC = Path(__file__).parent / "static"
 CONSUMER_TABS = (
-    ("search", "/nearby", "Найти"),
+    ("search", "/consumer", "Найти"),
     ("rate", "/rate", "Оценить"),
     ("account", "/me", "Профиль"),
 )
