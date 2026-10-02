@@ -112,7 +112,7 @@ function clearError() {
 }
 
 function selectedRadius() {
-  if (document.body.classList.contains('findingCurrentPlace')) return 0.5;
+  if (document.body.classList.contains('findingCurrentPlace')) return 0.3;
   const value = Number($("#radius").value);
   return Number.isFinite(value) && value > 0 ? value : 15;
 }
@@ -157,6 +157,12 @@ function restoreSearchPreferences() {
 function updateSearchScope() {
   const radius = selectedRadius();
   $("#mapRadius").textContent = radius;
+  if (document.body.classList.contains('findingCurrentPlace')) {
+    $("#scopeHint").textContent = document.documentElement.lang === 'uz'
+      ? 'Qidiruv aniqlangan nuqtadan 300 m bilan cheklangan.'
+      : 'Поиск ограничен 300 м от определённой точки.';
+    return;
+  }
   $("#scopeHint").textContent = radius > 50
     ? `Радиус RELYQO: ${radius} км без верхнего лимита. Внешняя карта проверяет несколько участков внутри выбранной зоны.`
     : `Поиск выполняется в радиусе ${radius} км. Настройки сохраняются на этом устройстве.`;
@@ -372,12 +378,17 @@ function isAlreadyInRelyqo(external, internalRows) {
 }
 
 function viewRows() {
+  const findingHere = document.body.classList.contains('findingCurrentPlace');
+  const withinHere = items => items.filter(item => item.country_code === 'UZ' && hasMapLocation(item))
+    .map(item => ({...item, distance: distanceKm(currentCenter, {lat:Number(item.latitude), lng:Number(item.longitude)})}))
+    .filter(item => Number.isFinite(item.distance) && item.distance <= 0.3 + 1e-9);
   const favorites = readFavorites();
   const query = $("#catalogQuery").value.trim().toLocaleLowerCase("ru");
-  const internalRows = [
+  let internalRows = [
     ...lastPartners.map((item) => ({ kind: "partner", title: item.organization, distance: item.distance_km, ...item })),
     ...lastManualPlaces.map((item) => ({ kind: "manual", title: item.name, distance: item.distance_km, ...item })),
   ];
+  if (findingHere) internalRows = currentCenter ? withinHere(internalRows) : [];
   let rows = showRatedOnly
     ? lastRatedPlaces.map((item) => ({
       ...item,
@@ -393,6 +404,9 @@ function viewRows() {
         .filter((item) => !isAlreadyInRelyqo(item, internalRows)),
     ];
   if (showRatedOnly) rows.push(...lastCityPlaces.map(item => ({...item, kind:"external", title:item.name, _citySearch:true})).filter(item => !isAlreadyInRelyqo(item, rows)));
+  // Use unrounded coordinates for the same boundary in cards, list and markers.
+  // Do not apply the ordinary 20/50/100 display cap to current-place results.
+  if (findingHere) return currentCenter ? withinHere(rows).sort((a,b) => a.distance - b.distance) : [];
   rows = rows.filter(showRatedOnly ? matchesRatedFilters : matchesCategory);
   if (query) {
     rows = rows.filter((item) => (
@@ -1069,14 +1083,14 @@ function scheduleRatedReload() {
   ratedSearchTimer = setTimeout(reloadRatedCatalog, 250);
 }
 
-async function fetchNearby(url) {
+async function fetchNearby(url, scope = {center: currentCenter, radius: selectedRadius()}) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      latitude: currentCenter.lat,
-      longitude: currentCenter.lng,
-      radius_km: selectedRadius(),
+      latitude: scope.center.lat,
+      longitude: scope.center.lng,
+      radius_km: scope.radius,
       limit: 200,
     }),
     cache: "no-store",
@@ -1152,7 +1166,7 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
       if (addressPart(place, "country", "shortText").toUpperCase() !== "UZ") continue;
       const coordinates = { lat: place.location.lat(), lng: place.location.lng() };
       const distance = distanceKm(origin, coordinates);
-      if (distance > radius) continue;
+      if (!Number.isFinite(distance) || distance > radius + 1e-9) continue;
       const category = externalCategory(place.primaryType);
       found.set(place.id, {
         id: place.id,
@@ -1270,49 +1284,61 @@ async function refreshCatalog() {
   if (!currentCenter) return;
   const requestId = ++catalogRequestId;
   const isCurrent = () => requestId === catalogRequestId;
-  window.relyqoNearbyPending = true;
+  const t = (ru, uz) => document.documentElement.lang === 'uz' ? uz : ru;
+  const findingHere = document.body.classList.contains('findingCurrentPlace');
+  const state = {localPending:2, googlePending:true, localFailed:0, googleFailed:false};
+  window.relyqoNearbyState = state;
   const scope = { center: { ...currentCenter }, radius: selectedRadius(), limit: selectedLimit(), category: $("#serviceCategory").value || "ALL" };
+  lastPartners = []; lastManualPlaces = []; lastExternalPlaces = [];
   clearError();
   updateSearchScope();
-  $("#status").textContent = "Ищем организации рядом…";
-  // Start both sources now. Own results are usable even while Maps is unavailable.
+  function publish() {
+    if (!isCurrent()) return;
+    window.relyqoNearbyPending = state.localPending > 0 || state.googlePending;
+    const errors = [];
+    if (state.localFailed) errors.push(t('Часть каталога RELYQO недоступна. Результаты Google показываются независимо.', 'RELYQO katalogining bir qismi mavjud emas. Google natijalari mustaqil ko‘rsatiladi.'));
+    if (state.googleFailed) errors.push(t('Google Карта не загрузилась или поиск недоступен. Доступные организации RELYQO остаются в списке.', 'Google xaritasi yuklanmadi yoki qidiruv mavjud emas. Mavjud RELYQO tashkilotlari ro‘yxatda qoladi.'));
+    if (errors.length) showError(errors.join(' '));
+    renderAll();
+    const localCount = lastPartners.length + lastManualPlaces.length;
+    $("#status").textContent = window.relyqoNearbyPending
+      ? findingHere ? t('Загружаем организации в радиусе 300 м. Результаты появляются по мере готовности…', '300 m radiusdagi tashkilotlar yuklanmoqda. Natijalar tayyor bo‘lishi bilan ko‘rinadi…')
+        : localCount ? t('Объекты RELYQO загружены. Дополняем карту…', 'RELYQO joylari yuklandi. Xarita to‘ldirilmoqda…') : t('Ищем организации рядом…', 'Yaqin tashkilotlarni izlayapmiz…')
+      : errors.length ? t('Поиск завершён с ограничениями. Показаны доступные результаты.', 'Qidiruv cheklovlar bilan yakunlandi. Mavjud natijalar ko‘rsatilgan.')
+        : t(`Готово: ${localCount} объектов RELYQO и ${lastExternalPlaces.length} организаций найдено на карте.`, `Tayyor: ${localCount} ta RELYQO joyi va xaritada ${lastExternalPlaces.length} ta tashkilot topildi.`);
+  }
+  publish();
+  // Each source commits its own result. A slow/failed local request cannot hold
+  // back Google (or the other local endpoint), and vice versa.
   const external = (async () => {
-    const mapReady = await loadGoogleMap();
-    if (!isCurrent()) return { stale: true };
-    if (!mapReady) throw new Error("Google Карта не загрузилась. Объекты собственного каталога RELYQO всё равно показаны ниже.");
     let active = true;
     try {
-      return { rows: await withDeadline(fetchExternalPlaces(scope, () => active && isCurrent()), 12000) };
+      const mapReady = await loadGoogleMap();
+      if (!isCurrent()) return;
+      if (!mapReady) throw new Error('Google unavailable');
+      publish(); // Show the ready map without waiting for any catalog request.
+      const rows = await withDeadline(fetchExternalPlaces(scope, () => active && isCurrent()), 12000);
+      if (isCurrent()) lastExternalPlaces = rows;
+    } catch {
+      if (isCurrent()) state.googleFailed = true;
     } finally {
       active = false;
+      if (isCurrent()) {state.googlePending = false; publish();}
     }
-  })().catch(error => ({ error }));
-  let local;
-  try {
-    local = await Promise.all([
-      fetchNearby("/v1/public/branches/nearby"),
-      fetchNearby("/v1/public/manual-places/nearby"),
-    ]);
-  } catch (error) {
-    if (!isCurrent()) return;
-    window.relyqoNearbyPending = false;
-    ++catalogRequestId;
-    throw error;
-  }
-  if (!isCurrent()) return;
-  [lastPartners, lastManualPlaces] = local;
-  lastExternalPlaces = [];
-  renderAll();
-  $("#status").textContent = "Объекты RELYQO загружены. Дополняем карту…";
-  // Do not keep the search button blocked by third-party requests.
-  external.then(result => {
-    if (!isCurrent() || result.stale) return;
-    window.relyqoNearbyPending = false;
-    if (result.error) showError(result.error.message);
-    else lastExternalPlaces = result.rows;
-    renderAll();
-    $("#status").textContent = `Готово: ${lastPartners.length + lastManualPlaces.length} объектов RELYQO и ${lastExternalPlaces.length} организаций найдено на карте.`;
+  })();
+  const local = ['/v1/public/branches/nearby', '/v1/public/manual-places/nearby'].map(async (url, index) => {
+    try {
+      const rows = await withDeadline(fetchNearby(url, scope), 12000);
+      if (!isCurrent()) return;
+      if (index === 0) lastPartners = rows; else lastManualPlaces = rows;
+    } catch {
+      if (isCurrent()) state.localFailed++;
+    } finally {
+      if (isCurrent()) {state.localPending--; publish();}
+    }
   });
+  // Release controls on the first ready source, keeping the others in flight.
+  await Promise.race([external, ...local]);
 }
 
 async function locate(options) {

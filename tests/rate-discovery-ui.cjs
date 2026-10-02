@@ -2,6 +2,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const {parseHTML}=require('linkedom');
 const settle=async()=>{for(let i=0;i<12;i++)await new Promise(r=>setImmediate(r));};
 const reply=data=>({ok:true,json:async()=>data});
+function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 const locations=JSON.parse(fs.readFileSync('app/static/uzbekistan.json','utf8'));
 const localPlace={kind:'manual',id:'fixture-local',name:'Test cafe',address:'Test street 1',country_code:'UZ',city:'Tashkent',category:'CAFE',latitude:41.301,longitude:69.201,distance_km:.14,community_count:0};
 function externalPlace(id='fixture-google',country='UZ') {return {id,displayName:'Test map cafe',formattedAddress:'Test street 2',primaryType:'cafe',googleMapsURI:'https://maps.google.com/',rating:4.2,userRatingCount:25,attributions:[],location:{lat:()=>41.302,lng:()=>69.202},addressComponents:[{types:['country'],shortText:country},{types:['locality'],longText:'Tashkent'},{types:['administrative_area_level_1'],longText:'Tashkent'}]};}
@@ -21,6 +22,7 @@ async function harness(options={}) {
     if(url.startsWith('/v1/public/rated-organizations'))return reply({items:options.localPlaces||[localPlace],total:1,geography:[],facets:{countries:['UZ'],cities:[]}});
     if(url.startsWith('/static/uzbekistan.json'))return reply(locations);
     if(url==='/v1/public/app-content')return reply({content:{ru:{title:'Generic search title',hint:'Generic search hint'}}});
+    if(url.endsWith('/nearby')&&options.localNearby)return options.localNearby(url,body);
     if(url==='/v1/public/manual-places/nearby')return reply({items:options.localPlaces||[localPlace]});
     if(url==='/v1/public/branches/nearby')return reply({items:[]});
     if(url==='/v1/public/maps-config')return reply({configured:false});
@@ -127,8 +129,8 @@ test('entering Rate automatically locates once using a fresh fix and a small sea
   const x=await harness({search:'',localPlaces:[atVenue('here',41.3)],nearby:()=>({places:[]})});
   assert.equal(x.gps(),1);assert.equal(x.permission().settings.maximumAge,0);
   assert.equal(x.permission().settings.enableHighAccuracy,true);
-  assert.equal(x.calls.find(c=>c.url==='/v1/public/manual-places/nearby').body.radius_km,.5);
-  assert.equal(x.calls.find(c=>c.nearby).nearby.locationRestriction.radius,500);
+  for(const url of ['/v1/public/manual-places/nearby','/v1/public/branches/nearby'])assert.equal(x.calls.find(c=>c.url===url).body.radius_km,.3);
+  assert.equal(x.calls.find(c=>c.nearby).nearby.locationRestriction.radius,300);
   assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
   assert.match(x.document.getElementById('currentPlaceMessage').textContent,/20 м/);
   const link=x.document.querySelector('#currentPlaceCandidates a');
@@ -142,7 +144,7 @@ test('several organizations in the same building require a consumer choice; far 
   const rows=[atVenue('a'),atVenue('b'),atVenue('far',41.4)].map(item=>({...item,longitude:69.2}));
   const x=await harness({search:'?find=here',localPlaces:rows,nearby:()=>({places:[]})});
   assert.equal(x.document.querySelectorAll('.currentPlaceCandidate').length,2);
-  assert.match(x.document.getElementById('currentPlaceTitle').textContent,/одном из этих мест/);
+  assert.match(x.document.getElementById('currentPlaceTitle').textContent,/300 м/);
   assert(!x.document.getElementById('currentPlaceCandidates').textContent.includes('Fixture far'));
   assert.equal(x.context.location.href,'/rate');
   const y=await harness({search:'?find=here',localPlaces:[rows[2]],nearby:()=>({places:[]})});
@@ -152,8 +154,10 @@ test('several organizations in the same building require a consumer choice; far 
 
 test('poor GPS accuracy never claims to have identified the current organization',async()=>{
   const x=await harness({search:'?find=here',accuracy:2000,localPlaces:[atVenue('a')],nearby:()=>({places:[]})});
-  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/2000 м.*Не удалось точно определить/);
-  assert.equal(x.document.getElementById('currentPlaceTitle').textContent,'Организации возле вас');
+  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/2000 м.*GPS неточный.*радиус не расширяется/);
+  assert.equal(x.document.getElementById('currentPlaceTitle').textContent,'Организации в радиусе 300 м');
+  assert(x.calls.filter(c=>c.url?.endsWith('/nearby')).every(c=>c.body.radius_km===.3));
+  assert(x.calls.filter(c=>c.nearby).every(c=>c.nearby.locationRestriction.radius===300));
   assert.equal(x.document.querySelectorAll('.currentPlaceCandidate').length,1);
 });
 
@@ -191,4 +195,83 @@ test('invalid geolocation never reaches the nearby endpoints',async()=>{
   x.permission().resolve({coords:{latitude:NaN,longitude:69.2,accuracy:10}});await settle();
   assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
   assert.match(x.document.getElementById('error').textContent,/Не удалось определить местоположение/);
+});
+
+const latitudeAt=meters=>41.3+meters/(6371008.8*Math.PI/180);
+const localAt=meters=>({...localPlace,id:`local-${meters}`,name:`Local ${meters}`,latitude:latitudeAt(meters),longitude:69.2,distance_km:Math.round(meters/10)/100});
+const googleAt=meters=>({...externalPlace(`google-${meters}`),displayName:`Google ${meters}`,location:{lat:()=>latitudeAt(meters),lng:()=>69.2}});
+const names=x=>[...x.document.querySelectorAll('.currentPlaceCandidate h3')].map(n=>n.textContent);
+
+test('300m boundary and distance order apply to every candidate, list card and marker without a five or twenty item cap',async()=>{
+  const local=[299.99,150,300.01,5,290,200,120,80,300].map(localAt);
+  const google=[300.01,300,299.99,250,225,201,199,175,151,149,125,100,75,60,40,20].map(googleAt);
+  const x=await harness({search:'?find=here',localPlaces:local,nearby:()=>({places:google})});
+  const expected=[...local.filter(p=>p.id!=='local-300.01').map(p=>({name:p.name,lat:p.latitude})),...google.filter(p=>p.id!=='google-300.01').map(p=>({name:p.displayName,lat:p.location.lat()}))].sort((a,b)=>a.lat-b.lat).map(p=>p.name);
+  assert(expected.length>20);assert.deepEqual(names(x),expected);
+  const rows=vm.runInContext('viewRows()',x.context);assert.equal(rows.length,expected.length);assert(rows.every(p=>p.distance<=.3+1e-9));
+  assert.equal(x.document.querySelectorAll('#results .place').length,expected.length);
+  const markers=x.markers.filter(m=>m.map&&m.title!=='Вы находитесь здесь');assert.equal(markers.length,expected.length);
+  assert(markers.every(m=>m.position.lat<=latitudeAt(300)+1e-12));
+  assert(!x.calls.some(c=>c.url&&c.method!=='GET'&&!c.url.endsWith('/nearby')));
+  assert.match(x.document.querySelector('.currentPlaceNote').textContent,/до 20.*неполным/);
+});
+
+test('ready Google map and automatic results never wait for either local endpoint',async()=>{
+  const branches=deferred(),manual=deferred(),google=deferred();
+  const x=await harness({search:'',localNearby:url=>url.includes('/branches/')?branches.promise:manual.promise,nearby:()=>google.promise});
+  assert(x.map());assert.equal(x.document.getElementById('map').classList.contains('hidden'),false);
+  assert.match(x.document.getElementById('status').textContent,/300 м/);
+  google.resolve({places:[googleAt(200)]});await settle();
+  assert.deepEqual(names(x),['Google 200']);assert.equal(x.gps(),1);
+  assert.equal(x.document.getElementById('discoveryHere').disabled,false);
+  manual.resolve(reply({items:[localAt(100)]}));await settle();assert.deepEqual(names(x),['Local 100','Google 200']);
+  branches.reject(Error('local unavailable'));await settle();assert.deepEqual(names(x),['Local 100','Google 200']);
+  assert.equal(x.window.relyqoNearbyPending,false);assert.match(x.document.getElementById('error').textContent,/Часть каталога RELYQO недоступна/);
+  assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'));
+});
+
+test('local failures before Google resolves do not invalidate successful Places results',async()=>{
+  const google=deferred();
+  const x=await harness({search:'',localNearby:()=>{throw Error('local offline');},nearby:()=>google.promise});
+  assert.equal(x.window.relyqoNearbyState.localFailed,2);
+  google.resolve({places:[googleAt(280)]});await settle();
+  assert.deepEqual(names(x),['Google 280']);assert.equal(x.gps(),1);
+  await x.click('.currentPlaceSelect');assert(x.document.getElementById('manualDialog').open);
+  assert.equal(x.document.getElementById('manualName').value,'Google 280');
+  assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'));
+});
+
+test('Google failure keeps local places 150–300m visible with an honest partial-result message',async()=>{
+  const x=await harness({search:'',localPlaces:[localAt(280)],nearby:()=>{throw Error('Google offline');}});
+  assert.deepEqual(names(x),['Local 280']);assert.match(x.document.getElementById('error').textContent,/Google.*недоступен/);
+  assert.equal(x.window.relyqoNearbyPending,false);assert.equal(x.gps(),1);
+});
+
+test('late local and Google replies from an old fix cannot replace a newer search',async()=>{
+  const local=deferred(),google=deferred();let fresh=false;
+  const x=await harness({search:'',localNearby:url=>fresh?reply({items:url.includes('/manual-places/')?[localAt(80)]:[]}):local.promise,nearby:()=>fresh?{places:[googleAt(90)]}:google.promise});
+  await x.click('#discoveryByName');fresh=true;await x.click('#discoveryHere');
+  assert.deepEqual(names(x),['Local 80','Google 90']);
+  local.resolve(reply({items:[localAt(10)]}));google.resolve({places:[googleAt(20)]});await settle();
+  assert.deepEqual(names(x),['Local 80','Google 90']);assert.equal(x.gps(),2);
+});
+
+test('current-place radius controls are fixed and ordinary map settings are restored',async()=>{
+  const x=await harness({search:'?find=map'});const radius=x.document.getElementById('radius'),limit=x.document.getElementById('resultLimit');
+  radius.value='8';limit.value='50';await x.click('#discoveryHere');
+  assert.equal(radius.value,'0.3');assert.equal(radius.disabled,true);assert.equal(limit.disabled,true);
+  assert.equal(x.document.getElementById('sortMode').disabled,true);
+  await x.click('#discoveryMap');assert.equal(radius.value,'8');assert.equal(limit.value,'50');assert.equal(radius.disabled,false);
+  assert.equal(x.calls.filter(c=>c.url?.endsWith('/nearby')).at(-1).body.radius_km,8);
+});
+
+test('Uzbek current-place loading, empty, failure and low-accuracy messages describe 300m and provider limits',async()=>{
+  const pending=deferred();const x=await harness({search:'',uz:true,accuracy:2000,localPlaces:[],nearby:()=>pending.promise});
+  assert.match(x.document.getElementById('currentPlaceTitle').textContent,/300 m/);
+  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/GPS noaniq.*kengaytirilmaydi.*300 m.*izlayapmiz/);
+  pending.resolve({places:[]});await settle();assert.match(x.document.getElementById('currentPlaceMessage').textContent,/300 m.*hech narsa topilmadi/);
+  assert.match(x.document.querySelector('.currentPlaceNote').textContent,/20 tagacha.*to‘liq bo‘lmasligi/);
+  const failed=await harness({search:'',uz:true,localNearby:()=>{throw Error('offline')},nearby:()=>{throw Error('offline')}});
+  assert.match(failed.document.getElementById('currentPlaceMessage').textContent,/Barcha manbalarni yuklab bo‘lmadi/);
+  assert(!failed.document.getElementById('currentPlaceMessage').textContent.includes('hech narsa topilmadi'));
 });

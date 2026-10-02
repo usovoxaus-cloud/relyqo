@@ -3109,7 +3109,9 @@ def public_nearby_branches(
     radius_km = search.radius_km
     limit = search.limit
     lat_delta = radius_km / 110.574
-    longitude_scale = max(0.01, 111.320 * math.cos(math.radians(latitude)))
+    # Keep the bounding box conservative; haversine below enforces the exact radius.
+    # 111.320 excluded places just inside the east/west edge of a 300 m circle.
+    longitude_scale = max(0.01, 110.574 * math.cos(math.radians(min(90, abs(latitude) + lat_delta))))
     lng_delta = radius_km / longitude_scale
     rows = db.execute(
         select(Branch, Organization)
@@ -3385,7 +3387,8 @@ def public_manual_places_nearby(
 ):
     response.headers["Cache-Control"] = "no-store, max-age=0"
     lat_delta = search.radius_km / 110.574
-    longitude_scale = max(0.01, 111.320 * math.cos(math.radians(search.latitude)))
+    # Match the conservative branch prefilter; exact distance is checked below.
+    longitude_scale = max(0.01, 110.574 * math.cos(math.radians(min(90, abs(search.latitude) + lat_delta))))
     lng_delta = search.radius_km / longitude_scale
     rows = db.scalars(
         select(ManualPlace)
