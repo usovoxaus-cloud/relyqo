@@ -17,6 +17,7 @@
 <script src="/static/service-categories.js?v=20260922" defer></script>
 <script src="/static/account-onboarding.js" defer></script><link rel="stylesheet" href="/static/google-rating.css?v=1">
 <script src="/static/google-rating.js?v=1" defer></script>
+<link rel="stylesheet" href="/static/rate-discovery.css?v=20261002">
 </head>
 <body class="ui-audit page-index">
   <main>
@@ -27,7 +28,17 @@
         <p class="eyebrow">ВАШ ОПЫТ ПОМОЖЕТ ДРУГИМ</p>
         <h1>Оценить организацию</h1>
         <p class="lead">Выберите организацию или подтвердите посещение одноразовым QR.</p>
-        <a class="quickCard primaryAction" href="/nearby"><b>Выбрать организацию</b><small>Оставить оценку без QR</small><span class="actionArrow">→</span></a>
+        <a class="rateNearbyShortcut" href="/rate?find=here"><span><b>Оценить рядом</b><small>Определить организацию рядом со мной</small></span><span aria-hidden="true">→</span></a>
+        <form class="rateSearch" action="/rate" method="get" role="search">
+          <input type="hidden" name="find" value="search">
+          <label for="rateOrganization">Найти организацию</label>
+          <div class="rateSearchRow"><input id="rateOrganization" name="q" type="search" maxlength="160" placeholder="Название организации или адрес" autocomplete="off"><button type="submit">Найти</button></div>
+        </form>
+        <div class="rateFindActions">
+          <a href="/rate?find=nearby"><b>Найти рядом</b><small>По моему местоположению</small></a>
+          <a href="/rate?find=map"><b>Выбрать на карте</b><small>Найти нужное место вручную</small></a>
+        </div>
+        <p class="ratePrivacy">Геолокация нужна только для поиска рядом. Если доступ запрещён, найдите организацию по названию или на карте.</p>
         <div class="trustStrip"><div><b>Verified — по QR</b><span>Одноразовый код заведения. Один QR — одна оценка.</span></div><div><b>Community — без QR</b><span>Ваше мнение учитывается отдельно от подтверждённых посещений.</span></div></div>
       </section>
 

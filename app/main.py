@@ -1081,7 +1081,13 @@ def business_profile_payload(user: User, db: Session) -> dict:
 
 @app.get("/rate", include_in_schema=False)
 @app.get("/", include_in_schema=False)
-def web():
+def web(request: Request):
+    mode = request.query_params.get("find")
+    if "token" not in request.query_params and (
+        mode in {"here", "search", "nearby", "map"}
+        or (request.url.path == "/rate" and mode is None)
+    ):
+        return consumer_html("nearby.html", active_tab="rate")
     return consumer_html("index.html")
 
 

@@ -13,11 +13,13 @@ CONSUMER_TABS = (
 )
 
 
-def consumer_html(filename: str) -> HTMLResponse:
+def consumer_html(filename: str, *, active_tab: str | None = None) -> HTMLResponse:
     content = (STATIC / filename).read_text(encoding="utf-8")
     active = "rate" if filename in {"index.html", "community-rate.html"} else (
         "account" if filename in {"me.html", "rating-detail.html"} else "search"
     )
+    if active_tab in {key for key, _, _ in CONSUMER_TABS}:
+        active = active_tab
     links = "".join(
         f'<a href="{href}"' + (' aria-current="page"' if key == active else "")
         + f'>{label}</a>' for key, href, label in CONSUMER_TABS
