@@ -52,6 +52,7 @@
     }
     currentPlace.classList.toggle('hidden',!findingHere);
     document.body.classList.toggle('findingCurrentPlace',findingHere);
+    updateSearchScope();
     for (const button of [here,byName,nearby,mapButton]) button.setAttribute('aria-pressed',String(button===selected));
   }
   function cancelPending() {

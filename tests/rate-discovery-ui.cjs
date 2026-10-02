@@ -275,3 +275,53 @@ test('Uzbek current-place loading, empty, failure and low-accuracy messages desc
   assert.match(failed.document.getElementById('currentPlaceMessage').textContent,/Barcha manbalarni yuklab bo‘lmadi/);
   assert(!failed.document.getElementById('currentPlaceMessage').textContent.includes('hech narsa topilmadi'));
 });
+
+test('pending GPS immediately synchronizes 300m labels and restores the prior scope before a new search finishes',async()=>{
+  const local=deferred(),google=deferred();
+  const x=await harness({search:'?find=search',gps:'pending',localNearby:()=>local.promise,nearby:()=>google.promise});
+  x.document.getElementById('radius').value='8';
+  await x.click('#discoveryHere');
+  assert(x.document.body.classList.contains('findingCurrentPlace'));
+  assert.equal(x.document.getElementById('mapRadius').textContent,'0.3');
+  assert.match(x.document.getElementById('scopeHint').textContent,/300 м/);
+  assert.match(x.document.getElementById('results').textContent,/Ожидаем местоположение.*300 м/);
+  assert(!x.document.getElementById('results').textContent.includes('не найдены'));
+  assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
+  await x.click('#discoveryMap');
+  assert(!x.document.body.classList.contains('findingCurrentPlace'));
+  assert.equal(x.document.getElementById('mapRadius').textContent,'8');
+  assert.match(x.document.getElementById('scopeHint').textContent,/8 км/);
+  x.permission().reject({code:1});await settle();
+  assert.equal(x.document.getElementById('mapRadius').textContent,'8');assert.equal(x.gps(),1);
+  local.resolve(reply({items:[]}));google.resolve({places:[]});await settle();
+});
+
+test('denied GPS restores ordinary labels when leaving current-place mode without repeating permission',async()=>{
+  const x=await harness({search:'',gps:'pending'});
+  assert.equal(x.document.getElementById('mapRadius').textContent,'0.3');
+  x.permission().reject({code:1});await settle();
+  assert(!x.document.body.classList.contains('findingCurrentPlace'));
+  assert(x.document.getElementById('currentPlace').classList.contains('hidden'));
+  assert.equal(x.document.getElementById('mapRadius').textContent,'15');
+  assert.match(x.document.getElementById('scopeHint').textContent,/15 км/);
+  assert.match(x.document.getElementById('error').textContent,/геолокации запрещён/);
+  assert.equal(x.gps(),1);assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
+});
+
+test('current-place list waits for GPS and outstanding sources in RU/UZ, then shows a completed empty result',async()=>{
+  for(const uz of [false,true]){
+    const google=deferred();
+    const x=await harness({search:'',gps:'pending',uz,localPlaces:[],nearby:()=>google.promise});
+    const results=x.document.getElementById('results');
+    assert.match(results.textContent,uz?/joylashuvni kutyapmiz/:/Ожидаем местоположение/);
+    assert.equal(x.document.getElementById('mapRadius').textContent,'0.3');
+    x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();
+    assert.match(results.textContent,uz?/300 m.*izlayapmiz/:/Ищем организации.*300 м/);
+    assert.equal(x.document.getElementById('listCount').textContent,uz?'Qidiruv…':'Поиск…');
+    assert(!results.textContent.includes('не найдены'));
+    google.resolve({places:[]});await settle();
+    assert.equal(x.window.relyqoNearbyPending,false);
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/hech narsa topilmadi/:/ничего не найдено/);
+    assert(!results.textContent.includes('Ищем организации'));
+  }
+});
