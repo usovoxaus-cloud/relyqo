@@ -12,6 +12,9 @@ let ratedCatalogHasMore = false;
 let ratedCatalogFacets = { countries: [], cities: [] };
 let ratedSearchTimer = null;
 let currentCenter = null;
+let locationFix = null;
+let centerLabel = "Вы находитесь здесь";
+let lastMapView = "";
 let showFavoritesOnly = false;
 let showRatedOnly = true;
 let directoryGeography = [];
@@ -109,11 +112,13 @@ function clearError() {
 }
 
 function selectedRadius() {
+  if (document.body.classList.contains('findingCurrentPlace')) return 0.5;
   const value = Number($("#radius").value);
   return Number.isFinite(value) && value > 0 ? value : 15;
 }
 
 function selectedLimit() {
+  if (document.body.classList.contains('findingCurrentPlace')) return 20;
   const value = Number($("#resultLimit").value);
   return [20, 50, 100].includes(value) ? value : 20;
 }
@@ -131,6 +136,7 @@ function saveSearchPreferences() {
 }
 
 function restoreSearchPreferences() {
+  if (document.body.classList.contains('findingCurrentPlace')) return;
   try {
     const saved = JSON.parse(localStorage.getItem(searchPreferencesKey) || "null");
     if (!saved || typeof saved !== "object") return;
@@ -617,12 +623,16 @@ function drawMap(rows) {
   if (googleMap) {
     for (const marker of googleMarkers) marker.setMap(null);
     googleMarkers = [];
-    googleMap.setCenter(currentCenter);
-    googleMap.setZoom(googleZoom());
+    const view = `${currentCenter.lat},${currentCenter.lng},${selectedRadius()}`;
+    if (view !== lastMapView) {
+      googleMap.setCenter(currentCenter);
+      googleMap.setZoom(googleZoom());
+      lastMapView = view;
+    }
     googleMarkers.push(new google.maps.Marker({
       position: currentCenter,
       map: googleMap,
-      title: "Вы находитесь здесь",
+      title: centerLabel,
       label: { text: "●", color: "#0b2840", fontSize: "18px" },
     }));
     for (const item of rows) {
@@ -646,7 +656,7 @@ function drawMap(rows) {
     you.className = "marker you";
     you.style.left = "50%";
     you.style.top = "50%";
-    you.title = "Вы находитесь здесь";
+    you.title = centerLabel;
     root.append(you);
     for (const item of rows) {
       const marker = document.createElement("button");
@@ -663,6 +673,8 @@ function drawMap(rows) {
     $("#centerLabel").textContent = `Центр: ${currentCenter.lat.toFixed(4)}, ${currentCenter.lng.toFixed(4)}`;
   }
   $("#mapCount").textContent = `${rows.length} мест`;
+  const legend = $("#searchCenterLabel");
+  if (legend) legend.textContent = centerLabel;
 }
 
 function profileUrl(item) {
@@ -966,6 +978,7 @@ function renderAll() {
   $("#ratedLoadMore").classList.toggle("hidden", !showRatedOnly || !ratedCatalogHasMore);
   updatePersonalMode();
   updateCatalogMode();
+  window.relyqoRenderCurrentPlace?.(rows);
 }
 
 async function loadRatedCatalog(reset = true) {
@@ -1126,16 +1139,17 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
   for (const center of centers) {
     if (!isCurrent()) return [];
     const request = {
-      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents", "rating", "userRatingCount", "attributions"],
+      fields: ["id", "displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents", "rating", "userRatingCount", "attributions"],
       locationRestriction: { center, radius: Math.min(50000, zoneRadius * 1000) },
       maxResultCount: 20,
-      rankPreference: SearchNearbyRankPreference.POPULARITY,
+      rankPreference: document.body.classList.contains('ratingDiscovery') ? SearchNearbyRankPreference.DISTANCE : SearchNearbyRankPreference.POPULARITY,
       language: (navigator.language || "ru").split("-")[0],
     };
     if (selected !== "ALL") request.includedPrimaryTypes = googlePlaceTypes[selected] || [];
     const { places } = await Place.searchNearby(request);
     for (const place of places || []) {
       if (!place.location || !place.id || found.has(place.id)) continue;
+      if (addressPart(place, "country", "shortText").toUpperCase() !== "UZ") continue;
       const coordinates = { lat: place.location.lat(), lng: place.location.lng() };
       const distance = distanceKm(origin, coordinates);
       if (distance > radius) continue;
@@ -1217,7 +1231,7 @@ async function searchCatalog() {
     if (searchId !== catalogRequestId) return;
     const { places } = await withDeadline(Place.searchByText({
       textQuery: query,
-      fields: ["displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents", "rating", "userRatingCount", "attributions"],
+      fields: ["id", "displayName", "location", "formattedAddress", "googleMapsURI", "primaryType", "addressComponents", "rating", "userRatingCount", "attributions"],
       locationBias: { center: currentCenter, radius: Math.min(50000, selectedRadius() * 1000) },
       maxResultCount: Math.min(20, selectedLimit()),
       rankPreference: SearchByTextRankPreference.RELEVANCE,
@@ -1225,7 +1239,7 @@ async function searchCatalog() {
     }), 12000);
     if (searchId !== catalogRequestId) return;
     const found = (places || []).map(place => externalPlaceItem(place)).filter(Boolean)
-      .filter((item) => item.distance <= selectedRadius());
+      .filter((item) => item.country_code === "UZ" && item.distance <= selectedRadius());
     lastExternalPlaces = found;
     remoteSearchQuery = query.toLocaleLowerCase("ru");
     remoteSearchIds = new Set(found.map((item) => item.id));
@@ -1256,6 +1270,7 @@ async function refreshCatalog() {
   if (!currentCenter) return;
   const requestId = ++catalogRequestId;
   const isCurrent = () => requestId === catalogRequestId;
+  window.relyqoNearbyPending = true;
   const scope = { center: { ...currentCenter }, radius: selectedRadius(), limit: selectedLimit(), category: $("#serviceCategory").value || "ALL" };
   clearError();
   updateSearchScope();
@@ -1280,6 +1295,7 @@ async function refreshCatalog() {
     ]);
   } catch (error) {
     if (!isCurrent()) return;
+    window.relyqoNearbyPending = false;
     ++catalogRequestId;
     throw error;
   }
@@ -1291,6 +1307,7 @@ async function refreshCatalog() {
   // Do not keep the search button blocked by third-party requests.
   external.then(result => {
     if (!isCurrent() || result.stale) return;
+    window.relyqoNearbyPending = false;
     if (result.error) showError(result.error.message);
     else lastExternalPlaces = result.rows;
     renderAll();
@@ -1298,7 +1315,7 @@ async function refreshCatalog() {
   });
 }
 
-async function locate() {
+async function locate(options) {
   const requestId = ++locationRequestId;
   clearError();
   const button = $("#locate");
@@ -1309,20 +1326,28 @@ async function locate() {
     const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
       resolve,
       reject,
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 300000 },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: options?.fresh === true ? 0 : 300000 },
     ));
     if (requestId !== locationRequestId) return;
+    const { latitude, longitude, accuracy } = position.coords;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+      throw new Error("Не удалось определить местоположение. Повторите поиск или выберите место на карте.");
+    }
     currentCenter = { lat: position.coords.latitude, lng: position.coords.longitude };
+    locationFix = { accuracy: Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null };
+    centerLabel = "Вы находитесь здесь";
     showRatedOnly = false;
     $("#addPlace").disabled = false;
     $("#radius").value = selectedRadius();
     await refreshCatalog();
+    return true;
   } catch (error) {
     if (requestId !== locationRequestId) return;
     showError(error.code === 1
-      ? "Доступ к геолокации запрещён. Разрешите его в настройках браузера и нажмите «Показать рядом на карте»."
+      ? "Доступ к геолокации запрещён. Найдите организацию по названию или выберите область на карте."
       : error.message || "Не удалось определить местоположение");
     $("#status").textContent = "Поиск не выполнен";
+    return false;
   } finally {
     button.disabled = false;
   }

@@ -45,6 +45,7 @@
     status("Не удалось загрузить города. Поиск по областям доступен — список городов появится после обновления страницы.");
     return {cities:[], regions:[...$("#ratedRegion").options].filter(row => row.value !== "ALL").map(row => ({code:row.value, label_ru:row.textContent, label_uz:row.textContent, aliases:[row.textContent]}))};
   });
+  window.relyqoLocationsReady = locationsReady;
 
   window.relyqoCancelSearch = () => {++searchRequest; clearTimeout(searchTimer); window.relyqoSearchPending = false;};
   window.relyqoSearchOrganizations = () => {
@@ -93,7 +94,7 @@
       const {Place} = await withDeadline(google.maps.importLibrary("places"), 12000);
       async function find(textQuery) {
         if (!current()) return [];
-        const requestBody = {textQuery,fields:["id","displayName","location","formattedAddress","googleMapsURI","primaryType","addressComponents"],maxResultCount:20,language:body.language,region:"uz"};
+        const requestBody = {textQuery,fields:["id","displayName","location","formattedAddress","googleMapsURI","primaryType","addressComponents","rating","userRatingCount","attributions"],maxResultCount:20,language:body.language,region:"uz"};
         if (city) {
           const delta = 0.23 / Math.max(0.3, Math.cos(city.latitude * Math.PI / 180));
           requestBody.locationRestriction = {north:city.latitude+.23,south:city.latitude-.23,east:city.longitude+delta,west:city.longitude-delta};

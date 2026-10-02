@@ -7,7 +7,7 @@ function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve
 const source=fs.readFileSync('app/static/nearby.js','utf8');
 function functions(...names){return acorn.parse(source,{ecmaVersion:'latest'}).body.filter(n=>n.type==='FunctionDeclaration'&&names.includes(n.id.name)).map(n=>source.slice(n.start,n.end)).join('\n');}
 function setup(){const map=deferred(),external=deferred(),status={textContent:''},renders=[],requests=[],errors=[];let name='first';
- const context={currentCenter:{lat:41,lng:69},catalogRequestId:0,lastPartners:[],lastManualPlaces:[],lastExternalPlaces:[],Promise,setTimeout,clearTimeout,AbortController,Error,
+ const context={window:{},currentCenter:{lat:41,lng:69},catalogRequestId:0,lastPartners:[],lastManualPlaces:[],lastExternalPlaces:[],Promise,setTimeout,clearTimeout,AbortController,Error,
   $:id=>id==='#serviceCategory'?{value:'ALL'}:status,selectedRadius:()=>15,selectedLimit:()=>20,clearError(){},updateSearchScope(){},showError:x=>errors.push(x),loadGoogleMap:()=>map.promise,
   fetchNearby:async url=>{requests.push(url);return [{name:name+url}]},fetchExternalPlaces:()=>external.promise,
   renderAll:()=>renders.push({local:[...context.lastPartners,...context.lastManualPlaces],external:[...context.lastExternalPlaces]})};

@@ -303,7 +303,9 @@ def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
     assert 'id="startCamera"' in page.text
     assert 'id="cameraPreview"' in page.text
     assert 'id="qrImage"' in page.text
-    assert "Выбрать организацию" in page.text
+    assert "Оценить рядом" in page.text
+    assert 'href="/rate?find=here"' in page.text
+    assert 'name="find" value="search"' in page.text
     assert "Найти рестораны рядом" not in page.text
     assert "видео не сохраняется" in page.text
     assert "cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js" not in page.text
@@ -1665,7 +1667,8 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert 'href="/nearby" aria-current="page"' in consumer_page.text
     assert 'href="/rate"' in consumer_page.text
     assert 'href="/me"' in consumer_page.text
-    assert 'id="token"' in TestClient(app).get("/rate").text
+    assert 'id="directoryPanel"' in TestClient(app).get("/rate").text
+    assert 'id="token"' in TestClient(app).get("/rate?find=qr").text
     assert TestClient(app).get("/v1/admin/dashboard").status_code == 401
 
 

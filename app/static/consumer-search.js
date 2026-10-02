@@ -15,7 +15,7 @@
   var locate=document.getElementById('locate');locate.classList.add('consumerMap');document.getElementById('listCard').after(locate);
   var key='relyqo.consumer.place.v1',restored=false,restoring=false;
   function sync(){
-    if(!restored&&window.relyqoUzbekistan){restored=true;restoring=true;try{var saved=JSON.parse(localStorage.getItem(key)||'null');if(saved&&Array.from(region.options).some(function(o){return o.value===saved.region;})){region.value=saved.region;region.dispatchEvent(new Event('change',{bubbles:true}));if(Array.from(city.options).some(function(o){return o.value===saved.city;})){city.value=saved.city;city.dispatchEvent(new Event('change',{bubbles:true}));}}}catch(e){}finally{restoring=false;}}
+    if(!restored&&window.relyqoUzbekistan){restored=true;restoring=true;window.relyqoRestoringLocation=true;try{var saved=JSON.parse(localStorage.getItem(key)||'null');if(saved&&Array.from(region.options).some(function(o){return o.value===saved.region;})){region.value=saved.region;region.dispatchEvent(new Event('change',{bubbles:true}));if(Array.from(city.options).some(function(o){return o.value===saved.city;})){city.value=saved.city;city.dispatchEvent(new Event('change',{bubbles:true}));}}}catch(e){}finally{restoring=false;window.relyqoRestoringLocation=false;}}
     var selected=city.value!=='ALL'&&city.value?Array.from(city.options).find(function(o){return o.value===city.value;}):region.value!=='ALL'?Array.from(region.options).find(function(o){return o.value===region.value;}):null;
     var label=selected?selected.textContent+' · '+(uz?'O‘zgartirish':'Изменить'):uz?'Hududni tanlash':'Выбрать город';if(summary.textContent!==label)summary.textContent=label;
     chips.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.category===category.value));});
@@ -24,5 +24,5 @@
   new MutationObserver(sync).observe(selects,{childList:true,subtree:true});sync();
   function moveAds(){document.querySelectorAll('body>.relyqo-ad-top').forEach(function(ad){document.querySelector('main').append(ad);});}new MutationObserver(moveAds).observe(document.body,{childList:true});moveAds();
   var controller=new AbortController(),timer=setTimeout(function(){controller.abort();},8000);
-  fetch('/v1/public/app-content',{signal:controller.signal,cache:'no-store'}).then(function(r){if(!r.ok)throw Error();return r.json();}).then(function(data){var copy=data.content&&data.content[uz?'uz':'ru'];if(!copy)return;if(typeof copy.title==='string')title.textContent=copy.title;if(typeof copy.hint==='string')hint.textContent=copy.hint;}).catch(function(){}).finally(function(){clearTimeout(timer);});
+  fetch('/v1/public/app-content',{signal:controller.signal,cache:'no-store'}).then(function(r){if(!r.ok)throw Error();return r.json();}).then(function(data){if(document.body.classList.contains('ratingDiscovery'))return;var copy=data.content&&data.content[uz?'uz':'ru'];if(!copy)return;if(typeof copy.title==='string')title.textContent=copy.title;if(typeof copy.hint==='string')hint.textContent=copy.hint;}).catch(function(){}).finally(function(){clearTimeout(timer);});
 })();

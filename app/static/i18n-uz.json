@@ -1722,5 +1722,18 @@
   "Ваши оценки: выберите от 1 до 10 по каждому критерию.": "Sizning baholaringiz: har bir mezon uchun 1 dan 10 gacha tanlang.",
   "Общий рейтинг Google показывается отдельно и не меняет оценки потребителей RELYQO.": "Google umumiy reytingi alohida ko‘rsatiladi va RELYQO iste’molchilari baholarini o‘zgartirmaydi.",
   "Рейтинг Google показан отдельно от оценок RELYQO.": "Google reytingi RELYQO baholaridan alohida ko‘rsatilgan.",
-  "Google Places используется для живого поиска и показа рейтинга Google.": "Google Places jonli qidiruv va Google reytingini ko‘rsatish uchun ishlatiladi."
+  "Google Places используется для живого поиска и показа рейтинга Google.": "Google Places jonli qidiruv va Google reytingini ko‘rsatish uchun ishlatiladi.",
+  "Найти организацию": "Tashkilot topish",
+  "Название организации или адрес": "Tashkilot nomi yoki manzili",
+  "Найти рядом": "Yaqin joylarni topish",
+  "Оценить рядом": "Yaqin joyni baholash",
+  "По моему местоположению": "Mening joylashuvim bo‘yicha",
+  "Выбрать на карте": "Xaritadan tanlash",
+  "Найти нужное место вручную": "Kerakli joyni qo‘lda topish",
+  "Геолокация нужна только для поиска рядом. Если доступ запрещён, найдите организацию по названию или на карте.": "Joylashuv faqat yaqin joylarni izlash uchun kerak. Ruxsat berilmasa, tashkilotni nomi bo‘yicha yoki xaritadan toping.",
+  "Доступ к геолокации запрещён. Найдите организацию по названию или выберите область на карте.": "Joylashuvga ruxsat berilmadi. Tashkilotni nomi bo‘yicha toping yoki xaritadan hudud tanlang.",
+  "Центр поиска": "Qidiruv markazi",
+  "Где я сейчас": "Hozir qayerdaman",
+  "Определить организацию рядом со мной": "Yonimdagi tashkilotni aniqlash",
+  "Не удалось определить местоположение. Повторите поиск или выберите место на карте.": "Joylashuvni aniqlab bo‘lmadi. Qayta urinib ko‘ring yoki xaritadan joy tanlang."
 }
