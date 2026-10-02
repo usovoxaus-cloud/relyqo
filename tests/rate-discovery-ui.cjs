@@ -305,6 +305,8 @@ test('denied GPS restores ordinary labels when leaving current-place mode withou
   assert.equal(x.document.getElementById('mapRadius').textContent,'15');
   assert.match(x.document.getElementById('scopeHint').textContent,/15 км/);
   assert.match(x.document.getElementById('error').textContent,/геолокации запрещён/);
+  assert(!x.document.getElementById('results').textContent.includes('Ожидаем местоположение'));
+  assert(x.document.querySelector('#place-manual-fixture-local .rateLink'));
   assert.equal(x.gps(),1);assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
 });
 

@@ -137,9 +137,10 @@
     if(success)renderAll();
     else{
       const message=document.getElementById('error').textContent;
+      choose(byName);
       await reloadRatedCatalog();
       if(request!==operation)return;
-      choose(byName);showError(message);
+      showError(message);
       status.textContent=t('Можно искать по названию или выбрать место на карте.', 'Nom bo‘yicha izlash yoki xaritadan joy tanlash mumkin.');
     }
   }
