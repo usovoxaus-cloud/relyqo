@@ -17,7 +17,7 @@ body.ratingDiscovery .ratingRadiusControl #discoveryHere,body.ratingDiscovery .r
 @media(max-width:360px){.ratingRadiusForm{grid-template-columns:minmax(0,1fr)}body.ratingDiscovery .ratingRadiusForm button{width:100%}.ratingRadiusControl{padding:12px}}
 body.ratingDiscovery .ratingDiscoveryActions button,body.ratingDiscovery .ratingDiscoveryActions a{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 14px;margin:0!important;width:auto!important;border:1px solid #416a76;border-radius:12px;background:#12323f;color:#d8f8ee;font:700 14px/1.4 system-ui;text-decoration:none;cursor:pointer}
 body.ratingDiscovery .ratingDiscoveryActions button[aria-pressed=true]{background:#78e3c0;color:#06281e}
-body.ratingDiscovery #status{display:block!important;margin:12px 0;line-height:1.5}body.ratingDiscovery #status:empty{display:none!important}
+body.ratingDiscovery #status{display:none!important}
 .ratingMapTools{padding:12px 16px;border-top:1px solid #315467}.ratingMapTools p{color:#b7d0d7;font-size:13px;line-height:1.5;margin:0 0 10px}.ratingMapTools button{min-height:46px;border:1px solid #78e3c0;border-radius:10px;padding:10px 14px;background:#78e3c0;color:#06281e;font-weight:750;cursor:pointer}.ratingMapTools button:disabled{opacity:.55;cursor:default}
 body.ratingDiscovery .place .rateLink{order:-1;background:#78e3c0!important;color:#06281e!important;border-color:#78e3c0!important;min-height:44px;display:inline-flex;align-items:center;padding:10px 14px}
 .ratingDiscovery button:focus-visible,.ratingDiscovery a:focus-visible,.rateFindActions a:focus-visible,.rateSearch input:focus-visible{outline:3px solid #9dc9ff;outline-offset:3px}
