@@ -1555,7 +1555,7 @@ document.addEventListener("keydown", (event) => {
 
 $("#manualForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const form = event.currentTarget;
+  const form = $("#manualForm");
   if (form.reportValidity && !form.reportValidity()) return;
   const submit = event.submitter || form.querySelector('[type="submit"]');
   if (submit.disabled) return;
