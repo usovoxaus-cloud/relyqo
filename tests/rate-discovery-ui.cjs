@@ -15,6 +15,7 @@ async function harness(options={}) {
   document.getElementById('manualDialog').showModal=function(){this.open=true;};
   document.getElementById('manualDialog').close=function(){this.open=false;};
   document.getElementById('manualForm').reset=function(){};
+  document.getElementById('manualForm').reportValidity=function(){return !options.invalidManual;};
   const calls=[],markers=[],timers=new Map(),stored=new Map();let timer=0,map,gps=0,permission;
   if(options.saved)stored.set('relyqo.consumer.place.v1',JSON.stringify(options.saved));
   const google={maps:{Map:function(root,config){map=this;this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return {places:[externalPlace()]};}}})}};
@@ -24,6 +25,7 @@ async function harness(options={}) {
     if(url.startsWith('/v1/public/rated-organizations'))return reply({items:options.localPlaces||[localPlace],total:1,geography:[],facets:{countries:['UZ'],cities:[]}});
     if(url.startsWith('/static/uzbekistan.json'))return reply(locations);
     if(url==='/v1/public/app-content')return reply({content:{ru:{title:'Generic search title',hint:'Generic search hint'}}});
+    if(url==='/v1/public/manual-places'&&options.manualFailure)return {ok:false,json:async()=>({detail:options.manualFailure})};
     if(url==='/v1/public/manual-places'&&options.confirmPlace)return reply({item:{...localPlace,id:'confirmed',...body}});
     if(url.endsWith('/nearby')&&options.localNearby)return options.localNearby(url,body);
     if(url==='/v1/public/manual-places/nearby')return reply({items:options.localPlaces||[localPlace]});
@@ -497,3 +499,59 @@ test('Find while permission is pending switches to the list without a second GPS
   x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();
   assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));assert(x.document.querySelector('#results .rateLink'));
 });
+
+test('missing-place action is available after results, empty searches and denied GPS in both languages',async()=>{
+  for(const pathname of ['/consumer','/rate'])for(const uz of [false,true])for(const scenario of ['results','empty','nearby-empty','denied']){
+    const x=await harness({pathname,search:scenario==='denied'||scenario==='nearby-empty'?'?find=here':'',uz,
+      gps:scenario==='denied'?'denied':undefined,localPlaces:scenario==='empty'||scenario==='nearby-empty'?[]:undefined,nearby:()=>({places:[]})});
+    const add=x.document.getElementById('addPlace');
+    assert(!add.hidden);assert(!add.disabled);
+    assert.equal(x.document.getElementById('listCard').nextElementSibling,add);
+    assert.equal(add.textContent,uz?'Tashkilotni topmadingizmi? Tashkilot qo‘shish':'Не нашли организацию? Добавить организацию');
+    const gps=x.gps();await x.click('#addPlace');
+    assert(x.document.getElementById('manualDialog').open);assert.equal(x.gps(),gps);
+    assert.equal(x.document.querySelector('#manualForm [type=submit]').textContent,uz?'Qo‘shish va baholash':'Добавить и оценить');
+    await x.click('#cancelManual');assert(!x.document.getElementById('manualDialog').open);
+    assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'||c.url?.includes('/ratings')));
+  }
+});
+
+test('add action preserves the editable search name without inventing an address or carrying over another place',async()=>{
+  const x=await harness({search:'?find=here'});
+  await x.click('#place-external-fixture-google .rateLink');await x.click('#cancelManual');
+  await x.type('  New cafe & bakery  ');
+  await x.click('#addPlace');
+  assert.equal(x.document.getElementById('manualName').value,'New cafe & bakery');
+  assert.equal(x.document.getElementById('manualAddress').value,'');
+  assert.equal(x.document.getElementById('manualCity').value,'');
+  assert.equal(x.document.getElementById('manualDescription').value,'');
+  assert.equal(x.document.getElementById('manualCategory').value,'OTHER');
+  assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'));
+});
+
+test('confirmed missing-place creation reaches its own rating form without visitor coordinates or a rating submission',async()=>{
+  const x=await harness({search:'?find=here',confirmPlace:true});
+  await x.type('New cafe');await x.click('#addPlace');
+  for(const [id,value] of Object.entries({manualName:'New cafe edited',manualDescription:'A real cafe entered by its visitor.',manualAddress:'Example street 12',manualCity:'Samarkand',manualCountry:'UZ'}))x.document.getElementById(id).value=value;
+  const event=new x.events.Event('submit',{cancelable:true}); // Enter may have no submitter.
+  x.document.getElementById('manualForm').dispatchEvent(event);await settle();
+  const writes=x.calls.filter(c=>c.url==='/v1/public/manual-places');assert.equal(writes.length,1);
+  assert.equal(writes[0].body.name,'New cafe edited');assert.equal(writes[0].body.city,'Samarkand');
+  assert.equal(writes[0].body.latitude,null);assert.equal(writes[0].body.longitude,null);assert.equal(writes[0].body.google_place_id,null);
+  assert(!x.document.getElementById('manualDialog').open);
+  const url=new URL(x.context.location.href,'https://example.test');assert.equal(url.searchParams.get('object_key'),'manual:confirmed');assert.equal(url.searchParams.get('name'),'New cafe edited');
+  await openRatingForm(x.context.location.href);
+  assert(!x.calls.some(c=>c.url?.includes('/ratings')));
+});
+
+test('invalid forms never write and rejected additions retain user input for correction',async()=>{
+  const invalid=await harness({search:'',invalidManual:true});await invalid.click('#addPlace');
+  invalid.document.getElementById('manualForm').dispatchEvent(new invalid.events.Event('submit',{cancelable:true}));await settle();
+  assert(invalid.document.getElementById('manualDialog').open);assert(!invalid.calls.some(c=>c.url==='/v1/public/manual-places'));
+  const x=await harness({search:'?find=search&q=My%20place',manualFailure:'Check the address'});await x.click('#addPlace');
+  x.document.getElementById('manualForm').dispatchEvent(new x.events.Event('submit',{cancelable:true}));await settle();
+  assert(x.document.getElementById('manualDialog').open);assert.equal(x.document.getElementById('manualName').value,'My place');
+  assert.equal(x.document.getElementById('manualError').textContent,'Check the address');assert(!x.document.querySelector('#manualForm [type=submit]').disabled);
+  assert.equal(x.context.location.href,'/rate');assert(!x.calls.some(c=>c.url?.includes('/ratings')));
+});
+
