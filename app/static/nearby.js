@@ -831,9 +831,19 @@ function openManualDialog(item = null, action = "save") {
     $("#manualForm").reset();
     const selectedCity = ratedFilterValue("#ratedCity");
     if (selectedCity !== "ALL") $("#manualCity").value = selectedCity;
+    if (action === "rate") {
+      $("#manualName").value = $("#catalogQuery").value.trim().slice(0,160);
+      $("#manualCategory").value = "OTHER";
+      $("#manualDescription").value = "";
+      $("#manualAddress").value = "";
+      $("#manualCity").value = selectedCity === "ALL" ? "" : selectedCity;
+    }
   }
   const submit = $("#manualForm").querySelector('[type="submit"]');
-  submit.textContent = action === "rate" ? "Продолжить к оценке" : "Добавить в RELYQO";
+  const uz = document.documentElement.lang === "uz";
+  submit.textContent = action === "rate"
+    ? item ? (uz ? "Baholashga o‘tish" : "Продолжить к оценке") : (uz ? "Qo‘shish va baholash" : "Добавить и оценить")
+    : (uz ? "RELYQO’ga qo‘shish" : "Добавить в RELYQO");
   $("#manualDialog").showModal();
 }
 
@@ -1443,7 +1453,7 @@ for (const prompt of document.querySelectorAll(".advisorPrompt")) {
     askPublicAdvisor($("#advisorQuestion").value);
   });
 }
-$("#addPlace").addEventListener("click", () => openManualDialog());
+$("#addPlace").addEventListener("click", () => openManualDialog(null, document.body.classList.contains('ratingDiscovery') ? "rate" : "save"));
 $("#cancelManual").addEventListener("click", () => {
   pendingManualAction = "save";
   pendingManualLocation = null;
@@ -1545,9 +1555,12 @@ document.addEventListener("keydown", (event) => {
 
 $("#manualForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
+  if (form.reportValidity && !form.reportValidity()) return;
+  const submit = event.submitter || form.querySelector('[type="submit"]');
+  if (submit.disabled) return;
   // GPS describes the visitor, not necessarily the business. Only use confirmed place coordinates.
   const locationForPlace = pendingManualLocation;
-  const submit = event.submitter;
   submit.disabled = true;
   $("#manualError").classList.add("hidden");
   const body = {
@@ -1604,3 +1617,4 @@ reloadRatedCatalog().then(() => {$("#status").textContent = ratedCatalogLoaded ?
 
 Promise.resolve(window.relyqoCategoriesReady).then(items => {for (const item of items || []) categoryNames[item.code] = item.label; restoreSearchPreferences(); renderAll();});
 Promise.resolve(window.relyqoLanguageReady).then(() => {if (ratedCatalogLoaded) {updateRatedLocationFilters(); renderDirectoryGeography();}});
+

@@ -43,7 +43,11 @@
   radiusControl.append(presets,radiusForm,radiusHint,radiusError);
   const panel = document.getElementById('directoryPanel');
   panel.querySelector('.catalogSearchWrap').before(actions);panel.append(radiusControl);
-  document.getElementById('listCard').after(qr);
+  const addPlace = document.getElementById('addPlace');
+  addPlace.textContent = t('Не нашли организацию? Добавить организацию', 'Tashkilotni topmadingizmi? Tashkilot qo‘shish');
+  addPlace.classList.add('ratingAddPlace');
+  addPlace.hidden = false;
+  document.getElementById('listCard').after(addPlace,qr);
   const status = document.getElementById('status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
   panel.append(status,document.getElementById('error'));
   const currentPlace = node('section','','currentPlace');currentPlace.className='currentPlace hidden';
@@ -191,7 +195,7 @@
   });
   commitRadius();choose(byName);
   // The advanced catalog retains these controls on /nearby only.
-  for(const selector of ['.consumerPlace','.consumerChips','.searchSource','#citySearchStatus','.consumerSecondary','.catalogOptions','.searchAdvanced','.advisorDetails','#addPlace','#locate','#mapCard','#status']){
+  for(const selector of ['.consumerPlace','.consumerChips','.searchSource','#citySearchStatus','.consumerSecondary','.catalogOptions','.searchAdvanced','.advisorDetails','#locate','#mapCard','#status']){
     for(const element of document.querySelectorAll(selector))element.hidden=true;
   }
   const initial=operation;
@@ -201,3 +205,4 @@
     return byNameSearch();
   });
 })();
+
