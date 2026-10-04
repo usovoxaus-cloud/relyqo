@@ -49,7 +49,9 @@
   addPlace.hidden = false;
   document.getElementById('listCard').after(addPlace,qr);
   const status = document.getElementById('status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
-  panel.append(status,document.getElementById('error'));
+  const locationNotice=node('p','','discoveryLocationNotice');locationNotice.className='discoveryLocationNotice';locationNotice.hidden=true;
+  locationNotice.setAttribute('role','status');locationNotice.setAttribute('aria-live','polite');
+  panel.append(locationNotice,status,document.getElementById('error'));
   const currentPlace = node('section','','currentPlace');currentPlace.className='currentPlace hidden';
   currentPlace.setAttribute('aria-labelledby','currentPlaceTitle');
   const currentTitle = node('h2',t(`Организации в радиусе ${currentPlaceRadiusLabel()}`,`${currentPlaceRadiusLabel()} radiusdagi tashkilotlar`),'currentPlaceTitle');
@@ -59,7 +61,8 @@
   currentPlace.append(currentTitle,currentMessage,retry);
   const results=document.getElementById('results');results.before(currentPlace,candidates);candidates.append(results);
 
-  let operation = 0, findingHere = false, locating = false, savedScope = null;
+  let operation = 0, findingHere = false, savedScope = null;
+  function clearLocationNotice() {locationNotice.hidden=true;locationNotice.textContent='';}
   function validateRadius() {
     const raw=radiusInput.value.trim(),value=Number(raw.replace(',','.'));
     const valid=/^\d+(?:[.,]\d+)?$/.test(raw) && Number.isFinite(value) && value>=100 && value<=50000;
@@ -90,6 +93,8 @@
   radiusForm.addEventListener('submit',event=>{event.preventDefault();applyRadius();});
   function choose(selected) {
     findingHere=selected===here;
+    clearLocationNotice();
+    if(!findingHere){here.disabled=false;retry.disabled=false;}
     const controls=['radius','resultLimit','sortMode'].map(id=>document.getElementById(id));
     if(findingHere && !savedScope){
       savedScope=controls.map(control=>({value:control.value,disabled:control.disabled}));
@@ -167,19 +172,19 @@
   };
   async function findHere() {
     if(!commitRadius()){radiusControl.hidden=false;radiusControl.open=true;return;}
-    const request=++operation;cancelPending();choose(here);locating=true;
+    const request=++operation;cancelPending();choose(here);
     // Fresh coordinates keep the chosen radius, independently of ordinary map settings.
     locationFix=null;currentCenter=null;nearMode();here.disabled=true;retry.disabled=true;
-    const success=await locate({fresh:true});
-    if(request!==operation){here.disabled=false;retry.disabled=false;return;}
-    locating=false;here.disabled=false;retry.disabled=false;
+    let locationError='';
+    const success=await locate({fresh:true,onLocationError:message=>{locationError=message;}});
+    if(request!==operation)return;
+    here.disabled=false;retry.disabled=false;
     if(success)renderAll();
     else{
-      const message=document.getElementById('error').textContent;
       choose(byName);resetListFilters();
+      locationNotice.textContent=locationError;locationNotice.hidden=!locationError;
       await reloadRatedCatalog();
       if(request!==operation)return;
-      showError(message);
       status.textContent='';
     }
   }
@@ -189,8 +194,9 @@
   for(const id of ['ratedRegion','ratedCity','ratedCategory'])document.getElementById(id).addEventListener('change',()=>{if(!window.relyqoRestoringLocation){++operation;choose(byName);}});
   input.addEventListener('input',()=>{
     ++operation;++locationRequestId;
+    choose(byName);clearError();
     if(!showRatedOnly){
-      ++catalogRequestId;showRatedOnly=true;choose(byName);updateCatalogMode();scheduleRatedReload();
+      ++catalogRequestId;showRatedOnly=true;updateCatalogMode();scheduleRatedReload();
     }
   });
   commitRadius();choose(byName);
@@ -205,4 +211,3 @@
     return byNameSearch();
   });
 })();
-

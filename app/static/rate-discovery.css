@@ -18,6 +18,7 @@ body.ratingDiscovery .ratingRadiusControl #discoveryHere,body.ratingDiscovery .r
 body.ratingDiscovery .ratingDiscoveryActions button,body.ratingDiscovery .ratingDiscoveryActions a{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:10px 14px;margin:0!important;width:auto!important;border:1px solid #416a76;border-radius:12px;background:#12323f;color:#d8f8ee;font:700 14px/1.4 system-ui;text-decoration:none;cursor:pointer}
 body.ratingDiscovery .ratingDiscoveryActions button[aria-pressed=true]{background:#78e3c0;color:#06281e}
 body.ratingDiscovery #status{display:none!important}
+.discoveryLocationNotice{margin:14px 0 0;padding:12px 14px;border:1px solid #35576a;border-radius:12px;background:#102a38;color:#c3dbe4;font-size:14px;line-height:1.55;overflow-wrap:anywhere}
 .ratingMapTools{padding:12px 16px;border-top:1px solid #315467}.ratingMapTools p{color:#b7d0d7;font-size:13px;line-height:1.5;margin:0 0 10px}.ratingMapTools button{min-height:46px;border:1px solid #78e3c0;border-radius:10px;padding:10px 14px;background:#78e3c0;color:#06281e;font-weight:750;cursor:pointer}.ratingMapTools button:disabled{opacity:.55;cursor:default}
 body.ratingDiscovery .place .rateLink{order:-1;background:#78e3c0!important;color:#06281e!important;border-color:#78e3c0!important;min-height:44px;display:inline-flex;align-items:center;padding:10px 14px}
 .ratingDiscovery button:focus-visible,.ratingDiscovery a:focus-visible,.rateFindActions a:focus-visible,.rateSearch input:focus-visible{outline:3px solid #9dc9ff;outline-offset:3px}
@@ -52,4 +53,3 @@ body.ratingDiscovery #addPlace.ratingAddPlace{box-sizing:border-box;display:bloc
 #manualForm .dialogActions button{min-width:0;min-height:48px;white-space:normal;font-size:16px;line-height:1.4}
 @media(max-width:360px){#manualForm{padding:16px}#manualForm .dialogActions{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:520px){body.ratingDiscovery .shell{padding:12px}body.ratingDiscovery .consumerTitle{font-size:24px}body.ratingDiscovery .ratingDiscoveryActions{gap:8px}body.ratingDiscovery .directoryPanel{padding:14px!important}}
-

@@ -1400,11 +1400,21 @@ async function locate(options) {
   $("#status").textContent = "Определяем местоположение…";
   try {
     if (!navigator.geolocation) throw new Error("Ваш браузер не поддерживает геолокацию");
-    const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
+    const requestPosition = enableHighAccuracy => new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(
       resolve,
       reject,
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: options?.fresh === true ? 0 : 300000 },
+      { enableHighAccuracy, timeout: enableHighAccuracy ? 12000 : 8000, maximumAge: options?.fresh === true ? 0 : 300000 },
     ));
+    let position;
+    try {
+      position = await requestPosition(true);
+    } catch (error) {
+      // A slower high-accuracy provider can fail while ordinary location still works.
+      // Retry only once, never after denial or after the user starts another search.
+      if (requestId !== locationRequestId) return false;
+      if (error.code !== 2 && error.code !== 3) throw error;
+      position = await requestPosition(false);
+    }
     if (requestId !== locationRequestId) return;
     const { latitude, longitude, accuracy } = position.coords;
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
@@ -1422,11 +1432,13 @@ async function locate(options) {
     if (requestId !== locationRequestId) return;
     if (document.body.classList.contains('ratingDiscovery')) {
       const uz=document.documentElement.lang==='uz';
-      showError(error.code===1
+      const message=error.code===1
         ? (uz?'Joylashuvga ruxsat berilmadi. Tashkilotni ro‘yxatdan tanlang.':'Доступ к геолокации запрещён. Выберите организацию из списка.')
         : error.code===3
           ? (uz?'Joylashuvni aniqlashga vaqt yetmadi. Tashkilotni ro‘yxatdan tanlang.':'Не успели определить местоположение. Выберите организацию из списка.')
-          : (uz?'Joylashuvni aniqlab bo‘lmadi. Tashkilotni ro‘yxatdan tanlang.':'Не удалось определить местоположение. Выберите организацию из списка.'));
+          : (uz?'Joylashuvni aniqlab bo‘lmadi. Tashkilotni ro‘yxatdan tanlang.':'Не удалось определить местоположение. Выберите организацию из списка.');
+      if(options?.onLocationError)options.onLocationError(message);
+      else showError(message);
     } else {
       showError(error.code === 1
         ? "Доступ к геолокации запрещён. Найдите организацию по названию или выберите область на карте."
@@ -1621,5 +1633,3 @@ reloadRatedCatalog().then(() => {$("#status").textContent = ratedCatalogLoaded ?
 
 Promise.resolve(window.relyqoCategoriesReady).then(items => {for (const item of items || []) categoryNames[item.code] = item.label; restoreSearchPreferences(); renderAll();});
 Promise.resolve(window.relyqoLanguageReady).then(() => {if (ratedCatalogLoaded) {updateRatedLocationFilters(); renderDirectoryGeography();}});
-
-
