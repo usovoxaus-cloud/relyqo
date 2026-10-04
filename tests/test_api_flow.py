@@ -382,7 +382,7 @@ def test_relyqo_map_discovers_external_places_without_importing_external_ratings
     assert 'href="/rankings"' in page.text
     assert "Добавить в RELYQO" in page.text
     assert "manual-places/nearby" in script.text
-    assert "карта и геолокация не обязательны" in page.text
+    assert "Без точки организация будет доступна в списке" in page.text
     assert "maps.googleapis.com/maps/api/js" in script.text
     assert "google.maps.Map" in script.text
     assert 'importLibrary("places")' in script.text
@@ -2174,3 +2174,4 @@ def test_legacy_owner_can_login_with_configured_email_alias(monkeypatch):
     assert response.status_code == 200
     assert response.json()["username"] == "fregat-owner"
     assert response.json()["role"] == "FREGAT_OWNER"
+
