@@ -23,8 +23,9 @@
         card.append(el('p', org.rating_count ? `Подтверждённые оценки: ${org.rating_count} · ${Number(org.score).toFixed(1)}/100` : 'Подтверждённых оценок пока нет'));
         const details = el('details', ''); details.append(el('summary', `Филиалы: ${org.branches.length}`));
         org.branches.forEach(branch => {
-          const p = el('p', `${branch.name} · ${branch.address || branch.city || ''}${branch.active ? '' : ' · неактивен'}`);
-          p.dataset.userContent = 'true';
+          const p = el('p', ''), details = el('span', `${branch.name} · ${branch.address || branch.city || ''}`);
+          details.dataset.userContent = 'true'; p.append(details);
+          if (!branch.active) p.append(el('span', ' · неактивен'));
           if (branch.active && ['PUBLISHED','VERIFIED_PARTNER'].includes(org.profile_status)) {
             const a = el('a', ' Открыть карточку →');
             a.href = '/place?' + new URLSearchParams({object_key:'relyqo:' + branch.id,source:'RELYQO_PARTNER',name:org.name,category_code:org.category,category:window.relyqoCategoryLabel?.(org.category)||org.category,address:branch.address||branch.city||'',profile_status:org.profile_status,verified_score:org.score,verified_count:org.rating_count}); p.append(a);
@@ -44,3 +45,4 @@
   document.addEventListener('relyqo:admin-loaded', () => load());
   if (!$('appView').classList.contains('hidden')) load();
 })();
+

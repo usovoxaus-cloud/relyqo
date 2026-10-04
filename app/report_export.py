@@ -59,7 +59,7 @@ def export_report(report):
     organizations = [
         [t("Организация / сфера"), t("Сфера услуг"), *map(t, metrics.values())],
         *[
-            [row["name"], row["category_label"], *[row[key] for key in metrics]]
+            [row["name"], t(row["category_label"]), *[row[key] for key in metrics]]
             for row in report["organizations"]
         ],
     ]
@@ -152,3 +152,4 @@ def export_report(report):
         )
         archive.writestr("_rels/.rels", tostring(root_rels))
     return output.getvalue()
+

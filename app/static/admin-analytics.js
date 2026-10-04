@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const count = value => value == null ? '—' : Number(value).toLocaleString('ru-RU');
+  const count = value => value == null ? '—' : Number(value).toLocaleString((document.documentElement.lang === 'uz' ? 'uz-UZ' : 'ru-RU'));
   const pct = value => value == null ? 'Нет данных' : count(value) + '%';
   let report = null, directory = [], version = 0, firstLoad = true, appliedParams = '';
   function element(tag, text, className) { const e = document.createElement(tag); if(text != null) e.textContent = text; if(className) e.className = className; return e; }
@@ -92,7 +92,7 @@
   });
   async function analyze() {
     const current=version; $('analyze').disabled=true; $('aiStatus').textContent='ИИ анализирует сводные показатели…';
-    try { const data=await api('/v1/admin/analytics/insights?'+appliedParams,{method:'POST'}); if(current!==version) return; $('aiText').textContent=data.analysis; $('aiStatus').textContent=`${data.cached?'Сохранённый анализ':'Анализ готов'} · ${new Date(data.generated_at).toLocaleString('ru-RU')}`; }
+    try { const data=await api('/v1/admin/analytics/insights?'+appliedParams,{method:'POST'}); if(current!==version) return; $('aiText').textContent=data.analysis; $('aiStatus').textContent=`${data.cached?'Сохранённый анализ':'Анализ готов'} · ${new Date(data.generated_at).toLocaleString((document.documentElement.lang === 'uz' ? 'uz-UZ' : 'ru-RU'))}`; }
     catch(error) { if(current===version) $('aiStatus').textContent=error.message; }
     finally { if(current===version) $('analyze').disabled=!report?.ai.configured||!report?.summary.included; }
   }
@@ -112,3 +112,4 @@
   const initial=new URLSearchParams(location.search);for(const id of ['start','end','source','category','entity'])if(initial.has(id)&&['start','end','source'].includes(id))$(id).value=initial.get(id);if(initial.has('start'))$('period').value='custom';
   (async()=>{try{const categoryLoad=categories().catch(()=>{$('categoryStatus').textContent='Список категорий не загрузился. Обновите страницу, чтобы изменить категорию.';});if(initial.has('category')||initial.has('entity'))await categoryLoad;if(initial.has('category'))$('category').value=initial.get('category');if(initial.has('entity')){directory=(await api('/v1/admin/analytics?source='+$('source').value)).organizations;entityOptions();$('entity').value=initial.get('entity');}await load();}catch(error){$('pageStatus').textContent=error.message;}})();
 })();
+

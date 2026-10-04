@@ -477,7 +477,7 @@ function renderAdvisorResult(data) {
       const top = document.createElement("div");
       top.className = "advisorChoiceTop";
       const name = document.createElement("strong");
-      name.textContent = `${item.position}. ${item.name}`;
+      name.textContent = `${item.position}. ${item.name}`; name.dataset.userContent = "true";
       const score = document.createElement("span");
       score.className = "advisorChoiceScore";
       score.textContent = data.priority?.key === "distance" && item.distance_km != null
@@ -943,7 +943,7 @@ function renderList(rows) {
       ? (item.verified_partner ? "ПАРТНЁР RELYQO" : "ПРОФИЛЬ RELYQO")
       : item.kind === "manual" ? (item.source_url ? "АДРЕС ПО САЙТУ ЗАВЕДЕНИЯ" : "ДОБАВЛЕНО ПОТРЕБИТЕЛЕМ") : "НАЙДЕНО · Google Maps";
     const heading = document.createElement("h2");
-    heading.textContent = item.title;
+    heading.textContent = item.title; heading.dataset.userContent = "true";
     if (showRatedOnly && topRank > 0) {
       const topBadge = document.createElement("span");
       topBadge.className = "topBadge";
@@ -962,10 +962,10 @@ function renderList(rows) {
     top.append(title, score);
     const address = document.createElement("p");
     address.className = "address";
-    address.textContent = item.address || "Адрес не указан";
+    address.textContent = item.address || "Адрес не указан"; if (item.address) address.dataset.userContent = "true";
     const description = document.createElement("p");
     description.className = "description";
-    description.textContent = item.description || `${categoryNames[item.category] || "Услуга"} рядом с вами.`;
+    description.textContent = item.description || `${categoryNames[item.category] || "Услуга"} рядом с вами.`; if (item.description) description.dataset.userContent = "true";
     const meta = document.createElement("div");
     meta.className = "meta";
     const ratingMeta = item.kind === "partner"
@@ -1203,7 +1203,7 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
       locationRestriction: { center, radius: Math.min(50000, zoneRadius * 1000) },
       maxResultCount: 20,
       rankPreference: document.body.classList.contains('ratingDiscovery') ? SearchNearbyRankPreference.DISTANCE : SearchNearbyRankPreference.POPULARITY,
-      language: (navigator.language || "ru").split("-")[0],
+      language: document.documentElement.lang === "uz" ? "uz" : "ru",
     };
     if (selected !== "ALL") request.includedPrimaryTypes = googlePlaceTypes[selected] || [];
     const { places } = await Place.searchNearby(request);
@@ -1296,7 +1296,7 @@ async function searchCatalog() {
       locationBias: { center: currentCenter, radius: Math.min(50000, selectedRadius() * 1000) },
       maxResultCount: Math.min(20, selectedLimit()),
       rankPreference: SearchByTextRankPreference.RELEVANCE,
-      language: (navigator.language || "ru").split("-")[0],
+      language: document.documentElement.lang === "uz" ? "uz" : "ru",
     }), 12000);
     if (searchId !== catalogRequestId) return;
     const found = (places || []).map(place => externalPlaceItem(place)).filter(Boolean)
@@ -1617,4 +1617,5 @@ reloadRatedCatalog().then(() => {$("#status").textContent = ratedCatalogLoaded ?
 
 Promise.resolve(window.relyqoCategoriesReady).then(items => {for (const item of items || []) categoryNames[item.code] = item.label; restoreSearchPreferences(); renderAll();});
 Promise.resolve(window.relyqoLanguageReady).then(() => {if (ratedCatalogLoaded) {updateRatedLocationFilters(); renderDirectoryGeography();}});
+
 

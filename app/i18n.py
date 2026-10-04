@@ -15,7 +15,7 @@ from .db import get_db
 
 language_context = ContextVar("relyqo_language", default="ru")
 _dictionary = json.loads(
-    (Path(__file__).parent / "static" / "i18n-uz.json").read_text()
+    (Path(__file__).parent / "static" / "i18n-uz.json").read_text(encoding="utf-8")
 )
 _keys = sorted(
     (
@@ -48,12 +48,12 @@ def register_i18n(app, session_user):
     @app.middleware("http")
     async def language(request, call_next):
         started = perf_counter()
-        selected = (
-            request.query_params.get("lang")
-            or request.cookies.get("relyqo_language")
-            or request.headers.get("accept-language", "").split(",")[0][:2]
+        candidates = (
+            request.query_params.get("lang"),
+            request.cookies.get("relyqo_language"),
+            request.headers.get("accept-language", "").split(",")[0][:2].lower(),
         )
-        selected = selected if selected in {"ru", "uz"} else "ru"
+        selected = next((value for value in candidates if value in {"ru", "uz"}), "ru")
         token = language_context.set(selected)
         try:
             response = await call_next(request)
@@ -104,6 +104,7 @@ def register_i18n(app, session_user):
     @app.post("/v1/auth/language")
     def preference(
         body: LanguagePreference,
+        request: Request,
         response: Response,
         relyqo_session: str | None = Cookie(default=None),
         db: Session = Depends(get_db),
@@ -111,5 +112,8 @@ def register_i18n(app, session_user):
         user = session_user(relyqo_session, db)
         user.language = body.language
         db.commit()
+        response.set_cookie("relyqo_language", body.language, max_age=31536000,
+                            path="/", samesite="lax", secure=request.url.scheme == "https")
         response.headers["Cache-Control"] = "no-store"
         return {"language": user.language}
+
