@@ -137,7 +137,7 @@ test('poor GPS accuracy never claims to have identified the current organization
 
 test('denied current-location permission offers other methods and does not repeat the request',async()=>{
   const x=await harness({search:'?find=here',gps:'denied'});assert.equal(x.gps(),1);
-  assert.match(x.document.getElementById('error').textContent,/геолокации запрещён/);
+  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
   assert.equal(x.document.getElementById('discoveryHere').disabled,false);
   assert(x.document.getElementById('currentPlace').classList.contains('hidden'));
   await x.click('#discoveryByName');assert.equal(x.gps(),1);
@@ -168,7 +168,7 @@ test('invalid geolocation never reaches the nearby endpoints',async()=>{
   const x=await harness({search:'?find=here',gps:'pending'});
   x.permission().resolve({coords:{latitude:NaN,longitude:69.2,accuracy:10}});await settle();
   assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
-  assert.match(x.document.getElementById('error').textContent,/Не удалось определить местоположение/);
+  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/Не удалось определить местоположение/);
 });
 
 const latitudeAt=meters=>41.3+meters/(6371008.8*Math.PI/180);
@@ -387,7 +387,7 @@ test('denied GPS restores ordinary labels when leaving current-place mode withou
   assert(x.document.getElementById('currentPlace').classList.contains('hidden'));
   assert.equal(x.document.getElementById('mapRadius').textContent,'15');
   assert.match(x.document.getElementById('scopeHint').textContent,/15 км/);
-  assert.match(x.document.getElementById('error').textContent,/геолокации запрещён/);
+  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
   assert(!x.document.getElementById('results').textContent.includes('Ожидаем местоположение'));
   assert(x.document.querySelector('#place-manual-fixture-local .rateLink'));
   assert.equal(x.gps(),1);assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
@@ -472,18 +472,89 @@ test('nearby button loads a single actionable list and external confirmation rea
   await openRatingForm(x.context.location.href);assert.equal(x.gps(),1);
 });
 
-test('denied, timeout and unavailable GPS explain briefly in RU/UZ and automatically restore a working list',async()=>{
+test('exhausted or denied location shows a scoped RU/UZ notice and restores a working list',async()=>{
   for(const uz of [false,true])for(const code of [1,2,3]){
     const x=await harness({search:'',gps:'pending',uz});await x.click('#discoveryHere');
     x.permission().reject({code,message:'Timeout expired / raw provider error'});await settle();
-    const error=x.document.getElementById('error').textContent;
+    if(code!==1){
+      assert.equal(x.gps(),2);assert(x.document.body.classList.contains('findingCurrentPlace'));
+      assert(x.document.getElementById('discoveryLocationNotice').hidden);
+      x.permission().reject({code,message:'Timeout expired / raw provider error'});await settle();
+    }
+    const notice=x.document.getElementById('discoveryLocationNotice'),error=notice.textContent;
+    assert.equal(notice.hidden,false);assert.equal(notice.getAttribute('role'),'status');
+    assert(x.document.getElementById('error').classList.contains('hidden'));
     assert.match(error,uz?/ro‘yxatdan tanlang/:/из списка/);assert.doesNotMatch(error,/Timeout|expired|provider/);
     assert(x.document.querySelector('#results .rateLink'));assert(!x.document.body.classList.contains('findingCurrentPlace'));
     assert.equal(x.document.getElementById('discoveryByName').getAttribute('aria-pressed'),'true');
     assert(x.document.getElementById('currentRadiusControl').hidden);
     await openRatingForm(x.document.querySelector('#results .rateLink').getAttribute('href'));
-    await x.click('#discoveryByName');assert.equal(x.gps(),1);
+    await x.click('#discoveryByName');assert.equal(x.gps(),code===1?1:2);assert(notice.hidden);assert.equal(notice.textContent,'');
   }
+});
+
+test('a timeout or unavailable high-accuracy fix retries once and searches with the actual fallback coordinates',async()=>{
+  for(const code of [2,3])for(const uz of [false,true]){
+    const x=await harness({search:'?find=here',gps:'pending',uz});
+    x.permission().reject({code});await settle();
+    assert.equal(x.gps(),2);assert.equal(x.permission().settings.enableHighAccuracy,false);
+    assert.equal(x.permission().settings.timeout,8000);assert.equal(x.permission().settings.maximumAge,0);
+    assert.equal(nearbyCalls(x).length,0);assert(x.document.getElementById('discoveryHere').disabled);
+    assert.match(x.document.getElementById('results').textContent,uz?/joylashuvni kutyapmiz/:/Ожидаем местоположение/);
+    assert(x.document.getElementById('error').classList.contains('hidden'));
+    await x.click('[data-radius="1000"]');
+    x.permission().resolve({coords:{latitude:41.302,longitude:69.201,accuracy:700}});await settle();
+    assert.equal(x.gps(),2);assertScope(x,1000);
+    assert(nearbyCalls(x).every(c=>c.body.latitude===41.302&&c.body.longitude===69.201));
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/GPS noaniq/:/GPS неточный/);
+    assert(x.document.getElementById('discoveryLocationNotice').hidden);
+    assert.equal(x.document.getElementById('discoveryHere').disabled,false);
+  }
+});
+
+test('leaving either GPS attempt cancels retries and late results cannot replace the typed list',async()=>{
+  for(const phase of [1,2])for(const outcome of ['resolve','reject']){
+    const x=await harness({search:'?find=here',gps:'pending'});
+    if(phase===2){x.permission().reject({code:3});await settle();}
+    const pending=x.permission();await x.type('Test');await x.runTimer(250);
+    assert.equal(x.document.getElementById('discoveryHere').disabled,false);
+    pending[outcome](outcome==='resolve'?{coords:{latitude:41.3,longitude:69.2,accuracy:20}}:{code:3});await settle();
+    assert.equal(x.gps(),phase);assert.equal(nearbyCalls(x).length,0);
+    assert.equal(x.document.getElementById('catalogQuery').value,'Test');
+    assert.equal(x.document.getElementById('discoveryByName').getAttribute('aria-pressed'),'true');
+    assert(x.document.getElementById('discoveryLocationNotice').hidden);
+    assert(x.document.getElementById('error').classList.contains('hidden'));
+  }
+});
+
+test('starting a list search or a fresh nearby attempt clears the previous location notice immediately',async()=>{
+  for(const action of ['type','search','nearby']){
+    const x=await harness({search:'?find=here',gps:'pending'});
+    x.permission().reject({code:1});await settle();
+    const notice=x.document.getElementById('discoveryLocationNotice');assert(!notice.hidden);
+    if(action==='type')await x.type('Test');
+    else await x.click(action==='search'?'#catalogSearchButton':'#discoveryHere');
+    assert(notice.hidden);assert.equal(notice.textContent,'');
+    assert.equal(x.gps(),action==='nearby'?2:1);
+  }
+});
+
+test('a cancelled GPS callback cannot enable the button for a newer pending nearby attempt',async()=>{
+  const x=await harness({search:'?find=here',gps:'pending'}),old=x.permission();
+  await x.click('#discoveryByName');await x.click('#discoveryHere');
+  old.reject({code:3});await settle();
+  assert.equal(x.gps(),2);assert(x.document.getElementById('discoveryHere').disabled);
+  x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();
+  assert.equal(x.document.getElementById('discoveryHere').disabled,false);assertScope(x,300);
+});
+
+test('a catalog loading error after GPS failure remains visible alongside the location notice',async()=>{
+  const x=await harness({search:'?find=here',gps:'pending'}),original=x.context.fetch;
+  x.context.fetch=(url,options)=>url.startsWith('/v1/public/rated-organizations')?Promise.reject(Error('catalog unavailable')):original(url,options);
+  x.permission().reject({code:1});await settle();
+  assert(!x.document.getElementById('error').classList.contains('hidden'));
+  assert.match(x.document.getElementById('error').textContent,/catalog unavailable/);
+  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
 });
 
 test('separate advanced nearby catalog retains its controls and does not receive the simple rating renderer',async()=>{
@@ -555,5 +626,3 @@ test('invalid forms never write and rejected additions retain user input for cor
   assert.equal(x.document.getElementById('manualError').textContent,'Check the address');assert(!x.document.querySelector('#manualForm [type=submit]').disabled);
   assert.equal(x.context.location.href,'/rate');assert(!x.calls.some(c=>c.url?.includes('/ratings')));
 });
-
-
