@@ -2,7 +2,7 @@
   'use strict';
   const valid = value => value === 'uz' || value === 'ru';
   const query = new URLSearchParams(location.search).get('lang');
-  const cookie = document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith('relyqo_language='))?.split('=')[1];
+  const cookie = (document.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith('relyqo_language='))?.split('=')[1];
   let saved;
   try { saved = localStorage.getItem('relyqo_language'); } catch {}
   let language = [query, saved, cookie].find(valid) || ((navigator.language || '').startsWith('uz') ? 'uz' : 'ru');
@@ -53,10 +53,12 @@
     }
     document.addEventListener('input', clear, true);
     document.addEventListener('change', clear, true);
+    document.addEventListener('reset', event => { for (const field of event.target.elements || []) clear({target:field}); }, true);
     document.addEventListener('invalid', event => {
       const field = event.target, state = field.validity;
       if (!state || typeof field.setCustomValidity !== 'function' || (state.customError && !owned.has(field))) return;
       clear(event);
+      if (state.valid) return;
       const message = state.valueMissing ? (field.tagName === 'SELECT' ? 'Выберите значение из списка.' : 'Заполните это поле.')
         : state.typeMismatch ? (field.type === 'email' ? 'Введите корректный email.' : 'Введите корректную ссылку.')
         : state.tooShort ? 'Слишком короткое значение.' : state.tooLong ? 'Слишком длинное значение.'

@@ -166,7 +166,7 @@
       document.querySelector('#done').classList.remove('hidden');
       document.querySelector('#score').textContent=`${Number(data.community_score).toFixed(1)}/100`;
       document.querySelector('#count').textContent=`Общественных оценок: ${data.rating_count}${data.photo_attached?' · фото сохранено':''}`;
-      if(data.photo_analysis){document.querySelector('#analysis').textContent=`AI-наблюдение по фото: ${data.photo_analysis}`;document.querySelector('#analysis').classList.remove('hidden')}
+      if(data.photo_analysis){document.querySelector('#analysis').textContent=`${window.relyqoT?.('AI-наблюдение по фото:')||'AI-наблюдение по фото:'} ${data.photo_analysis}`;document.querySelector('#analysis').classList.remove('hidden')}
       window.scrollTo({top:0,behavior:'smooth'});
     }
 

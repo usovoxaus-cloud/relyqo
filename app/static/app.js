@@ -269,10 +269,10 @@ $("#submit").onclick = async () => {
       ? " Verified-оценка сохранена в личной истории."
       : " Войдите в Мой RELYQO перед следующей QR-оценкой, чтобы сохранить её в личной истории.";
     if (result.photo_analysis) {
-      $("#photoAnalysis").textContent = `AI-наблюдение по фото: ${result.photo_analysis}`;
+      $("#photoAnalysis").textContent = `${window.relyqoT?.("AI-наблюдение по фото:")||"AI-наблюдение по фото:"} ${result.photo_analysis}`;
       $("#photoAnalysis").classList.remove("hidden");
     } else if (result.photo_attached) {
-      $("#photoAnalysis").textContent = "Фото сохранено как дополнительный материал оценки. AI-анализ временно недоступен.";
+      $("#photoAnalysis").textContent = window.relyqoT?.("Фото сохранено как дополнительный материал оценки. AI-анализ временно недоступен.") || "Фото сохранено как дополнительный материал оценки. AI-анализ временно недоступен.";
       $("#photoAnalysis").classList.remove("hidden");
     }
     $("#rating").classList.add("hidden");
@@ -291,3 +291,4 @@ if (token) {
   setTimeout(() => $("#verify").click(), 150);
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
