@@ -18,7 +18,7 @@ async function harness(options={}) {
   document.getElementById('manualForm').reportValidity=function(){return !options.invalidManual;};
   const calls=[],markers=[],timers=new Map(),stored=new Map();let timer=0,map,gps=0,permission;
   if(options.saved)stored.set('relyqo.consumer.place.v1',JSON.stringify(options.saved));
-  const google={maps:{Map:function(root,config){map=this;this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return {places:[externalPlace()]};}}})}};
+  const google={maps:{Map:function(root,config){map=this;this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.addListener=()=>{};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};this.setPosition=value=>{this.position=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return {places:[externalPlace()]};}}})}};
   const window={google:options.noGoogle?undefined:google,relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer;},clearTimeout:id=>timers.delete(id)};
   const context={document,window,google,Event:events.Event,MutationObserver:events.MutationObserver,URLSearchParams,Intl,AbortController,Map,Set,location:{search:options.search??'?find=search',pathname:options.pathname||'/rate',href:'/rate'},Option:function(text,value=text){const o=document.createElement('option');o.textContent=text;o.value=value;return o;},setTimeout:window.setTimeout,clearTimeout:window.clearTimeout,localStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)},navigator:{language:'ru',geolocation:{getCurrentPosition(resolve,reject,settings){gps++;permission={resolve,reject,settings};if(options.gps==='denied')reject({code:1});else if(options.gps!=='pending')resolve({coords:{latitude:41.3,longitude:69.2,accuracy:options.accuracy??20}});}}},fetch:async(url,settings={})=>{
     const body=settings.body?JSON.parse(settings.body):null;calls.push({url,body,method:settings.method||'GET'});
@@ -35,7 +35,7 @@ async function harness(options={}) {
     throw Error('Unexpected request '+url);
   }};
   vm.createContext(context);
-  for(const name of ['nearby','ai-search','consumer-search','rate-discovery'])vm.runInContext(fs.readFileSync(`app/static/${name}.js`,'utf8'),context,{filename:name+'.js'});
+  for(const name of ['manual-location','nearby','ai-search','consumer-search','rate-discovery'])vm.runInContext(fs.readFileSync(`app/static/${name}.js`,'utf8'),context,{filename:name+'.js'});
   await settle();
   const click=async selector=>{document.querySelector(selector).click();await settle();};
   const type=async value=>{document.getElementById('catalogQuery').value=value;document.getElementById('catalogQuery').dispatchEvent(new events.Event('input'));await settle();};
@@ -464,6 +464,7 @@ test('nearby button loads a single actionable list and external confirmation rea
   await openRatingForm(x.document.querySelector('#place-manual-fixture-local .rateLink').getAttribute('href'));
   await x.click('#place-external-fixture-google .rateLink');assert(x.document.getElementById('manualDialog').open);
   assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'));
+  await x.click('#manualLocationConfirm');
   const event=new x.events.Event('submit',{cancelable:true});event.submitter=x.document.querySelector('#manualForm [type=submit]');
   x.document.getElementById('manualForm').dispatchEvent(event);await settle();
   assert.equal(x.calls.filter(c=>c.url==='/v1/public/manual-places').length,1);
@@ -554,4 +555,5 @@ test('invalid forms never write and rejected additions retain user input for cor
   assert.equal(x.document.getElementById('manualError').textContent,'Check the address');assert(!x.document.querySelector('#manualForm [type=submit]').disabled);
   assert.equal(x.context.location.href,'/rate');assert(!x.calls.some(c=>c.url?.includes('/ratings')));
 });
+
 

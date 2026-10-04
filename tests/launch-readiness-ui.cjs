@@ -27,6 +27,7 @@ test('add place submits without GPS and never silently assigns the visitor posit
  document.getElementById('manualForm').reset=()=>{};document.getElementById('manualDialog').close=()=>{};
  let handler,body;const form=document.getElementById('manualForm');form.addEventListener=(event,fn)=>handler=fn;
  const node=ast.body.find(n=>nearby.slice(n.start,n.end).startsWith('$("#manualForm").addEventListener("submit"'));
- const context={$:s=>document.querySelector(s),pendingManualLocation:null,pendingGooglePlaceId:null,currentCenter:{lat:41,lng:69},lastManualPlaces:[],showRatedOnly:true,pendingManualAction:'save',hasMapLocation:()=>false,reloadRatedCatalog(){},fetch:async(url,options)=>{body=JSON.parse(options.body);return{ok:true,json:async()=>({item:{id:'place',name:'New place',latitude:null,longitude:null}})}}};
+ const context={$:s=>document.querySelector(s),manualLocationPicker:{validate:()=>true},pendingManualLocation:null,pendingGooglePlaceId:null,currentCenter:{lat:41,lng:69},lastManualPlaces:[],showRatedOnly:true,pendingManualAction:'save',hasMapLocation:()=>false,reloadRatedCatalog(){},fetch:async(url,options)=>{body=JSON.parse(options.body);return{ok:true,json:async()=>({item:{id:'place',name:'New place',latitude:null,longitude:null}})}}};
  vm.runInNewContext(nearby.slice(node.start,node.end),context);const submit={disabled:false};await handler({preventDefault(){},submitter:submit});assert.equal(body.latitude,null);assert.equal(body.longitude,null);assert.equal(submit.disabled,false);assert.match(document.getElementById('status').textContent,/добавлено/);
 });
+

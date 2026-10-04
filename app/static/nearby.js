@@ -32,6 +32,7 @@ let remoteSearchIds = new Set();
 let pendingManualLocation = null;
 let pendingManualAction = "save";
 let pendingGooglePlaceId = null;
+const manualLocationPicker = window.relyqoManualLocation?.({loadMaps:loadGooglePlaces, onChange:point => { pendingManualLocation = point; }});
 
 const foodCategories = new Set([
   "RESTAURANT",
@@ -814,7 +815,7 @@ function internalActions(item, favorites) {
 function openManualDialog(item = null, action = "save") {
   pendingManualAction = action;
   pendingGooglePlaceId = item?.kind === "external" ? item.id : null;
-  pendingManualLocation = item ? {
+  pendingManualLocation = item && hasMapLocation(item) ? {
     lat: Number(item.latitude),
     lng: Number(item.longitude),
   } : null;
@@ -823,10 +824,10 @@ function openManualDialog(item = null, action = "save") {
     const category = item.category || "OTHER";
     $("#manualName").value = item.title || item.name || "";
     $("#manualCategory").value = category;
-    $("#manualDescription").value = `${categoryNames[category] || "Организация"} — карточка подтверждена потребителем RELYQO для независимой оценки.`;
+    $("#manualDescription").value = "";
     $("#manualAddress").value = item.address || "";
-    $("#manualCity").value = item.city || "Не указан";
-    $("#manualCountry").value = item.country_code || "XX";
+    $("#manualCity").value = item.city || "";
+    $("#manualCountry").value = item.country_code || "UZ";
   } else {
     $("#manualForm").reset();
     const selectedCity = ratedFilterValue("#ratedCity");
@@ -845,6 +846,8 @@ function openManualDialog(item = null, action = "save") {
     ? item ? (uz ? "Baholashga o‘tish" : "Продолжить к оценке") : (uz ? "Qo‘shish va baholash" : "Добавить и оценить")
     : (uz ? "RELYQO’ga qo‘shish" : "Добавить в RELYQO");
   $("#manualDialog").showModal();
+  $("#manualExtra").open = false;
+  manualLocationPicker?.reset({location:pendingManualLocation, center:currentCenter});
 }
 
 function externalActions(item) {
@@ -1557,6 +1560,7 @@ $("#manualForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = $("#manualForm");
   if (form.reportValidity && !form.reportValidity()) return;
+  if (manualLocationPicker && !manualLocationPicker.validate()) return;
   const submit = event.submitter || form.querySelector('[type="submit"]');
   if (submit.disabled) return;
   // GPS describes the visitor, not necessarily the business. Only use confirmed place coordinates.
@@ -1569,7 +1573,7 @@ $("#manualForm").addEventListener("submit", async (event) => {
     description: $("#manualDescription").value,
     address: $("#manualAddress").value,
     city: $("#manualCity").value,
-    country_code: $("#manualCountry").value.toUpperCase(),
+    country_code: $("#manualCountry").value.trim().toUpperCase() || "UZ",
     latitude: locationForPlace?.lat ?? null,
     longitude: locationForPlace?.lng ?? null,
     google_place_id: pendingGooglePlaceId,
