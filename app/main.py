@@ -3277,8 +3277,8 @@ def create_manual_place(
     description = " ".join(body.description.split())
     country_code = body.country_code.strip().upper()
     google_place_id = body.google_place_id.strip() if body.google_place_id else None
-    if len(name) < 2 or len(address) < 3 or len(city) < 2 or len(description) < 10:
-        raise HTTPException(422, "Заполните название, описание, адрес и город")
+    if len(name) < 2 or len(address) < 3 or len(city) < 2:
+        raise HTTPException(422, "Заполните название, адрес и город")
     raw_rater = verified_community_rater(rater_cookie)
     cookie_value = rater_cookie
     if raw_rater is None:

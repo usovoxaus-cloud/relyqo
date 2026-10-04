@@ -62,10 +62,10 @@ class NearbySearch(BaseModel):
 class ManualPlaceCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     category: str = Field(min_length=2, max_length=40, pattern=r"^[A-Z][A-Z0-9_]*$")
-    description: str = Field(min_length=10, max_length=500)
+    description: str = Field(default="", max_length=500)
     address: str = Field(min_length=3, max_length=255)
     city: str = Field(min_length=2, max_length=80)
-    country_code: str = Field(min_length=2, max_length=2)
+    country_code: str = Field(default="UZ", min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     google_place_id: str | None = Field(default=None, min_length=3, max_length=255)
@@ -200,3 +200,4 @@ class AccountRecovery(BaseModel):
 
 class RecoveryCodeCreate(BaseModel):
     current_password: str = Field(min_length=8, max_length=200)
+

@@ -27,6 +27,26 @@ test('feedback form keeps up to five distinct reasons and preserves comment text
  assert.equal(window.relyqoFeedback().reasons.length,5);assert.equal(checks[5].checked,false);assert.equal(window.relyqoFeedback().comment,'<script>literal text</script>');assert.equal(document.querySelector('span').textContent,'UZ0');assert.equal(document.querySelectorAll('script').length,0);
 });
 
+test('category requests ignore stale responses and preserve a written comment',async()=>{
+ const {window,document}=dom('<html lang="ru"><body><div id="feedbackFields" data-category="EDUCATION"></div></body></html>');
+ const requests=[];
+ vm.runInNewContext(read('feedback-form.js'),{window,document,fetch:url=>new Promise(resolve=>requests.push({url,resolve}))});
+ assert.match(requests[0].url,/category=EDUCATION/);
+ document.getElementById('feedbackComment').value='My own words';
+ window.relyqoSetFeedbackCategory('CAFE');
+ requests[1].resolve({ok:true,json:async()=>({items:[{code:'TASTY_FOOD',label:'Вкусная еда',label_uz:'Mazali taomlar'}]})});await settle();
+ requests[0].resolve({ok:true,json:async()=>({items:[{code:'GOOD_TEACHING',label:'Обучение',label_uz:'Ta’lim'}]})});await settle();
+ assert.equal(document.querySelector('input').value,'TASTY_FOOD');assert.equal(document.getElementById('feedbackComment').value,'My own words');
+ assert.equal(window.relyqoFeedback().reasons.length,0);
+});
+
+test('feedback failure can be retried without losing the comment',async()=>{
+ const {window,document}=dom('<html lang="uz"><body><div id="feedbackFields"></div></body></html>');let attempts=0;
+ vm.runInNewContext(read('feedback-form.js'),{window,document,fetch:async()=>({ok:++attempts>1,json:async()=>({items:[{code:'GOOD_TEACHING',label:'Обучение',label_uz:'Ta’lim'}]})})});await settle();
+ document.getElementById('feedbackComment').value='Saved draft';document.querySelector('.feedbackOptions button').click();await settle();
+ assert.equal(document.querySelector('.feedbackOptions span').textContent,'Ta’lim');assert.equal(document.getElementById('feedbackComment').value,'Saved draft');
+});
+
 async function control(denied=false){const {window,document}=dom(read('admin-control.html'));const requests=[];const item={id:'case1',kind:'SIGNAL',organization:'<img src=x onerror=alert(1)>',details:'Signal',status:'PENDING',rating:{overall:4,reasons:['LONG_WAIT'],comment:'<script>private</script>'},ai_analysis:'<img src=x>',photo_url:'/v1/admin/control/photos/test'};
  const fetch=async(url,options={})=>{requests.push({url,options});let body,status=200;if(url==='/v1/public/feedback-reasons')body={items:[{code:'LONG_WAIT',label:'Долго ждал',label_uz:'Uzoq kutdim'}]};else if(denied){status=403;body={detail:'Доступ запрещён'};}else if(url.includes('/control/cases?'))body={legacy:[],items:[item],next_offset:null};else if(url.includes('/control/feedback?'))body={items:[item],next_offset:null};else if(url.includes('/analytics/insights?'))body={analysis:'<script>Analysis</script>'};else throw Error('Unexpected '+url);return {ok:status===200,status,json:async()=>body};};
  const location={_hash:'',get hash(){return this._hash;},set hash(value){this._hash=value.startsWith('#')?value:'#'+value;window.dispatchEvent(new window.Event('hashchange'));}};

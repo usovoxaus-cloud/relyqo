@@ -218,6 +218,8 @@ $("#verify").onclick = async () => {
     $("#place").textContent = result.organization.name;
     $("#branch").textContent = result.branch.name;
     const category = result.organization.category || "OTHER";
+    $("#feedbackFields").dataset.category = category;
+    window.relyqoSetFeedbackCategory?.(category);
     renderMetrics(category);
     window.relyqoGoogleRating?.forObject($("#googleRating"), `relyqo:${result.branch.id}`);
     Promise.resolve(window.relyqoCategoriesReady).then(() => {

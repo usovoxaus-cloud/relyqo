@@ -44,6 +44,12 @@ REASONS = {
     "NOT_AS_DESCRIBED": ("Не соответствует описанию", "Tavsifga mos emas"),
     "OTHER": ("Другая причина", "Boshqa sabab"),
 }
+from .feedback_reasons import CATEGORY_REASONS, reasons_for_group
+
+GENERIC_REASON_CODES = list(REASONS)
+for group_reasons in CATEGORY_REASONS.values():
+    for code, ru, uz in group_reasons:
+        REASONS[code] = (ru, uz)
 SIGNALS = {
     "DUPLICATE_PHOTO": "Одинаковое изображение уже прикреплено к другой оценке.",
     "RATING_BURST": "Не менее 8 оценок одного объекта за 10 минут.",
@@ -201,7 +207,17 @@ class CaseDecision(BaseModel):
 
 def register_feedback_routes(app, session_user, recalculate):
     @app.get("/v1/public/feedback-reasons")
-    def reason_catalog():
+    def reason_catalog(category: str | None = Query(default=None, max_length=40), db: Session = Depends(get_db)):
+        if category is not None:
+            from .categories import BUILTINS, GROUPS
+            from .models import ServiceCategory
+
+            category = category.upper().strip()
+            group = BUILTINS.get(category, (None, category if category in GROUPS else "OTHER"))[1]
+            if category.startswith("CUSTOM_"):
+                custom = db.get(ServiceCategory, category)
+                group = custom.group_code if custom else "OTHER"
+            return {"group": group, "items": reasons_for_group(group, REASONS, GENERIC_REASON_CODES)}
         return {
             "items": [
                 {"code": code, "label": labels[0], "label_uz": labels[1]}
@@ -645,3 +661,4 @@ def register_feedback_routes(app, session_user, recalculate):
         db.commit()
         response.headers["Cache-Control"] = "no-store"
         return {"id": case_id, "status": case.status}
+

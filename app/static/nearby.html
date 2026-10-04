@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<script src="/static/i18n.js?v=ru-uz-20261004"></script>
+<script src="/static/i18n.js?v=polish-20261004"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071827">
@@ -25,9 +25,10 @@
     @media(max-width:520px){.advisor{padding:17px}.advisorPrompts{display:grid}.advisorPrompt{width:100%;text-align:left}.advisorChoiceTop{display:block}.advisorChoiceScore{display:block;max-width:none;margin-top:7px;text-align:left}.advisorChoiceActions a{flex:1;text-align:center}}
   </style>
 <script src="/static/service-categories.js?v=20260922" defer></script>
-<link rel="stylesheet" href="/static/feedback.css"><script src="/static/account-onboarding.js" defer></script><link rel="stylesheet" href="/static/directory.css?v=uz-20260923"><link rel="stylesheet" href="/static/google-rating.css?v=1">
+<link rel="stylesheet" href="/static/feedback.css?v=polish-20261004"><script src="/static/account-onboarding.js" defer></script><link rel="stylesheet" href="/static/directory.css?v=uz-20260923"><link rel="stylesheet" href="/static/google-rating.css?v=1">
 <script src="/static/google-rating.js?v=1" defer></script>
 <link rel="stylesheet" href="/static/rate-discovery.css?v=mobile-add-20261003">
+<link rel="stylesheet" href="/static/manual-place.css?v=polish-20261004">
 </head>
 <body class="directoryMode ui-audit page-nearby">
   <main class="shell">
@@ -53,9 +54,30 @@
       <div id="advisorResult" class="advisorResult hidden" aria-live="polite"><p id="advisorAnswer" data-user-content class="advisorAnswer"></p><div id="advisorSections" class="advisorSections"></div><p id="advisorDisclaimer" class="advisorDisclaimer"></p></div>
     </section>
     </details><p class="note">Google Places используется для живого поиска и показа рейтинга Google. Результаты Google Maps не сохраняются автоматически. Общий рейтинг Google показывается отдельно и не меняет оценки потребителей RELYQO. Чтобы оценить место, потребитель создаёт независимую карточку RELYQO из собственных данных. Verified Score по-прежнему появляется только после одноразового QR. <a href="/terms">Условия</a> · <a href="/privacy">Конфиденциальность</a></p>
-    <dialog id="manualDialog" class="manualDialog"><form id="manualForm" class="manualForm"><h2>Добавить организацию в RELYQO</h2><p>Проверьте данные реального объекта. Запись получит пометку «Добавлено потребителем». Адреса достаточно — карта и геолокация не обязательны.</p><label>Название организации<input id="manualName" required minlength="2" maxlength="160"></label><label>Сфера<select id="manualCategory"><option value="RESTAURANT">Ресторан</option><option value="CAFE">Кафе</option><option value="COFFEE_SHOP">Кофейня</option><option value="BAKERY">Пекарня</option><option value="BAR">Бар</option><option value="FOOD_COURT">Фуд-корт</option><option value="HOTEL">Гостиница</option><option value="BEAUTY">Красота и уход</option><option value="HEALTH">Здоровье</option><option value="ENTERTAINMENT">Развлечения</option><option value="RETAIL">Магазин</option><option value="AUTO_SERVICE">Автоуслуги</option><option value="PROFESSIONAL_SERVICE">Профессиональные услуги</option><option value="EDUCATION">Образование и образовательные учреждения</option><option value="OTHER">Другая услуга</option></select></label><label>Короткое описание<textarea id="manualDescription" required minlength="10" maxlength="500"></textarea></label><label>Адрес<input id="manualAddress" required minlength="3" maxlength="255"></label><label>Город<input id="manualCity" required minlength="2" maxlength="80" value="Tashkent"></label><label>Код страны<input id="manualCountry" required minlength="2" maxlength="2" value="UZ"></label><p id="manualError" class="manualError hidden"></p><div class="dialogActions"><button id="cancelManual" type="button">Отмена</button><button class="savePlace" type="submit">Добавить в RELYQO</button></div></form></dialog>
+    <dialog id="manualDialog" class="manualDialog" aria-labelledby="manualTitle">
+  <form id="manualForm" class="manualForm">
+    <h2 id="manualTitle">Добавить организацию</h2>
+    <p>Укажите название и адрес. После сохранения можно сразу оставить оценку.</p>
+    <label>Название организации<input id="manualName" required minlength="2" maxlength="160" placeholder="Как называется организация?"></label>
+    <div class="manualRow"><label>Сфера<select id="manualCategory" required><option value="OTHER">Другая услуга</option><option value="RESTAURANT">Ресторан</option><option value="CAFE">Кафе</option><option value="HOTEL">Гостиница</option><option value="EDUCATION">Образование</option><option value="HEALTH">Здоровье</option><option value="RETAIL">Магазин</option><option value="BEAUTY">Красота и уход</option><option value="AUTO_SERVICE">Автоуслуги</option><option value="PROFESSIONAL_SERVICE">Профессиональные услуги</option><option value="ENTERTAINMENT">Развлечения</option></select></label>
+    <label>Город<input id="manualCity" required minlength="2" maxlength="80" placeholder="Например, Ташкент" value="Tashkent"></label></div>
+    <label>Адрес<input id="manualAddress" required minlength="3" maxlength="255" placeholder="Улица, дом или ориентир"></label>
+    <details id="manualLocation"><summary>Точка на карте · для поиска рядом</summary>
+      <p>Отметьте именно организацию. Ваше местоположение не сохраняется автоматически.</p>
+      <div class="manualLocationTools"><button id="manualFindAddress" type="button">Найти адрес</button><button id="manualOpenMap" type="button">Выбрать на карте</button><button id="manualUseGps" type="button">Я у организации</button></div>
+      <div id="manualLocationResults" class="manualLocationResults"></div>
+      <div id="manualLocationMap" class="manualLocationMap" aria-label="Выбор точки организации" hidden></div>
+      <p id="manualLocationStatus" role="status">Без точки организация будет доступна в списке. С точкой — ещё и в поиске рядом.</p>
+      <div class="manualLocationActions"><button id="manualLocationConfirm" type="button" hidden>Подтвердить эту точку</button><button id="manualLocationClear" type="button" hidden>Убрать точку</button><a id="manualLocationPreview" target="_blank" rel="noopener noreferrer" hidden>Проверить в Google Maps</a></div>
+    </details>
+    <details id="manualExtra"><summary>Дополнительно · необязательно</summary><label>Короткое описание<textarea id="manualDescription" maxlength="500" rows="2" placeholder="Чем занимается организация?"></textarea></label><label>Страна (код)<input id="manualCountry" minlength="2" maxlength="2" pattern="[A-Za-z]{2}" value="UZ"></label></details>
+    <p id="manualError" class="manualError hidden" role="alert"></p>
+    <div class="dialogActions"><button id="cancelManual" type="button">Отмена</button><button class="savePlace" type="submit">Добавить в RELYQO</button></div>
+  </form>
+</dialog>
   </main>
-  <script src="/static/nearby.js?v=ru-uz-20261004" defer></script>
+  <script src="/static/manual-location.js?v=polish-20261004"></script>
+<script src="/static/nearby.js?v=polish-20261004" defer></script>
   <script src="/static/ai-search.js?v=rate-discovery-20261001" defer></script>
 <script src="/static/consumer-search.js?v=20261001" defer></script>
 <script src="/static/rate-discovery.js?v=mobile-add-20261003" defer></script>
