@@ -12,7 +12,7 @@
   if(item.photo_url){const image=e('img');image.src=item.photo_url;image.alt='Фото к оценке';image.loading='lazy';image.decoding='async';card.append(image);}
   if(item.ai_analysis){const ai=e('p',item.ai_analysis);ai.dataset.userContent='true';card.append(e('small','ИИ-наблюдение:'),ai);}
   if(item.decision_note){const note=e('p',item.decision_note);note.dataset.userContent='true';card.append(note);}
-  if(item.decided_at){const audit=e('small',new Date(item.decided_at+'Z').toLocaleString()+' · '+(item.decided_by||''));audit.dataset.userContent='true';card.append(audit);}
+  if(item.decided_at){const audit=e('small',new Date(item.decided_at+'Z').toLocaleString(document.documentElement.lang === 'uz' ? 'uz-UZ' : 'ru-RU')+' · '+(item.decided_by||''));audit.dataset.userContent='true';card.append(audit);}
   if(!closed){const form=e('form'),note=e('textarea');note.required=true;note.minLength=10;note.maxLength=1200;note.placeholder='Причина решения или ответ заявителю — минимум 10 символов';note.setAttribute('aria-label','Причина решения');const actions=e('div');actions.className='caseActions';const message=e('p');message.setAttribute('role','status');
    const choices=item.rating?[['APPROVE','Учесть оценку'],['REJECT','Исключить оценку']]:[];if(item.kind!=='REVIEW')choices.push(['DISMISS','Закрыть с ответом']);
    for(const [value,label] of choices){const b=e('button',label);b.type='submit';b.value=value;b.name='decision';actions.append(b);}
@@ -35,3 +35,4 @@
   if(await show(tab)){$('controlContent').hidden=false;$('controlLocked').hidden=true;}
  }catch(error){$('controlStatus').textContent=error.message;}})();
 })();
+

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<script src="/static/i18n.js" defer></script>
+<script src="/static/i18n.js?v=ru-uz-20261004"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071827">
@@ -166,7 +166,7 @@
       document.querySelector('#done').classList.remove('hidden');
       document.querySelector('#score').textContent=`${Number(data.community_score).toFixed(1)}/100`;
       document.querySelector('#count').textContent=`Общественных оценок: ${data.rating_count}${data.photo_attached?' · фото сохранено':''}`;
-      if(data.photo_analysis){document.querySelector('#analysis').textContent=`AI-наблюдение по фото: ${data.photo_analysis}`;document.querySelector('#analysis').classList.remove('hidden')}
+      if(data.photo_analysis){document.querySelector('#analysis').textContent=`${window.relyqoT?.('AI-наблюдение по фото:')||'AI-наблюдение по фото:'} ${data.photo_analysis}`;document.querySelector('#analysis').classList.remove('hidden')}
       window.scrollTo({top:0,behavior:'smooth'});
     }
 
@@ -243,3 +243,4 @@
   </script>
 </body>
 </html>
+

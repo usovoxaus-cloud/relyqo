@@ -23,8 +23,11 @@
       window.relyqoGoogleRating?.mount($('googleRating'), data.google_reference || {});
       // URL text, scores and status are never trusted. The object key only identifies the record.
       $('name').textContent = data.name;
-      $('address').textContent = [data.category_label, data.address].filter(Boolean).join(' · ');
+      const category = document.createElement('span'), address = document.createElement('span');
+      category.textContent = data.category_label || ''; address.textContent = data.address || ''; address.dataset.userContent = 'true';
+      $('address').replaceChildren(category, document.createTextNode(data.category_label && data.address ? ' · ' : ''), address);
       $('description').textContent = data.description || '';
+      document.querySelector('title').setAttribute('data-user-content', 'true');
       document.title = `${data.name} — RELYQO`;
       const partner = data.profile_status === 'VERIFIED_PARTNER';
       $('source').textContent = partner ? 'ПАРТНЁР RELYQO' : data.source_url ? 'АДРЕС ПО САЙТУ ЗАВЕДЕНИЯ' : data.source === 'MANUAL' ? 'ДОБАВЛЕНО ПОТРЕБИТЕЛЕМ' : 'ПРОФИЛЬ RELYQO';
@@ -63,3 +66,4 @@
   }
   load();
 })();
+
