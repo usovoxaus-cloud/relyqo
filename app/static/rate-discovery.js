@@ -42,8 +42,8 @@
   const radiusError=node('p','','currentRadiusError');radiusError.setAttribute('role','alert');radiusError.hidden=true;
   radiusControl.append(presets,radiusForm,radiusHint,radiusError);
   const panel = document.getElementById('directoryPanel');
-  const sectorField=node('label',t('Сфера','Soha'));sectorField.className='discoverySector';sectorField.htmlFor='discoveryCategory';
-  const sector=node('select','','discoveryCategory');
+  const sectorField=node('label',t('Сфера','Soha'));sectorField.className='discoverySector';sectorField.setAttribute('for','discoveryCategory');
+  const sector=node('select','','discoveryCategory');sector.setAttribute('aria-label',t('Сфера','Soha'));
   for(const [code,ru,uz] of [
     ['ALL','Все сферы','Barcha sohalar'],['FOOD','Рестораны и кафе','Restoran va kafelar'],
     ['EDUCATION','Образование','Ta’lim'],['HEALTH','Здоровье','Sog‘liq'],
