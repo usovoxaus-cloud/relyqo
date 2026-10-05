@@ -12,8 +12,17 @@
   function clearError() { $('requestError').hidden = true; }
   function date(value) { return new Date(value).toLocaleString(document.documentElement.lang === 'uz' ? 'uz-UZ' : 'ru-RU', {dateStyle:'short',timeStyle:'short'}); }
   async function api(url, body) {
-    const response = await fetch(url, {credentials:'same-origin',cache:'no-store',...(body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {})});
-    const data = await response.json();
+    let response, data;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      response = await fetch(url, {credentials:'same-origin',cache:'no-store',signal:controller.signal,...(body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {})});
+      data = await response.json();
+    } catch {
+      throw new Error(t('Не удалось связаться с сервером. Текст сохранён в форме. Проверьте соединение и повторите.'));
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!response.ok) {
       if (response.status === 401) $('loginGate').hidden = false;
       throw new Error(typeof data.detail === 'string' ? data.detail : t('Не удалось выполнить действие. Проверьте данные и повторите.'));
@@ -23,9 +32,10 @@
   async function run(task) {
     if (busy) return;
     busy = true; clearError();
-    document.querySelectorAll('button').forEach(button => { button.disabled = true; });
+    const controls = '.requestsShell button,.requestsShell input,.requestsShell textarea,.requestsShell select';
+    document.querySelectorAll(controls).forEach(control => { control.disabled = true; });
     try { await task(); } catch (error) { showError(error); }
-    finally { busy = false; document.querySelectorAll('button').forEach(button => { button.disabled = false; }); }
+    finally { busy = false; document.querySelectorAll(controls).forEach(control => { control.disabled = false; }); }
   }
   function element(tag, value, authored = false) {
     const node = document.createElement(tag); node.textContent = authored ? value : t(value);

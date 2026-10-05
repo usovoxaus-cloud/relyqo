@@ -7,7 +7,7 @@ const script=fs.readFileSync('app/static/service-requests.js','utf8');
 const dictionary=JSON.parse(fs.readFileSync('app/static/i18n-uz.json','utf8'));
 const settle=async()=>{for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));};
 const base={id:'request-one',version:1,status:'ANSWERED',organization:{name:'Fixture organization',address:'Fixture address'},created_at:'2026-10-05T00:00:00Z',updated_at:'2026-10-05T00:00:00Z',messages:[{side:'BUSINESS',body:'An answer',created_at:'2026-10-05T00:00:00Z'}]};
-async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',lang='ru',fail=false,pending=false,auth=false}={}){
+async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',lang='ru',fail=false,pending=false,auth=false,network=false,message='An answer'}={}){
   const {window,document}=parseHTML(html),calls=[],saved=[];
   document.documentElement.lang=lang;
   window.HTMLElement.prototype.scrollIntoView=function(){};
@@ -15,6 +15,7 @@ async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',
   window.relyqoT=x=>lang==='uz'?(dictionary[x]||x):x;
   window.relyqoLanguageReady=Promise.resolve();
   let item=structuredClone({...base,status});
+  item.messages[0].body=message;
   const location={pathname:mode==='consumer'?'/me/requests':mode==='business'?'/business/requests':'/admin/requests',search:query};
   const role=mode==='consumer'?'CONSUMER':mode==='business'?'BUSINESS_OWNER':'RELYQO_ADMIN';
   let resolvePost;
@@ -23,6 +24,7 @@ async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',
     const reply=(data,status=200)=>({ok:status<400,status,json:async()=>data});
     if(auth)return reply({detail:'Войдите в аккаунт'},401);
     if(body){
+      if(network)throw new TypeError('Failed to fetch');
       if(pending)await new Promise(resolve=>resolvePost=resolve);
       if(fail)return reply({detail:'Обращение обновилось. Обновите переписку и повторите действие'},409);
       saved.push(body);
@@ -33,7 +35,7 @@ async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',
     if(url.includes('?offset='))return reply({role,items:query.includes('rating_id')?[]:[item],has_more:false});
     return reply(item);
   }
-  vm.runInNewContext(script,{document,window,location,URLSearchParams,fetch,Date,Promise,Error});await settle();
+  vm.runInNewContext(script,{document,window,location,URLSearchParams,fetch,Date,Promise,Error,AbortController,setTimeout,clearTimeout});await settle();
   const get=id=>document.getElementById(id);
   const submit=id=>get(id).dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
   const button=text=>[...get('requestActions').querySelectorAll('button')].find(b=>b.textContent===text);
@@ -67,6 +69,7 @@ test('stale update preserves draft and refresh keeps it available',async()=>{
 test('pending send prevents duplicate submissions and clears draft only on success',async()=>{
   const x=await setup({pending:true});x.get('replyText').value='A single message';x.submit('replyForm');x.submit('replyForm');await settle();
   assert.equal(x.calls.filter(c=>c.body).length,1);assert(x.get('sendReply').disabled);assert.equal(x.get('replyText').value,'A single message');
+  assert(x.get('replyText').disabled);
   x.release();await settle();assert.equal(x.get('replyText').value,'');assert(!x.get('sendReply').disabled);
 });
 
@@ -76,11 +79,18 @@ test('withdrawn conversation has no sharing actions and expired session shows lo
 });
 
 test('Uzbek runtime labels and untrusted authored content remain separate',async()=>{
-  const x=await setup({lang:'uz'});assert.equal(x.get('conversationStatus').textContent,dictionary['Организация ответила']);assert(x.button(dictionary['Проблема решена']));
+  const message='<img src=x onerror=alert(1)> Название организации';
+  const x=await setup({lang:'uz',message});assert.equal(x.get('conversationStatus').textContent,dictionary['Организация ответила']);assert(x.button(dictionary['Проблема решена']));
   // A message is always inserted as text and protected from the global translator.
   assert.equal(x.get('messages').querySelector('p').getAttribute('data-user-content'),'');
-  assert.equal(x.get('messages').querySelector('p').textContent,'An answer');
-  assert(!script.includes('innerHTML'));
+  assert.equal(x.get('messages').querySelector('p').textContent,message);
+  assert.equal(x.get('messages').querySelector('img'),null);
+});
+
+test('network failure keeps the draft, unlocks the form and shows a translated retry message',async()=>{
+  const x=await setup({network:true,lang:'uz'});x.get('replyText').value='Preserve this text';x.submit('replyForm');await settle();
+  assert.equal(x.get('replyText').value,'Preserve this text');assert(!x.get('replyText').disabled);
+  assert.match(x.get('requestError').textContent,/Server bilan/);assert.equal(x.saved.length,0);
 });
 
 test('entry points connect profile, rating history, successful rating, business and admin',()=>{

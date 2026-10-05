@@ -2173,5 +2173,6 @@
   "Открыть переписку →": "Yozishmalarni ochish →",
   "Обращения к организациям →": "Tashkilotlarga murojaatlar →",
   "Сохранено": "Saqlandi",
-  "Обращения": "Murojaatlar"
+  "Обращения": "Murojaatlar",
+  "Не удалось связаться с сервером. Текст сохранён в форме. Проверьте соединение и повторите.": "Server bilan bog‘lanib bo‘lmadi. Matn shaklda saqlandi. Ulanishni tekshiring va qayta urinib ko‘ring."
 }
