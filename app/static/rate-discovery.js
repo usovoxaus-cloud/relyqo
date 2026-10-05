@@ -74,7 +74,23 @@
   const results=document.getElementById('results');results.before(currentPlace,candidates);candidates.append(results);
 
   let operation = 0, findingHere = false, savedScope = null;
-  function clearLocationNotice() {locationNotice.hidden=true;locationNotice.textContent='';}
+  function clearLocationNotice() {locationNotice.hidden=true;locationNotice.textContent='';window.relyqoLocationError='';}
+  function locationProblem(message) {window.relyqoLocationError=message;locationNotice.textContent=message;locationNotice.hidden=!message;}
+  window.relyqoLocationUsable=()=>{
+    if(!locationFix)return false;
+    const valid=locationFix.source==='manual' || (Number.isFinite(locationFix.accuracy) && locationFix.accuracy>0 && locationFix.accuracy<=Math.min(100,currentPlaceRadiusMeters/2));
+    if(!valid)locationProblem(t('Точности местоположения недостаточно для этого радиуса. Укажите точку на карте или включите точную геолокацию и повторите поиск.','Joylashuv aniqligi bu radius uchun yetarli emas. Xaritada nuqta tanlang yoki aniq joylashuvni yoqib, qayta urinib ko‘ring.'));
+    else clearLocationNotice();
+    return valid;
+  };
+  const originPicker=window.relyqoSearchOrigin({parent:currentPlace,loadMaps:loadGooglePlaces,getCenter:()=>currentCenter,getRadius:()=>currentPlaceRadiusMeters,onSelect:async point=>{
+    if(!findingHere || !commitRadius())return;
+    ++operation;cancelPending();clearLocationNotice();clearError();
+    currentCenter=point;locationFix={source:'manual',accuracy:null};
+    showRatedOnly=false;here.disabled=false;retry.disabled=false;
+    centerLabel=t('Выбранная точка','Tanlangan nuqta');
+    await refreshCatalog();
+  }});
   function syncSector() {
     document.getElementById('serviceCategory').value=sector.value;
     document.getElementById('ratedCategory').value=sector.value;
@@ -91,6 +107,7 @@
   function commitRadius() {
     if(!validateRadius())return false;
     currentPlaceRadiusMeters=Number(radiusInput.value.trim().replace(',','.'));
+    originPicker.updateRadius();
     for(const button of presets.children)button.setAttribute('aria-pressed',String(Number(button.dataset.radius)===currentPlaceRadiusMeters));
     currentTitle.textContent=t(`Организации в радиусе ${currentPlaceRadiusLabel()}`,`${currentPlaceRadiusLabel()} radiusdagi tashkilotlar`);
     radiusSummary.textContent=t(`Расстояние: ${currentPlaceRadiusLabel()}`,`Masofa: ${currentPlaceRadiusLabel()}`);
@@ -101,7 +118,7 @@
     if(!findingHere)return;
     document.getElementById('radius').value=String(currentPlaceRadiusMeters/1000);updateSearchScope();
     // Keep an outstanding GPS request; a known fix is reused for every radius change.
-    if(currentCenter && locationFix)await refreshCatalog();
+    if(currentCenter && locationFix){++catalogRequestId;window.relyqoNearbyPending=false;await refreshCatalog();}
     else renderAll();
   }
   radiusInput.addEventListener('input',validateRadius);
@@ -111,7 +128,7 @@
     findingHere=selected===here;
     syncSector();
     clearLocationNotice();
-    if(!findingHere){here.disabled=false;retry.disabled=false;}
+    if(!findingHere){here.disabled=false;retry.disabled=false;originPicker.close();}
     const controls=['radius','resultLimit','sortMode'].map(id=>document.getElementById(id));
     if(findingHere && !savedScope){
       savedScope=controls.map(control=>({value:control.value,disabled:control.disabled}));
@@ -139,7 +156,7 @@
     document.getElementById('sortMode').value='distance';
     syncSector();
     // Search near this point must not be hidden by a previously chosen name or rating threshold.
-    input.value='';remoteSearchQuery='';remoteSearchIds=new Set();
+    remoteSearchQuery='';remoteSearchIds=new Set();
     lastPartners=[];lastManualPlaces=[];lastExternalPlaces=[];
     renderAll();
   }
@@ -155,9 +172,16 @@
     await reloadRatedCatalog();
     if(request===operation)status.textContent='';
   }
-  window.relyqoRatingSearch=byNameSearch;
+  let nearbyQueryTimer;
+  window.relyqoRatingSearch=async()=>{
+    if(!findingHere)return byNameSearch();
+    clearTimeout(nearbyQueryTimer);
+    if(here.disabled)return;
+    if(currentCenter && locationFix)return refreshCatalog();
+    return findHere();
+  };
   sector.addEventListener('change',async()=>{
-    syncSector();clearLocationNotice();clearError();
+    syncSector();clearError();
     if(!findingHere){await byNameSearch();return;}
     // Changing the sector preserves the radius and an outstanding GPS request.
     if(currentCenter && locationFix)await refreshCatalog();
@@ -167,10 +191,12 @@
     if(!findingHere)return;
     const label=currentPlaceRadiusLabel();
     currentTitle.textContent=t(`Организации в радиусе ${label}`,`${label} radiusdagi tashkilotlar`);
-    // Results themselves show loading/empty states; this line is only a useful GPS warning.
+    // Distances are straight-line measurements from the accepted search origin.
     const accuracy=locationFix?.accuracy;
-    currentMessage.textContent=locationFix && (accuracy===null || accuracy>150)
-      ? t(`GPS неточный. Ищем в пределах ${label} от определённой точки. Проверьте адрес.`, `GPS noaniq. Aniqlangan nuqtadan ${label} ichida qidiramiz. Manzilni tekshiring.`) : '';
+    currentMessage.textContent=locationFix?.source==='manual'
+      ? t(`Радиус ${label} от выбранной точки, по прямой.`, `Tanlangan nuqtadan to‘g‘ri chiziq bo‘ylab ${label} radius.`)
+      : locationFix && window.relyqoLocationUsable()
+        ? t(`Радиус ${label} по прямой. Точность местоположения: ±${Math.ceil(accuracy)} м.`, `To‘g‘ri chiziq bo‘ylab ${label} radius. Joylashuv aniqligi: ±${Math.ceil(accuracy)} m.`) : '';
   };
   // One list for both modes; rating is the only primary action on each place.
   window.relyqoRenderRatingRows = rows => {
@@ -179,12 +205,13 @@
       const card=node('article','');card.className='place currentPlaceCandidate';card.id=markerCardId(item);
       const name=node('h3',item.title);name.setAttribute('data-user-content','');
       const address=node('p',item.address||t('Адрес не указан','Manzil ko‘rsatilmagan'));address.setAttribute('data-user-content','');
-      const distance=node('small',t(`Примерно ${Math.max(1,Math.round(item.distance*1000))} м от вас`,`Sizdan taxminan ${Math.max(1,Math.round(item.distance*1000))} m`));
+      const meters=Math.max(1,Math.round(item.distance*1000));
+      const distance=node('small',locationFix?.source==='manual' ? t(`Примерно ${meters} м от выбранной точки`,`Tanlangan nuqtadan taxminan ${meters} m`) : t(`Примерно ${meters} м от вас`,`Sizdan taxminan ${meters} m`));
       const select=node(item.kind==='external'?'button':'a',t('Оценить','Baholash'));select.className='currentPlaceSelect rateLink';
       if(item.kind==='external'){select.type='button';select.addEventListener('click',()=>openManualDialog(item,'rate'));}
       else select.href=ratingUrl(item);
       card.append(name,address);
-      if(item.distance!=null && Number.isFinite(item.distance))card.append(distance);
+      if(findingHere && item.distance!=null && Number.isFinite(item.distance))card.append(distance);
       if(item.kind==='external'){
         const attribution=node('div','Google Maps');attribution.setAttribute('translate','no');
         if(item.google_details && window.relyqoGoogleRating)window.relyqoGoogleRating.render(attribution,item.google_details,true);
@@ -198,6 +225,7 @@
   async function findHere() {
     if(!commitRadius()){radiusControl.hidden=false;radiusControl.open=true;return;}
     const request=++operation;cancelPending();choose(here);
+    originPicker.close();
     // Fresh coordinates keep the chosen radius, independently of ordinary map settings.
     locationFix=null;currentCenter=null;nearMode();here.disabled=true;retry.disabled=true;
     let locationError='';
@@ -206,11 +234,9 @@
     here.disabled=false;retry.disabled=false;
     if(success)renderAll();
     else{
-      choose(byName);resetListFilters();
-      locationNotice.textContent=locationError;locationNotice.hidden=!locationError;
-      await reloadRatedCatalog();
-      if(request!==operation)return;
+      locationProblem(locationError);
       status.textContent='';
+      renderAll();
     }
   }
   here.addEventListener('click',findHere);retry.addEventListener('click',findHere);
@@ -218,6 +244,12 @@
   // City and typed searches supersede a pending permission dialog or map opening.
   for(const id of ['ratedRegion','ratedCity','ratedCategory'])document.getElementById(id).addEventListener('change',()=>{if(!window.relyqoRestoringLocation){++operation;choose(byName);}});
   input.addEventListener('input',()=>{
+    if(findingHere){
+      ++catalogRequestId;window.relyqoNearbyPending=false;
+      clearTimeout(nearbyQueryTimer);renderAll();
+      if(currentCenter && locationFix)nearbyQueryTimer=setTimeout(()=>{if(findingHere)refreshCatalog();},250);
+      return;
+    }
     ++operation;++locationRequestId;
     choose(byName);clearError();
     if(!showRatedOnly){

@@ -16,9 +16,9 @@ async function harness(options={}) {
   document.getElementById('manualDialog').close=function(){this.open=false;};
   document.getElementById('manualForm').reset=function(){};
   document.getElementById('manualForm').reportValidity=function(){return !options.invalidManual;};
-  const calls=[],markers=[],timers=new Map(),stored=new Map();let timer=0,map,gps=0,permission;
+  const calls=[],markers=[],maps=[],circles=[],timers=new Map(),stored=new Map();let timer=0,map,gps=0,permission;
   if(options.saved)stored.set('relyqo.consumer.place.v1',JSON.stringify(options.saved));
-  const google={maps:{Map:function(root,config){map=this;this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.addListener=()=>{};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};this.setPosition=value=>{this.position=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return options.textSearch?options.textSearch(body):{places:[externalPlace()]};}}})}};
+  const google={maps:{Map:function(root,config){map=this;maps.push(this);this.root=root;this.listeners={};this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Circle:function(config){Object.assign(this,config);this.setRadius=v=>{this.radius=v;};this.setCenter=v=>{this.center=v;};this.setMap=v=>{this.map=v;};circles.push(this);},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};this.setPosition=value=>{this.position=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return options.textSearch?options.textSearch(body):{places:[externalPlace()]};}}})}};
   const window={google:options.noGoogle?undefined:google,relyqoCategoryGroup:code=>options.categoryGroups?.[code],relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer;},clearTimeout:id=>timers.delete(id)};
   const context={document,window,google,Event:events.Event,MutationObserver:events.MutationObserver,URLSearchParams,Intl,AbortController,Map,Set,location:{search:options.search??'?find=search',pathname:options.pathname||'/rate',href:'/rate'},Option:function(text,value=text){const o=document.createElement('option');o.textContent=text;o.value=value;return o;},setTimeout:window.setTimeout,clearTimeout:window.clearTimeout,localStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)},navigator:{language:'ru',geolocation:{getCurrentPosition(resolve,reject,settings){gps++;permission={resolve,reject,settings};if(options.gps==='denied')reject({code:1});else if(options.gps!=='pending')resolve({coords:{latitude:41.3,longitude:69.2,accuracy:options.accuracy??20}});}}},fetch:async(url,settings={})=>{
     const body=settings.body?JSON.parse(settings.body):null;calls.push({url,body,method:settings.method||'GET'});
@@ -35,12 +35,12 @@ async function harness(options={}) {
     throw Error('Unexpected request '+url);
   }};
   vm.createContext(context);
-  for(const name of ['manual-location','nearby','ai-search','consumer-search','rate-discovery'])vm.runInContext(fs.readFileSync(`app/static/${name}.js`,'utf8'),context,{filename:name+'.js'});
+  for(const name of ['manual-location','search-origin','nearby','ai-search','consumer-search','rate-discovery'])vm.runInContext(fs.readFileSync(`app/static/${name}.js`,'utf8'),context,{filename:name+'.js'});
   await settle();
   const click=async selector=>{document.querySelector(selector).click();await settle();};
   const type=async value=>{document.getElementById('catalogQuery').value=value;document.getElementById('catalogQuery').dispatchEvent(new events.Event('input'));await settle();};
   const runTimer=async delay=>{const entry=[...timers].find(([,value])=>value.delay===delay);assert(entry,`expected ${delay}ms timer`);timers.delete(entry[0]);entry[1].fn();await settle();};
-  return {document,window,context,events,calls,markers,stored,timers,click,type,runTimer,gps:()=>gps,map:()=>map,permission:()=>permission};
+  return {document,window,context,events,calls,markers,maps,circles,stored,timers,click,type,runTimer,gps:()=>gps,map:()=>map,permission:()=>permission};
 }
 
 test('rating name search preserves the query and leads to the selected organization without GPS or writes',async()=>{
@@ -82,7 +82,7 @@ test('nearby requests permission once, uses real coordinates and opens external 
 
 test('late geolocation cannot replace a name search started while permission is pending',async()=>{
   const x=await harness({search:'?find=nearby',gps:'pending'});assert.equal(x.gps(),1);
-  await x.type('Test');await x.runTimer(250);
+  await x.click('#discoveryByName');await x.type('Test');await x.runTimer(250);
   x.permission().resolve({coords:{latitude:42,longitude:60}});await settle();
   assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));assert.equal(x.map(),undefined);
   assert.equal(x.document.getElementById('catalogQuery').value,'Test');assert(x.document.body.classList.contains('directoryMode'));
@@ -106,7 +106,7 @@ test('explicit nearby entry locates once using a fresh fix and a small search ar
   for(const url of ['/v1/public/manual-places/nearby','/v1/public/branches/nearby'])assert.equal(x.calls.find(c=>c.url===url).body.radius_km,.3);
   assert.equal(x.calls.find(c=>c.nearby).nearby.locationRestriction.radius,300);
   assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
-  assert.equal(x.document.getElementById('currentPlaceMessage').textContent,'');
+  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/300 м.*±20 м/);
   const link=x.document.querySelector('#currentPlaceCandidates a');
   assert.equal(link.textContent,'Оценить');
   assert.equal(new URL(link.getAttribute('href'),'https://example.test').searchParams.get('object_key'),'manual:here');
@@ -126,20 +126,22 @@ test('several organizations in the same building require a consumer choice; far 
   assert.match(y.document.getElementById('results').textContent,/ничего не найдено/);
 });
 
-test('poor GPS accuracy never claims to have identified the current organization',async()=>{
-  const x=await harness({search:'?find=here',accuracy:2000,localPlaces:[atVenue('a')],nearby:()=>({places:[]})});
-  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/GPS неточный.*300 м.*Проверьте адрес/);
-  assert.equal(x.document.getElementById('currentPlaceTitle').textContent,'Организации в радиусе 300 м');
-  assert(x.calls.filter(c=>c.url?.endsWith('/nearby')).every(c=>c.body.radius_km===.3));
-  assert(x.calls.filter(c=>c.nearby).every(c=>c.nearby.locationRestriction.radius===300));
-  assert.equal(x.document.querySelectorAll('.currentPlaceCandidate').length,1);
+test('poor GPS accuracy retries once, preserves the radius and never starts a misleading search',async()=>{
+  for(const accuracy of [2000,151,0,-1,NaN]){
+    const x=await harness({search:'?find=here',accuracy,localPlaces:[atVenue('a')]});
+    assert.equal(x.gps(),2);assert.equal(nearbyCalls(x).length,0);assert(!x.calls.some(c=>c.nearby));
+    assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/Точности местоположения недостаточно/);
+    assert.equal(x.document.querySelectorAll('.currentPlaceCandidate').length,0);
+    assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
+    assert.equal(x.document.getElementById('currentRadiusControl').hidden,false);
+  }
 });
 
 test('denied current-location permission offers other methods and does not repeat the request',async()=>{
   const x=await harness({search:'?find=here',gps:'denied'});assert.equal(x.gps(),1);
   assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
   assert.equal(x.document.getElementById('discoveryHere').disabled,false);
-  assert(x.document.getElementById('currentPlace').classList.contains('hidden'));
+  assert(!x.document.getElementById('currentPlace').classList.contains('hidden'));
   await x.click('#discoveryByName');assert.equal(x.gps(),1);
   assert.equal(x.document.getElementById('discoveryByName').getAttribute('aria-pressed'),'true');assert.equal(x.gps(),1);
 });
@@ -205,7 +207,7 @@ test('sector list search filters local and live map results, retains the query, 
   assert.equal(new URL(x.calls.filter(c=>c.url?.startsWith('/v1/public/rated-organizations')).at(-1).url,'https://test.local').searchParams.get('category'),'EDUCATION');
   await x.runTimer(350);assert.deepEqual(names(x).sort(),['Map school','Test courses','Test school']);
   assert.match(x.calls.filter(c=>c.text).at(-1).text.textQuery,/Образование/);
-  await x.type('Test');await x.runTimer(250);await x.click('#catalogSearchButton');
+  await x.click('#discoveryByName');await x.type('Test');await x.runTimer(250);await x.click('#catalogSearchButton');
   assert.equal(x.document.getElementById('discoveryCategory').value,'EDUCATION');
   assert.equal(x.document.getElementById('catalogQuery').value,'Test');
   assert.deepEqual(names(x).sort(),['Test courses','Test school']);
@@ -243,9 +245,9 @@ test('sector changes during pending GPS keep the attempt and apply the final sel
     assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
     x.permission()[outcome](outcome==='resolve'?{coords:{latitude:41.3,longitude:69.2,accuracy:20}}:{code:1});await settle();
     assert.equal(x.document.getElementById('discoveryCategory').value,'EDUCATION');
-    assert.deepEqual(names(x),['Test school']);assert.equal(x.gps(),1);
+    assert.deepEqual(names(x),outcome==='resolve'?['Test school']:[]);assert.equal(x.gps(),1);
     if(outcome==='resolve')assert(nearbyCalls(x).every(c=>c.body.category==='EDUCATION'));
-    else assert.equal(x.document.getElementById('discoveryByName').getAttribute('aria-pressed'),'true');
+    else assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
   }
 });
 
@@ -423,14 +425,14 @@ test('late local and Google results from a wider radius cannot replace a newer n
   assert.deepEqual(names(x),['Local 150','Google 200']);assertScope(x,300);assert.equal(x.gps(),1);
 });
 
-test('dynamic RU/UZ loading, empty, error and low-accuracy text use the chosen radius',async()=>{
+test('dynamic RU/UZ loading, empty, error and accuracy text use the chosen radius',async()=>{
   for(const uz of [false,true]){
     const answer=deferred();let failing=false;
-    const x=await harness({search:'?find=here',uz,accuracy:2000,localPlaces:[],nearby:()=>failing?Promise.reject(Error('offline')):answer.promise});
+    const x=await harness({search:'?find=here',uz,accuracy:20,localPlaces:[],nearby:()=>failing?Promise.reject(Error('offline')):answer.promise});
     await x.click('[data-radius="1000"]');
     const unit=uz?'1 km':'1 км';
     for(const id of ['currentPlaceTitle','currentPlaceMessage','results','status','scopeHint'])assert(x.document.getElementById(id).textContent.includes(unit),id);
-    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/GPS noaniq/:/GPS неточный/);
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/Joylashuv aniqligi/:/Точность местоположения/);
     answer.resolve({places:[]});await settle();
     assert(x.document.getElementById('results').textContent.includes(unit));
     assert.match(x.document.getElementById('results').textContent,uz?/hech narsa topilmadi/:/ничего не найдено/);
@@ -469,16 +471,15 @@ test('pending GPS immediately synchronizes 300m labels and restores the prior sc
   local.resolve(reply({items:[]}));google.resolve({places:[]});await settle();
 });
 
-test('denied GPS restores ordinary labels when leaving current-place mode without repeating permission',async()=>{
+test('denied GPS retains nearby mode until the user explicitly selects the list',async()=>{
   const x=await harness({search:'?find=here',gps:'pending'});
-  assert.equal(x.document.getElementById('mapRadius').textContent,'0.3');
   x.permission().reject({code:1});await settle();
-  assert(!x.document.body.classList.contains('findingCurrentPlace'));
-  assert(x.document.getElementById('currentPlace').classList.contains('hidden'));
-  assert.equal(x.document.getElementById('mapRadius').textContent,'15');
-  assert.match(x.document.getElementById('scopeHint').textContent,/15 км/);
+  assert(x.document.body.classList.contains('findingCurrentPlace'));
+  assert.equal(x.document.getElementById('mapRadius').textContent,'0.3');
   assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
   assert(!x.document.getElementById('results').textContent.includes('Ожидаем местоположение'));
+  assert.equal(names(x).length,0);
+  await x.click('#discoveryByName');assert.equal(x.document.getElementById('mapRadius').textContent,'15');
   assert(x.document.querySelector('#place-manual-fixture-local .rateLink'));
   assert.equal(x.gps(),1);assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));
 });
@@ -562,7 +563,7 @@ test('nearby button loads a single actionable list and external confirmation rea
   await openRatingForm(x.context.location.href);assert.equal(x.gps(),1);
 });
 
-test('exhausted or denied location shows a scoped RU/UZ notice and restores a working list',async()=>{
+test('exhausted or denied location keeps the chosen scope and offers an explicit list fallback',async()=>{
   for(const uz of [false,true])for(const code of [1,2,3]){
     const x=await harness({search:'',gps:'pending',uz});await x.click('#discoveryHere');
     x.permission().reject({code,message:'Timeout expired / raw provider error'});await settle();
@@ -574,11 +575,10 @@ test('exhausted or denied location shows a scoped RU/UZ notice and restores a wo
     const notice=x.document.getElementById('discoveryLocationNotice'),error=notice.textContent;
     assert.equal(notice.hidden,false);assert.equal(notice.getAttribute('role'),'status');
     assert(x.document.getElementById('error').classList.contains('hidden'));
-    assert.match(error,uz?/ro‘yxatdan tanlang/:/из списка/);assert.doesNotMatch(error,/Timeout|expired|provider/);
-    assert(x.document.querySelector('#results .rateLink'));assert(!x.document.body.classList.contains('findingCurrentPlace'));
-    assert.equal(x.document.getElementById('discoveryByName').getAttribute('aria-pressed'),'true');
-    assert(x.document.getElementById('currentRadiusControl').hidden);
-    await openRatingForm(x.document.querySelector('#results .rateLink').getAttribute('href'));
+    assert.match(error,uz?/xaritada nuqta/:/точку на карте/);assert.doesNotMatch(error,/Timeout|expired|provider/);
+    assert(!x.document.querySelector('#results .rateLink'));assert(x.document.body.classList.contains('findingCurrentPlace'));
+    assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
+    assert(!x.document.getElementById('currentRadiusControl').hidden);
     await x.click('#discoveryByName');assert.equal(x.gps(),code===1?1:2);assert(notice.hidden);assert.equal(notice.textContent,'');
   }
 });
@@ -593,10 +593,10 @@ test('a timeout or unavailable high-accuracy fix retries once and searches with 
     assert.match(x.document.getElementById('results').textContent,uz?/joylashuvni kutyapmiz/:/Ожидаем местоположение/);
     assert(x.document.getElementById('error').classList.contains('hidden'));
     await x.click('[data-radius="1000"]');
-    x.permission().resolve({coords:{latitude:41.302,longitude:69.201,accuracy:700}});await settle();
+    x.permission().resolve({coords:{latitude:41.302,longitude:69.201,accuracy:80}});await settle();
     assert.equal(x.gps(),2);assertScope(x,1000);
     assert(nearbyCalls(x).every(c=>c.body.latitude===41.302&&c.body.longitude===69.201));
-    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/GPS noaniq/:/GPS неточный/);
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/Joylashuv aniqligi/:/Точность местоположения/);
     assert(x.document.getElementById('discoveryLocationNotice').hidden);
     assert.equal(x.document.getElementById('discoveryHere').disabled,false);
   }
@@ -606,7 +606,7 @@ test('leaving either GPS attempt cancels retries and late results cannot replace
   for(const phase of [1,2])for(const outcome of ['resolve','reject']){
     const x=await harness({search:'?find=here',gps:'pending'});
     if(phase===2){x.permission().reject({code:3});await settle();}
-    const pending=x.permission();await x.type('Test');await x.runTimer(250);
+    const pending=x.permission();await x.click('#discoveryByName');await x.type('Test');await x.runTimer(250);
     assert.equal(x.document.getElementById('discoveryHere').disabled,false);
     pending[outcome](outcome==='resolve'?{coords:{latitude:41.3,longitude:69.2,accuracy:20}}:{code:3});await settle();
     assert.equal(x.gps(),phase);assert.equal(nearbyCalls(x).length,0);
@@ -618,14 +618,14 @@ test('leaving either GPS attempt cancels retries and late results cannot replace
 });
 
 test('starting a list search or a fresh nearby attempt clears the previous location notice immediately',async()=>{
-  for(const action of ['type','search','nearby']){
+  for(const action of ['list','search','nearby']){
     const x=await harness({search:'?find=here',gps:'pending'});
     x.permission().reject({code:1});await settle();
     const notice=x.document.getElementById('discoveryLocationNotice');assert(!notice.hidden);
-    if(action==='type')await x.type('Test');
+    if(action==='list')await x.click('#discoveryByName');
     else await x.click(action==='search'?'#catalogSearchButton':'#discoveryHere');
     assert(notice.hidden);assert.equal(notice.textContent,'');
-    assert.equal(x.gps(),action==='nearby'?2:1);
+    assert.equal(x.gps(),action==='list'?1:2);
   }
 });
 
@@ -655,11 +655,94 @@ test('separate advanced nearby catalog retains its controls and does not receive
 });
 
 
-test('Find while permission is pending switches to the list without a second GPS request',async()=>{
-  const x=await harness({search:'',gps:'pending'});await x.click('#discoveryHere');assert.equal(x.gps(),1);
-  await x.click('#catalogSearchButton');assert.equal(x.gps(),1);assert(!x.document.body.classList.contains('findingCurrentPlace'));
+test('Find and typing while permission is pending keep the radius and the same GPS request',async()=>{
+  const x=await harness({search:'',gps:'pending'});await x.click('#discoveryHere');
+  await x.type('Test');await x.click('#catalogSearchButton');assert.equal(x.gps(),1);
+  assert(x.document.body.classList.contains('findingCurrentPlace'));assert.equal(names(x).length,0);
   x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:20}});await settle();
-  assert(!x.calls.some(c=>c.url?.endsWith('/nearby')));assert(x.document.querySelector('#results .rateLink'));
+  assert.equal(x.gps(),1);assertScope(x,300);assert(x.document.querySelector('#results .rateLink'));
+  assert.equal(x.calls.filter(c=>c.text).at(-1).text.locationBias.radius,300);
+});
+
+test('a coarse first fix can improve; only the precise second coordinates reach nearby services',async()=>{
+  const x=await harness({search:'?find=here',gps:'pending'});
+  x.permission().resolve({coords:{latitude:42,longitude:60,accuracy:2000}});await settle();
+  assert.equal(x.gps(),2);assert.equal(nearbyCalls(x).length,0);
+  assert.equal(x.permission().settings.enableHighAccuracy,true);assert.equal(x.permission().settings.maximumAge,0);
+  x.permission().resolve({coords:{latitude:41.3,longitude:69.2,accuracy:15}});await settle();
+  assertScope(x,300);assert(nearbyCalls(x).every(c=>c.body.latitude===41.3&&c.body.longitude===69.2));
+  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/±15 м/);
+});
+
+test('shrinking the radius rechecks accuracy and cannot publish late wide results',async()=>{
+  const pending=deferred();
+  const x=await harness({search:'?find=here',accuracy:80,nearby:()=>pending.promise});
+  const count=nearbyCalls(x).length;
+  await editRadius(x,'100');assert.equal(nearbyCalls(x).length,count);assert.equal(names(x).length,0);
+  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/Точности/);
+  pending.resolve({places:[googleAt(40)]});await settle();assert.equal(names(x).length,0);
+  await editRadius(x,'300');assertScope(x,300);assert(x.document.getElementById('discoveryLocationNotice').hidden);
+  assert.equal(x.gps(),1);
+});
+
+test('nearby name search keeps category and radius, and excludes external text matches outside the circle',async()=>{
+  const x=await harness({search:'?find=here',localPlaces:[{...localAt(200),name:'Target cafe'}, {...localAt(500),name:'Target far'}],
+    textSearch:()=>({places:[{...googleAt(250),displayName:'Target map cafe'},{...googleAt(2000),displayName:'Target distant'}]})});
+  await chooseSector(x,'FOOD');await x.type('Target');await x.runTimer(250);
+  assert.deepEqual(names(x),['Target cafe','Target map cafe']);assert.equal(x.gps(),1);assertScope(x,300);
+  assert.equal(x.calls.filter(c=>c.text).at(-1).text.locationBias.radius,300);
+  await x.click('#catalogSearchButton');assert.deepEqual(names(x),['Target cafe','Target map cafe']);
+  assert.equal(x.document.getElementById('discoveryCategory').value,'FOOD');
+});
+
+test('a confirmed map origin works after denied GPS, preserves scope, and never stores or creates a place',async()=>{
+  for(const uz of [false,true]){
+    const x=await harness({search:'?find=here',gps:'denied',uz,localPlaces:[localAt(299.99),localAt(300.01)],nearby:()=>({places:[]})});
+    await chooseSector(x,'FOOD');await x.click('#searchOriginToggle');
+    const map=x.maps.find(m=>m.root.id==='searchOriginMap'),confirm=x.document.getElementById('searchOriginConfirm');
+    assert(map);assert(confirm.disabled);assert.equal(nearbyCalls(x).length,0);
+    map.listeners.click({latLng:{lat:()=>41.3,lng:()=>69.2}});await settle();
+    assert(!confirm.disabled);assert.equal(x.circles.at(-1).radius,300);assert.equal(nearbyCalls(x).length,0);
+    await x.click('#searchOriginConfirm');assert.deepEqual(names(x),['Local 299.99']);assertScope(x,300);
+    assert(x.document.getElementById('discoveryLocationNotice').hidden);assert.equal(x.gps(),1);
+    assert.match(x.document.getElementById('currentPlaceMessage').textContent,uz?/Tanlangan nuqtadan/:/от выбранной точки/);
+    assert.match(x.document.querySelector('.currentPlaceCandidate small').textContent,uz?/Tanlangan nuqtadan/:/от выбранной точки/);
+    await x.click('[data-radius="1000"]');assert.equal(x.circles.at(-1).radius,1000);assertScope(x,1000);assert.equal(x.gps(),1);
+    assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'||c.url?.includes('/ratings')));
+    assert(![...x.stored.values()].some(value=>/41\.3|latitude|longitude/.test(value)));
+  }
+});
+
+test('map confirmation supersedes pending GPS and a later GPS callback cannot move the chosen point',async()=>{
+  const x=await harness({search:'?find=here',gps:'pending'}),gps=x.permission();
+  await x.click('#searchOriginToggle');const map=x.maps.find(m=>m.root.id==='searchOriginMap');
+  map.listeners.click({latLng:{lat:()=>41.3,lng:()=>69.2}});await x.click('#searchOriginConfirm');
+  const count=nearbyCalls(x).length;gps.resolve({coords:{latitude:42,longitude:60,accuracy:10}});await settle();
+  assert.equal(nearbyCalls(x).length,count);assert(nearbyCalls(x).every(c=>c.body.latitude===41.3));
+  assert.match(x.document.getElementById('currentPlaceMessage').textContent,/выбранной точки/);
+});
+
+test('map address lookup requires a selected result and explicit confirmation, and ignores stale replies',async()=>{
+  let late=false;const pending=deferred();
+  const x=await harness({search:'?find=here',gps:'denied',textSearch:()=>late?pending.promise:{places:[externalPlace()]}});
+  await x.click('#searchOriginToggle');
+  const input=x.document.getElementById('searchOriginAddress'),form=x.document.getElementById('searchOriginForm');
+  input.value='Tashkent university';form.dispatchEvent(new x.events.Event('submit',{cancelable:true}));await settle();
+  assert.equal(nearbyCalls(x).length,0);assert(x.document.getElementById('searchOriginConfirm').disabled);
+  await x.click('#searchOriginChoices button');assert(!x.document.getElementById('searchOriginConfirm').disabled);
+  input.value='Another address';input.dispatchEvent(new x.events.Event('input'));assert(x.document.getElementById('searchOriginConfirm').disabled);
+  late=true;form.dispatchEvent(new x.events.Event('submit',{cancelable:true}));await settle();
+  await x.click('#discoveryByName');pending.resolve({places:[externalPlace()]});await settle();
+  assert(x.document.getElementById('searchOriginPanel').hidden);assert.equal(nearbyCalls(x).length,0);
+  assert.equal(x.document.getElementById('searchOriginChoices').children.length,0);
+});
+
+test('a failed map load is retryable without claiming an origin or starting GPS',async()=>{
+  const x=await harness({search:'?find=here',gps:'denied',noGoogle:true});
+  await x.click('#searchOriginToggle');assert.match(x.document.getElementById('searchOriginStatus').textContent,/Карта недоступна/);
+  assert(x.document.getElementById('searchOriginConfirm').disabled);assert.equal(nearbyCalls(x).length,0);
+  await x.click('#searchOriginToggle');x.window.google=x.context.google;await x.click('#searchOriginToggle');
+  assert(x.maps.some(m=>m.root.id==='searchOriginMap'));assert.equal(x.gps(),1);
 });
 
 test('missing-place action is available after results, empty searches and denied GPS in both languages',async()=>{

@@ -426,7 +426,8 @@ function viewRows() {
   if (showRatedOnly) rows.push(...lastCityPlaces.map(item => ({...item, kind:"external", title:item.name, _citySearch:true})).filter(item => !isAlreadyInRelyqo(item, rows)));
   // Use unrounded coordinates for the same boundary in cards, list and markers.
   // Do not apply the ordinary 20/50/100 display cap to current-place results.
-  if (findingHere) return currentCenter ? withinHere(rows).filter(matchesCategory).sort((a,b) => a.distance - b.distance) : [];
+  if (findingHere) return currentCenter && window.relyqoLocationUsable?.() !== false
+    ? withinHere(rows).filter(matchesCategory).filter(item => !query || normalizeSearch(query).split(' ').every(token => normalizeSearch([item.title,item.address,item.city,categoryNames[item.category]].filter(Boolean).join(' ')).includes(token))).sort((a,b) => a.distance - b.distance) : [];
   rows = rows.filter(showRatedOnly ? matchesRatedFilters : matchesCategory);
   if (query) {
     rows = rows.filter((item) => (
@@ -885,6 +886,11 @@ function renderList(rows) {
   const favorites = readFavorites();
   if (!rows.length) {
     const findingHere = document.body.classList.contains('findingCurrentPlace');
+    if (findingHere && window.relyqoLocationError) {
+      const hint = document.createElement('p');hint.className='empty';
+      hint.textContent = document.documentElement.lang === 'uz' ? 'Yaqin joylarni topish uchun joylashuvni qayta aniqlang yoki xaritada nuqta tanlang.' : 'Чтобы найти места рядом, определите местоположение ещё раз или укажите точку на карте.';
+      root.append(hint);$("#listCount").textContent='';return;
+    }
     const waitingHere = findingHere && (!locationFix || window.relyqoNearbyPending);
     if (findingHere && window.relyqoCurrentRadiusInvalid) {
       const invalid = document.createElement('div');invalid.className='empty';
@@ -1220,7 +1226,9 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
       language: document.documentElement.lang === "uz" ? "uz" : "ru",
     };
     if (selected !== "ALL") request.includedPrimaryTypes = googlePlaceTypes[selected] || [];
-    const { places } = await Place.searchNearby(request);
+    const { places } = scope.query
+      ? await Place.searchByText({fields:request.fields,textQuery:scope.query,locationBias:request.locationRestriction,maxResultCount:20,rankPreference:'DISTANCE',language:request.language})
+      : await Place.searchNearby(request);
     for (const place of places || []) {
       if (!place.location || !place.id || found.has(place.id)) continue;
       if (addressPart(place, "country", "shortText").toUpperCase() !== "UZ") continue;
@@ -1343,6 +1351,7 @@ function withDeadline(task, milliseconds) {
 
 async function refreshCatalog() {
   if (!currentCenter) return;
+  if (document.body.classList.contains('findingCurrentPlace') && window.relyqoLocationUsable?.() === false) {renderAll();return;}
   if (document.body.classList.contains('findingCurrentPlace') && window.relyqoValidateCurrentRadius?.() === false) {renderAll();return;}
   const requestId = ++catalogRequestId;
   const isCurrent = () => requestId === catalogRequestId;
@@ -1350,7 +1359,7 @@ async function refreshCatalog() {
   const findingHere = document.body.classList.contains('findingCurrentPlace');
   const state = {localPending:2, googlePending:true, localFailed:0, googleFailed:false};
   window.relyqoNearbyState = state;
-  const scope = { center: { ...currentCenter }, radius: selectedRadius(), limit: selectedLimit(), category: $("#serviceCategory").value || "ALL" };
+  const scope = { center: { ...currentCenter }, radius: selectedRadius(), limit: selectedLimit(), category: $("#serviceCategory").value || "ALL", query:findingHere ? $("#catalogQuery").value.trim() : '' };
   lastPartners = []; lastManualPlaces = []; lastExternalPlaces = [];
   clearError();
   updateSearchScope();
@@ -1416,7 +1425,7 @@ async function locate(options) {
       reject,
       { enableHighAccuracy, timeout: enableHighAccuracy ? 12000 : 8000, maximumAge: options?.fresh === true ? 0 : 300000 },
     ));
-    let position;
+    let position, retried = false;
     try {
       position = await requestPosition(true);
     } catch (error) {
@@ -1424,15 +1433,25 @@ async function locate(options) {
       // Retry only once, never after denial or after the user starts another search.
       if (requestId !== locationRequestId) return false;
       if (error.code !== 2 && error.code !== 3) throw error;
+      retried = true;
       position = await requestPosition(false);
     }
     if (requestId !== locationRequestId) return;
+    const preciseEnough = value => Number.isFinite(value?.coords?.accuracy) && value.coords.accuracy > 0 && value.coords.accuracy <= Math.min(100, currentPlaceRadiusMeters / 2);
+    if (document.body.classList.contains('findingCurrentPlace') && !preciseEnough(position)) {
+      // A network estimate can precede a GPS fix. Give it one fresh, bounded attempt.
+      if (!retried) {
+        try { position = await requestPosition(true); } catch (error) { if (error.code === 1) throw error; }
+        if (requestId !== locationRequestId) return false;
+      }
+      if (!preciseEnough(position)) throw {code:'ACCURACY'};
+    }
     const { latitude, longitude, accuracy } = position.coords;
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
       throw new Error("Не удалось определить местоположение. Повторите поиск или выберите место на карте.");
     }
     currentCenter = { lat: position.coords.latitude, lng: position.coords.longitude };
-    locationFix = { accuracy: Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null };
+    locationFix = { accuracy: Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null, source:'gps' };
     centerLabel = "Вы находитесь здесь";
     showRatedOnly = false;
     $("#addPlace").disabled = false;
@@ -1443,11 +1462,13 @@ async function locate(options) {
     if (requestId !== locationRequestId) return;
     if (document.body.classList.contains('ratingDiscovery')) {
       const uz=document.documentElement.lang==='uz';
-      const message=error.code===1
-        ? (uz?'Joylashuvga ruxsat berilmadi. Tashkilotni ro‘yxatdan tanlang.':'Доступ к геолокации запрещён. Выберите организацию из списка.')
+      const message=error.code==='ACCURACY'
+        ? (uz?'Joylashuv aniqligi bu radius uchun yetarli emas. Xaritada nuqta tanlang yoki aniq joylashuvni yoqib, qayta urinib ko‘ring.':'Точности местоположения недостаточно для этого радиуса. Укажите точку на карте или включите точную геолокацию и повторите поиск.')
+        : error.code===1
+        ? (uz?'Joylashuvga ruxsat berilmadi. Brauzer sozlamalarida ruxsat bering yoki xaritada nuqta tanlang.':'Доступ к геолокации запрещён. Разрешите его в настройках браузера или укажите точку на карте.')
         : error.code===3
-          ? (uz?'Joylashuvni aniqlashga vaqt yetmadi. Tashkilotni ro‘yxatdan tanlang.':'Не успели определить местоположение. Выберите организацию из списка.')
-          : (uz?'Joylashuvni aniqlab bo‘lmadi. Tashkilotni ro‘yxatdan tanlang.':'Не удалось определить местоположение. Выберите организацию из списка.');
+          ? (uz?'Joylashuvni aniqlashga vaqt yetmadi. Qayta urinib ko‘ring yoki xaritada nuqta tanlang.':'Не успели определить местоположение. Повторите поиск или укажите точку на карте.')
+          : (uz?'Joylashuvni aniqlab bo‘lmadi. Qayta urinib ko‘ring yoki xaritada nuqta tanlang.':'Не удалось определить местоположение. Повторите поиск или укажите точку на карте.');
       if(options?.onLocationError)options.onLocationError(message);
       else showError(message);
     } else {
