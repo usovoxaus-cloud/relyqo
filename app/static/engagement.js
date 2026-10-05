@@ -13,9 +13,9 @@
   const mount=document.querySelector('main:not(#loginView):not(#authView)');(mount||document.body).prepend(box);
   head.addEventListener('click',()=>{content.hidden=!content.hidden;head.setAttribute('aria-expanded',String(!content.hidden));});
   function link(label,href,authored=false){const a=document.createElement('a');a.textContent=authored?label:t(label);a.href=href;if(authored)a.setAttribute('data-user-content','');links.append(a);return a;}
-  let busy=false,stopped=false,timer;
+  let busy=false,timer;
   async function refresh(){
-    if(busy||stopped||document.hidden)return;
+    if(busy||document.hidden)return;
     busy=true;const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
     try{
       const response=await fetch('/v1/engagement/inbox',{credentials:'same-origin',cache:'no-store',signal:controller.signal});
@@ -24,7 +24,7 @@
       const data=await response.json();box.hidden=false;
       const count=data.unread+data.pending_claims;
       head.textContent=t('Уведомления')+(count?' · '+count:'');
-      status.textContent=data.unread?t('Непрочитанных обращений:')+' '+data.unread:t('Новых сообщений нет');
+      status.textContent=data.unread?t('Непрочитанных уведомлений:')+' '+data.unread:t('Новых сообщений нет');
       links.replaceChildren();
       for(const item of data.items){
         const a=link(item.name,item.href,true);const label=document.createElement('span');label.removeAttribute('data-user-content');

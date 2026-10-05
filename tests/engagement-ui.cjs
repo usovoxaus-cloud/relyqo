@@ -48,7 +48,7 @@ test('representative application requires separate consent and preserves text af
   x.get('claimConsent').checked=true;x.submit(x.get('claimForm'));await settle();assert.equal(x.posts[0].body.object_key,'manual:one');assert.equal(x.get('claimEvidence').value,'Officially verifiable representative');assert(!x.get('claimsError').hidden);
 });
 test('admin cannot approve before confirming independent verification; version is submitted',async()=>{
-  const x=await claims({admin:true});const form=x.document.querySelector('.claimCard form'),button=form.querySelector('button[value=approve]');form.querySelector('textarea').value='Confirmed through the official telephone number';
+  const x=await claims({admin:true});const form=x.document.querySelector('.claimCard form'),button=[...form.querySelectorAll('button')].find(item=>item.value==='approve');assert(button);form.querySelector('textarea').value='Confirmed through the official telephone number';
   x.submit(form,button);await settle();assert.equal(x.posts.length,0);
   form.querySelector('input[type=checkbox]').checked=true;x.submit(form,button);await settle();assert.equal(x.posts[0].body.verified,true);assert.equal(x.posts[0].body.version,1);assert.equal(x.posts[0].body.action,'approve');
 });

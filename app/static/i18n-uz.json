@@ -2246,5 +2246,7 @@
   "Заявка не найдена": "Ariza topilmadi",
   "Запишите основание решения: не менее 20 символов": "Qaror asosini yozing: kamida 20 ta belgi",
   "Подтвердите проверку полномочий активного заявителя": "Faol ariza beruvchining vakolati tekshirilganini tasdiqlang",
-  "У карточки уже есть представитель. Сначала проверьте и отзовите прежний доступ": "Kartochkaning vakili bor. Avval tekshiring va oldingi kirish huquqini bekor qiling"
+  "У карточки уже есть представитель. Сначала проверьте и отзовите прежний доступ": "Kartochkaning vakili bor. Avval tekshiring va oldingi kirish huquqini bekor qiling",
+  "Основание решения": "Qaror asosi",
+  "Непрочитанных уведомлений:": "O‘qilmagan bildirishnomalar:"
 }
