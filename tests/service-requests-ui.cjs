@@ -23,6 +23,7 @@ async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',
     const body=options.body?JSON.parse(options.body):null;calls.push({url,body});
     const reply=(data,status=200)=>({ok:status<400,status,json:async()=>data});
     if(auth)return reply({detail:'Войдите в аккаунт'},401);
+    if(url.includes('/read?'))return reply({read:true});
     if(body){
       if(network)throw new TypeError('Failed to fetch');
       if(pending)await new Promise(resolve=>resolvePost=resolve);
@@ -68,7 +69,7 @@ test('stale update preserves draft and refresh keeps it available',async()=>{
 
 test('pending send prevents duplicate submissions and clears draft only on success',async()=>{
   const x=await setup({pending:true});x.get('replyText').value='A single message';x.submit('replyForm');x.submit('replyForm');await settle();
-  assert.equal(x.calls.filter(c=>c.body).length,1);assert(x.get('sendReply').disabled);assert.equal(x.get('replyText').value,'A single message');
+  assert.equal(x.calls.filter(c=>c.body&&!c.url.includes('/read?')).length,1);assert(x.get('sendReply').disabled);assert.equal(x.get('replyText').value,'A single message');
   assert(x.get('replyText').disabled);
   x.release();await settle();assert.equal(x.get('replyText').value,'');assert(!x.get('sendReply').disabled);
 });

@@ -12,8 +12,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent, ServiceRequest, ServiceMessage
+from app.models import ServiceRequestRead, RepresentationClaim, ServiceRepresentative
 from app.analytics import AnalyticsFilter, build_report
 from app.backups import create_snapshot, restore_snapshot
+from app.request_engagement import statistics
 
 
 def test_postgres_additive_migration_and_independent_restore(monkeypatch):
@@ -31,6 +33,9 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     # Remove only the new, empty tables to reproduce an actual pre-0024 schema.
     with engine.begin() as c:
         for table in (
+            "service_request_reads",
+            "service_representatives",
+            "representation_claims",
             "service_messages",
             "service_requests",
             "app_content",
@@ -98,8 +103,15 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         db.add(request)
         db.flush()
         db.add(ServiceMessage(request_id=request.id, author_id=request.consumer_user_id, side="CONSUMER", body="Shared PostgreSQL fixture"))
+        db.add(ServiceRequestRead(user_id=request.consumer_user_id, request_id=request.id, version=1))
+        claim = RepresentationClaim(user_id=request.consumer_user_id, object_key=request.object_key, contact="fixture@example.test", evidence="Independent PostgreSQL fixture", status="APPROVED")
+        db.add(claim)
+        db.flush()
+        db.add(ServiceRepresentative(object_key=request.object_key, user_id=request.consumer_user_id, claim_id=claim.id))
         db.commit()
         request_id = request.id
+        assert statistics(db, select(ServiceRequest))["total"] == 1
+        assert statistics(db, select(ServiceRequest))["response_sample"] == 0
         report = build_report(
             db,
             AnalyticsFilter(
@@ -126,9 +138,12 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0028"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0029"
         assert db.get(ServiceRequest, request_id).consent_version == "2026-10-05"
         assert db.scalar(select(ServiceMessage.body)) == "Shared PostgreSQL fixture"
+        assert db.scalar(select(ServiceRequestRead.version)) == 1
+        assert db.scalar(select(RepresentationClaim.applicant_seen_version)) == 1
+        assert db.scalar(select(ServiceRepresentative.claim_id)) is not None
     with pytest.raises(ValueError):
         restore_snapshot(target, archive, phrase)
     target.dispose()

@@ -1,0 +1,17 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Представитель организации — RELYQO</title>
+<script src="/static/i18n.js?v=engagement-20261005"></script><link rel="stylesheet" href="/static/service-requests.css?v=2"><script src="/static/representative.js?v=1" defer></script><link rel="stylesheet" href="/static/engagement.css?v=1"><script src="/static/engagement.js?v=1" defer></script></head>
+<body><main class="requestsShell"><header class="requestsTop"><a class="brand" href="/consumer"><span>R</span> RELYQO</a><a id="claimsBack" href="/me">← Мой профиль</a></header>
+<h1 id="claimsTitle">Представитель организации</h1><p id="claimsLead" class="muted">Подключитесь к существующей карточке и отвечайте на обращения после проверки полномочий.</p>
+<p id="claimsError" class="error" role="alert" hidden></p><p id="claimsNotice" class="notice" role="status" hidden></p>
+<section id="claimsLogin" class="panel" hidden><h2>Войдите в свой аккаунт</h2><p>Личный профиль и история оценок сохранятся.</p><a id="claimsLoginLink" class="button" href="/me">Войти</a><a class="button secondary" href="/business-owner">Вход для владельца бизнеса</a></section>
+<section id="claimNew" class="panel" hidden><h2 id="claimName" data-user-content></h2><p id="claimAddress" data-user-content class="muted"></p>
+<p class="notice">Доступ появится только после проверки администратором. Эта заявка не меняет рейтинг и не создаёт новую карточку.</p>
+<form id="claimForm"><label for="claimContact">Рабочий телефон или email</label><input id="claimContact" data-user-content required minlength="5" maxlength="200" autocomplete="off">
+<label for="claimEvidence">Ваша должность и основание полномочий</label><textarea id="claimEvidence" data-user-content required minlength="20" maxlength="2000" rows="5" placeholder="Укажите должность и официальный источник, по которому можно проверить ваши полномочия"></textarea>
+<p class="muted small">Не прикладывайте пароли, паспортные данные и банковские реквизиты. Контакт и пояснение увидит только администратор RELYQO.</p>
+<label class="check"><input id="claimConsent" type="checkbox" required><span>Согласен передать эти данные администратору RELYQO для проверки моих полномочий.</span></label>
+<button type="submit">Отправить заявку на проверку</button></form></section>
+<section id="claimsPanel" class="panel" hidden><div class="sectionHead"><h2 id="claimsListTitle">Мои заявки представителя</h2><button id="claimsReload" class="secondary" type="button">Обновить</button></div>
+<label for="claimsFilter">Статус заявки</label><select id="claimsFilter"><option value="ALL">Все заявки</option><option value="PENDING">На проверке</option><option value="APPROVED">Доступ подтверждён</option><option value="REJECTED">Отклонена</option><option value="REVOKED">Доступ отозван</option></select>
+<p id="claimsEmpty" class="muted" hidden>Заявок пока нет. Найдите карточку организации и нажмите «Я представитель организации».</p><div id="claimsList" class="requestList"></div><button id="claimsMore" class="secondary" type="button" hidden>Показать ещё</button></section>
+</main></body></html>

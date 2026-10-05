@@ -345,6 +345,42 @@ class ServiceMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class ServiceRequestRead(Base):
+    __tablename__ = "service_request_reads"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    request_id: Mapped[str] = mapped_column(ForeignKey("service_requests.id"), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class RepresentationClaim(Base):
+    __tablename__ = "representation_claims"
+    __table_args__ = (
+        UniqueConstraint("user_id", "object_key", name="uq_representation_claim_user_object"),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','REVOKED')", name="ck_representation_claim_status"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    object_key: Mapped[str] = mapped_column(String(320), index=True)
+    contact: Mapped[str] = mapped_column(String(200))
+    evidence: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    applicant_seen_version: Mapped[int] = mapped_column(Integer, default=1)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class ServiceRepresentative(Base):
+    """Access to opted-in conversations only; does not change account role or public ratings."""
+    __tablename__ = "service_representatives"
+    object_key: Mapped[str] = mapped_column(String(320), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("representation_claims.id"), unique=True)
+    approved_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class ConsumerFavorite(Base):
     __tablename__ = "consumer_favorites"
     __table_args__ = (UniqueConstraint("user_id", "object_key"),)

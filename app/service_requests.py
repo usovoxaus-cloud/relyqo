@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, StrictBool
-from sqlalchemy import select, update
+from sqlalchemy import false, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,8 @@ from .db import get_db
 from .models import (AuditLog, Branch, CommunityRating, ManualPlace, Organization,
                      Rating, ServiceMessage, ServiceRequest, User, Visit)
 from .password_recovery import limited
+from .request_engagement import (active_representative, decorate_rows, mark_read, overdue_condition,
+                                 represented_keys, statistics, unread_condition)
 
 OWNERS = {"BUSINESS_OWNER", "FREGAT_OWNER"}
 ROLES = OWNERS | {"CONSUMER", "RELYQO_ADMIN"}
@@ -82,19 +84,36 @@ def object_info(db, key):
     return {"name": "Организация", "address": ""}
 
 
-def scope(query, user, db):
-    if user.role == "CONSUMER":
+def effective_view(db, user, view="auto"):
+    if view == "auto":
+        view = "admin" if user.role == "RELYQO_ADMIN" else "business" if user.role in OWNERS else "consumer"
+    if view not in {"consumer", "business", "admin"}:
+        raise HTTPException(422, "Неизвестный раздел обращений")
+    if (view == "admin" and user.role != "RELYQO_ADMIN") or (view == "consumer" and user.role != "CONSUMER"):
+        raise HTTPException(403, "У этого аккаунта нет доступа")
+    if view == "business" and user.role not in OWNERS | {"CONSUMER"}:
+        raise HTTPException(403, "У этого аккаунта нет доступа")
+    return view
+
+
+def scope(query, user, db, view="auto"):
+    view = effective_view(db, user, view)
+    if view == "consumer":
         return query.where(ServiceRequest.consumer_user_id == user.id)
-    if user.role in OWNERS:
-        if not usable_organization(db, user.organization_id):
+    if view == "business":
+        keys = represented_keys(db, user)
+        owner = user.role in OWNERS and usable_organization(db, user.organization_id)
+        if not owner and not keys:
             raise HTTPException(403, "Ответы доступны после подтверждения организации администратором RELYQO")
-        return query.where(ServiceRequest.organization_id == user.organization_id,
-                           ServiceRequest.status != "WITHDRAWN")
+        return query.where(or_(ServiceRequest.organization_id == user.organization_id if owner else false(),
+                               ServiceRequest.object_key.in_(keys)),
+                           ServiceRequest.consumer_user_id != user.id,
+                           ServiceRequest.status.not_in(["WITHDRAWN", "WAITING_ORGANIZATION"]))
     return query
 
 
-def get_request(db, user, request_id):
-    item = db.scalar(scope(select(ServiceRequest), user, db).where(ServiceRequest.id == request_id))
+def get_request(db, user, request_id, view="auto"):
+    item = db.scalar(scope(select(ServiceRequest), user, db, view).where(ServiceRequest.id == request_id))
     if not item:
         raise HTTPException(404, "Обращение не найдено")
     return item
@@ -106,7 +125,7 @@ def serialize(db, item, user, detail=False):
                "status": item.status, "version": item.version,
                "created_at": item.created_at.isoformat() + "Z",
                "updated_at": item.updated_at.isoformat() + "Z"}
-    if user.role == "CONSUMER":
+    if user.role == "CONSUMER" and item.consumer_user_id == user.id:
         payload["rating_id"] = item.rating_id
     if detail:
         payload["messages"] = [{"side": m.side, "body": m.body,
@@ -118,6 +137,8 @@ def serialize(db, item, user, detail=False):
         if item.organization_id:
             org = db.get(Organization, item.organization_id)
             payload["recipient"] = org.name if org else None
+        elif active_representative(db, item.object_key) and item.status != "WAITING_ORGANIZATION":
+            payload["recipient"] = object_info(db, item.object_key)["name"]
     return payload
 
 
@@ -161,7 +182,8 @@ def register_service_requests(app, session_user):
         _, kind, key, branch = own_rating(db, user, rating_id)
         existing = db.scalar(select(ServiceRequest.id).where(
             ServiceRequest.rating_id == rating_id, ServiceRequest.rating_type == kind))
-        ready = bool(branch and branch.active and usable_organization(db, branch.organization_id))
+        ready = bool(branch and branch.active and usable_organization(db, branch.organization_id)) or bool(
+            active_representative(db, key) and active_representative(db, key) != user.id)
         return {"organization": object_info(db, key), "ready": ready, "existing_id": existing}
 
     @api.post("/v1/service-requests", status_code=201)
@@ -181,16 +203,19 @@ def register_service_requests(app, session_user):
             response.status_code = 200
             return serialize(db, existing, user, True)
         throttle(db, user)
-        ready = bool(branch and branch.active and usable_organization(db, branch.organization_id))
+        branch_ready = bool(branch and branch.active and usable_organization(db, branch.organization_id))
+        representative = active_representative(db, key)
+        ready = branch_ready or bool(representative and representative != user.id)
         item = ServiceRequest(rating_id=body.rating_id, rating_type=kind,
                               consumer_user_id=user.id, object_key=key,
-                              branch_id=branch.id if ready else None,
-                              organization_id=branch.organization_id if ready else None,
+                              branch_id=branch.id if branch_ready else None,
+                              organization_id=branch.organization_id if branch_ready else None,
                               status="OPEN" if ready else "WAITING_ORGANIZATION")
         try:
             db.add(item)
             db.flush()
             db.add(ServiceMessage(request_id=item.id, author_id=user.id, side="CONSUMER", body=message))
+            mark_read(db, user.id, item.id, item.version)
             audit(db, user, item, "CREATED")
             db.commit()
         except IntegrityError:
@@ -203,12 +228,25 @@ def register_service_requests(app, session_user):
 
     @api.get("/v1/service-requests")
     def listing(db: Session = Depends(get_db), relyqo_session: str | None = Cookie(default=None),
-                offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=50)):
+                offset: int = Query(default=0, ge=0), limit: int = Query(default=20, ge=1, le=50),
+                view: str = "auto", filter: Literal["ALL", "UNREAD", "NEEDS_REPLY", "OVERDUE", "WAITING_ORGANIZATION", "ANSWERED", "RESOLVED", "WITHDRAWN"] = "ALL"):
         user = session_user(relyqo_session, db, ROLES)
-        query = scope(select(ServiceRequest), user, db)
+        mode = effective_view(db, user, view)
+        query = scope(select(ServiceRequest), user, db, mode)
+        summary = statistics(db, query)
+        if filter == "UNREAD":
+            query = query.where(unread_condition(user.id))
+        elif filter == "NEEDS_REPLY":
+            query = query.where(ServiceRequest.status.in_(["OPEN", "IN_PROGRESS"]))
+        elif filter == "OVERDUE":
+            query = query.where(overdue_condition())
+        elif filter != "ALL":
+            query = query.where(ServiceRequest.status == filter)
         items = list(db.scalars(query.order_by(ServiceRequest.updated_at.desc(), ServiceRequest.id).offset(offset).limit(limit + 1)))
-        return {"role": user.role, "items": [serialize(db, item, user) for item in items[:limit]],
-                "has_more": len(items) > limit}
+        extra = decorate_rows(db, items[:limit], user)
+        return {"role": "REPRESENTATIVE" if mode == "business" and user.role == "CONSUMER" else user.role,
+                "items": [{**serialize(db, item, user), **extra[item.id]} for item in items[:limit]],
+                "has_more": len(items) > limit, "summary": summary}
 
     @api.get("/v1/service-requests/branches")
     def branches(q: str = Query(min_length=2, max_length=100), db: Session = Depends(get_db),
@@ -221,9 +259,10 @@ def register_service_requests(app, session_user):
                           for b, o in rows if usable_organization(db, o.id)]}
 
     @api.get("/v1/service-requests/{request_id}")
-    def detail(request_id: str, db: Session = Depends(get_db), relyqo_session: str | None = Cookie(default=None)):
+    def detail(request_id: str, view: str = "auto", db: Session = Depends(get_db), relyqo_session: str | None = Cookie(default=None)):
         user = session_user(relyqo_session, db, ROLES)
-        return serialize(db, get_request(db, user, request_id), user, True)
+        item = get_request(db, user, request_id, view)
+        return {**serialize(db, item, user, True), **decorate_rows(db, [item], user)[item.id]}
 
     @api.post("/v1/service-requests/{request_id}/assign")
     def assign(request_id: str, body: Assignment, db: Session = Depends(get_db),
@@ -243,18 +282,20 @@ def register_service_requests(app, session_user):
         bump(db, item, body.version, branch_id=branch.id, organization_id=branch.organization_id,
              status="OPEN", assigned_by=user.id, assignment_note=body.note.strip())
         audit(db, user, item, "ASSIGNED")
+        mark_read(db, user.id, item.id, item.version)
         db.commit()
         return serialize(db, item, user, True)
 
     @api.post("/v1/service-requests/{request_id}/actions")
     def action(request_id: str, body: RequestAction, db: Session = Depends(get_db),
-               relyqo_session: str | None = Cookie(default=None)):
+               relyqo_session: str | None = Cookie(default=None), view: str = "auto"):
         user = session_user(relyqo_session, db, OWNERS | {"CONSUMER"})
         throttle(db, user)
-        item = get_request(db, user, request_id)
+        mode = effective_view(db, user, view)
+        item = get_request(db, user, request_id, mode)
         if item.version != body.version:
             raise HTTPException(409, "Обращение обновилось. Обновите переписку и повторите действие")
-        owner = user.role in OWNERS
+        owner = mode == "business"
         states = ({"start": {"OPEN"}, "reply": {"OPEN", "IN_PROGRESS", "ANSWERED"}} if owner else {
             "reply": {"WAITING_ORGANIZATION", "OPEN", "IN_PROGRESS", "ANSWERED"},
             "resolve": {"ANSWERED"}, "reopen": {"RESOLVED"},
@@ -274,6 +315,7 @@ def register_service_requests(app, session_user):
             db.add(ServiceMessage(request_id=item.id, author_id=user.id,
                                   side="BUSINESS" if owner else "CONSUMER", body=message))
         audit(db, user, item, body.action.upper())
+        mark_read(db, user.id, item.id, item.version)
         db.commit()
         return serialize(db, item, user, True)
 
