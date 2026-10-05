@@ -2,6 +2,8 @@
   const links = [
     ['overview', '/admin#dashboard', 'Обзор'],
     ['organizations', '/admin#applications', 'Организации'],
+    ['requests','/admin/requests','Обращения'],
+    ['representatives','/admin/representatives','Представители'],
     ['moderation', '/admin/control#cases', 'Оценки и жалобы'],
     ['analytics', '/admin/analytics', 'Аналитика с ИИ'],
     ['editor', '/admin/editor', 'Редактор с ИИ'],
@@ -9,6 +11,8 @@
     ['settings', '/admin/settings', 'Настройки'],
   ];
   function activeSection() {
+    if(location.pathname==='/admin/requests')return 'requests';
+    if(location.pathname==='/admin/representatives')return 'representatives';
     if (location.pathname === '/admin/settings') return 'settings';
     if (location.pathname === '/admin/editor') return 'editor';
     if (location.pathname === '/admin/analytics') return 'analytics';
@@ -37,3 +41,4 @@
   window.relyqoLanguageReady?.then(render);
   render();
 })();
+

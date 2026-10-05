@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Ответы организаций — RELYQO</title>
-  <script src="/static/i18n.js?v=service-requests-20261005"></script>
-  <link rel="stylesheet" href="/static/service-requests.css?v=1">
-  <script src="/static/service-requests.js?v=1" defer></script>
-</head>
+  <script src="/static/i18n.js?v=engagement-20261005"></script>
+  <link rel="stylesheet" href="/static/service-requests.css?v=2">
+  <script src="/static/service-requests.js?v=2" defer></script>
+<link rel="stylesheet" href="/static/engagement.css?v=1"><script src="/static/engagement.js?v=1" defer></script></head>
 <body>
 <main class="requestsShell">
   <header class="requestsTop"><a class="brand" href="/consumer"><span>R</span> RELYQO</a><a id="backLink" href="/me">← Мой профиль</a></header>
@@ -14,6 +14,8 @@
   <h1 id="pageTitle">Ответы организаций</h1>
   <p id="pageLead" class="muted">Обсудите ситуацию с организацией. Только вы подтверждаете, что проблема решена.</p>
   <p class="notice">Переписка не меняет вашу оценку и рейтинг организации.</p>
+  <a id="claimsAdminLink" class="button secondary" href="/admin/representatives" hidden>Заявки представителей</a>
+  <section id="requestStats" class="panel" hidden><h2>Результаты работы с обращениями</h2><div id="statsGrid" class="statsGrid"></div><p id="statsSample" class="muted small"></p><details class="muted small"><summary>Как считаются показатели</summary><p>Доля решённых — от всех обращений, кроме отозванных. Решение подтверждает потребитель. Время первого ответа считается от отправки обращения, включая ожидание подключения организации.</p></details></section>
   <p id="requestError" class="error" role="alert" hidden></p>
   <section id="loginGate" class="panel" hidden><h2>Войдите в свой аккаунт</h2><a id="loginLink" class="button" href="/me">Войти</a></section>
   <section id="newRequest" class="panel" hidden>
@@ -28,6 +30,7 @@
   </section>
   <section id="inbox" class="panel" hidden>
     <div class="sectionHead"><h2 id="inboxTitle">Мои обращения</h2><button id="reloadList" class="secondary" type="button">Обновить</button></div>
+    <label for="requestFilter">Показать обращения</label><select id="requestFilter"><option value="ALL">Все обращения</option><option value="UNREAD">Непрочитанные</option><option value="NEEDS_REPLY">Нужен ответ организации</option><option value="OVERDUE">Без ответа более 48 часов</option><option value="WAITING_ORGANIZATION">Ожидают подключения</option><option value="ANSWERED">Организация ответила</option><option value="RESOLVED">Решено потребителем</option><option value="WITHDRAWN">Обращение отозвано</option></select>
     <p id="emptyRequests" class="muted" hidden>Обращений пока нет. Откройте свою оценку в профиле и нажмите «Получить ответ организации».</p>
     <div id="requestList" class="requestList"></div><button id="moreRequests" class="secondary" type="button" hidden>Показать ещё</button>
   </section>

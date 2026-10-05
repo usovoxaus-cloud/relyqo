@@ -12,6 +12,7 @@
   function clearError() { $('requestError').hidden = true; }
   function date(value) { return new Date(value).toLocaleString(document.documentElement.lang === 'uz' ? 'uz-UZ' : 'ru-RU', {dateStyle:'short',timeStyle:'short'}); }
   async function api(url, body) {
+    if(url.startsWith('/v1/service-requests'))url+=(url.includes('?')?'&':'?')+'view='+mode;
     let response, data;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
@@ -44,19 +45,31 @@
   }
   async function loadList(reset = true) {
     const nextOffset = reset ? 0 : offset;
-    const data = await api('/v1/service-requests?offset=' + nextOffset);
-    const allowed = mode === 'consumer' ? data.role === 'CONSUMER' : mode === 'admin' ? data.role === 'RELYQO_ADMIN' : ['BUSINESS_OWNER','FREGAT_OWNER'].includes(data.role);
+    const data = await api('/v1/service-requests?offset=' + nextOffset + '&filter=' + encodeURIComponent($('requestFilter').value || 'ALL'));
+    const allowed = mode === 'consumer' ? data.role === 'CONSUMER' : mode === 'admin' ? data.role === 'RELYQO_ADMIN' : ['BUSINESS_OWNER','FREGAT_OWNER','REPRESENTATIVE'].includes(data.role);
     if (!allowed) throw new Error(t('Войдите в аккаунт для этого раздела'));
     if (reset) $('requestList').replaceChildren();
     for (const item of data.items) {
       const button = element('button',''); button.type = 'button'; button.className = 'requestCard'; button.dataset.id = item.id;
       button.setAttribute('aria-current',String(item.id === selected?.id));
       button.append(element('strong',item.organization.name,true),element('span',statuses[item.status]),element('small',date(item.updated_at),true));
+      if(item.unread){const badge=element('span','Непрочитанное');badge.className='badge';button.append(badge);}
+      if(item.overdue)button.append(element('small','Без ответа более 48 часов'));
+      if(item.waiting_hours!==null&&item.waiting_hours!==undefined)button.append(element('small',t('Часы ожидания:')+' '+item.waiting_hours,true));
       button.addEventListener('click',() => run(() => openConversation(item.id)));
       $('requestList').append(button);
     }
     offset = nextOffset + data.items.length;
     $('emptyRequests').hidden = offset > 0; $('moreRequests').hidden = !data.has_more; $('inbox').hidden = false;
+    if($('requestFilter').value!=='ALL')text('emptyRequests','Нет обращений с этим статусом. Выберите другой фильтр.');
+    else text('emptyRequests',mode==='consumer'?'Обращений пока нет. Откройте свою оценку в профиле и нажмите «Получить ответ организации».':'Обращений пока нет. Здесь появятся сообщения, которые потребители согласились передать организации.');
+    if(mode!=='consumer'&&data.summary){
+      const s=data.summary;$('requestStats').hidden=false;$('statsGrid').replaceChildren();
+      for(const [label,value] of [['Всего обращений',s.total],['Нужен ответ организации',s.needs_reply],['Решено потребителем',s.resolved],['Доля решённых',s.resolution_percent===null?'—':s.resolution_percent+'%'],['Первый ответ',s.first_response_hours===null?'—':s.first_response_hours+' '+t('ч.')],['Ожидают подключения',s.waiting_organization]]){
+        const cell=element('div','');cell.append(element('strong',String(value),true),element('span',label));$('statsGrid').append(cell);
+      }
+      text('statsSample',t('На основе ответов:')+' '+s.response_sample+'. '+t('Без ответа более 48 часов:')+' '+s.overdue);
+    }
   }
   function actionButton(label, action, className = 'secondary') {
     const button = element('button',label); button.type = 'button'; button.className = className;
@@ -105,6 +118,7 @@
     if (selected?.id !== id && $('replyText').value && !window.confirm(t('Открыть другое обращение и удалить неотправленный текст?'))) return;
     if (selected?.id !== id) $('replyText').value = '';
     renderConversation(item);
+    try{await api('/v1/service-requests/'+encodeURIComponent(id)+'/read',{version:item.version});window.dispatchEvent(new window.Event('relyqo-inbox-updated'));await loadList();}catch(error){showError(error);}
     if (focus) { $('conversation').focus({preventScroll:true}); $('conversation').scrollIntoView({behavior:'smooth',block:'start'}); }
   }
   async function sendAction(action, message = '') {
@@ -112,6 +126,7 @@
     renderConversation(item); $('replyText').value = '';
     text('actionNotice','Сохранено'); $('actionNotice').hidden = false;
     await loadList();
+    window.dispatchEvent(new window.Event('relyqo-inbox-updated'));
   }
   async function setupCreate() {
     const ratingId = params.get('rating_id'); if (!ratingId || mode !== 'consumer') return;
@@ -129,6 +144,7 @@
   }); });
   $('replyForm').addEventListener('submit',event => { event.preventDefault(); run(() => sendAction(selected.status === 'RESOLVED' ? 'reopen' : 'reply',$('replyText').value)); });
   $('reloadList').addEventListener('click',() => run(() => loadList()));
+  $('requestFilter').addEventListener('change',() => run(() => loadList()));
   $('moreRequests').addEventListener('click',() => run(() => loadList(false)));
   $('reloadConversation').addEventListener('click',() => run(() => openConversation(selected.id,false)));
   $('branchSearch').addEventListener('submit',event => { event.preventDefault(); run(async () => {
@@ -152,6 +168,9 @@
     text('pageLead',mode === 'admin' ? 'Подключайте проверенные организации к обращениям. Решение подтверждает потребитель.' : 'Ответьте потребителю и помогите решить вопрос. Завершение подтверждает сам потребитель.');
     text('emptyRequests','Обращений пока нет. Здесь появятся сообщения, которые потребители согласились передать организации.');
   }
+  if(mode==='admin')$('claimsAdminLink').hidden=false;
+  if(mode==='business'){$('backLink').href='/representative';$('loginLink').href='/me?return_to='+encodeURIComponent(location.pathname+location.search);}
+  if(['ALL','UNREAD','NEEDS_REPLY','OVERDUE','WAITING_ORGANIZATION','ANSWERED','RESOLVED','WITHDRAWN'].includes(params.get('filter')))$('requestFilter').value=params.get('filter');
   // Drafts stay only in memory and are never stored in browser storage.
   window.addEventListener('beforeunload',event => { if ($('replyText').value || $('requestText').value) { event.preventDefault(); event.returnValue = ''; } });
   Promise.resolve(window.relyqoLanguageReady).then(() => run(async () => { await loadList(); await setupCreate(); if(params.get('id')) await openConversation(params.get('id')); }));

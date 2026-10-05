@@ -4735,6 +4735,10 @@ register_editor_routes(app, session_user)
 
 from .service_requests import register_service_requests
 register_service_requests(app, session_user)
+from .request_engagement import register_engagement
+from .representation import register_representation
+register_engagement(app, session_user)
+register_representation(app, session_user)
 
 @app.get("/admin/editor", include_in_schema=False)
 def app_editor_page():

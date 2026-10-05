@@ -51,6 +51,10 @@
       } else $('breakdownLead').textContent = 'Показатели появятся после первых оценок.';
       $('rate').href = `/community-rate?${new URLSearchParams({object_key: objectKey, source: data.source, name: data.name, address: data.address || '', category: data.category})}`;
       $('rate').textContent = 'Оценить без QR'; $('rate').classList.remove('hidden');
+      const representative = document.createElement('a');
+      representative.href = '/representative?object_key=' + encodeURIComponent(objectKey);
+      representative.className = 'button'; representative.textContent = window.relyqoT?.('Я представитель организации') || 'Я представитель организации';
+      $('rate').parentElement.append(representative);
       if (partner) {
         const qr = document.createElement('a'); qr.href = '/rate'; qr.className = 'button primary'; qr.textContent = 'Оценить по QR'; $('rate').before(qr);
       }
