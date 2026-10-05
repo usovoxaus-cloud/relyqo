@@ -21,7 +21,11 @@ window.relyqoSearchOrigin = ({parent, toggleParent=parent, loadMaps, getCenter, 
     Promise.resolve(promise).then(resolve,reject).finally(()=>clearTimeout(timer));
   });
   function close(){++revision;panel.hidden=true;toggle.setAttribute('aria-expanded','false');search.disabled=false;}
-  function updateRadius(){circle?.setRadius(getRadius());}
+  function updateRadius(){
+    if(!circle)return;
+    circle.setRadius(getRadius());
+    const bounds=circle.getBounds();if(bounds)map.fitBounds(bounds,24);
+  }
   function select(point){
     if(panel.hidden || !valid(point))return;
     draft={...point};confirm.disabled=false;
@@ -30,7 +34,7 @@ window.relyqoSearchOrigin = ({parent, toggleParent=parent, loadMaps, getCenter, 
       marker.addListener('dragend',event=>{if(event.latLng){++revision;search.disabled=false;select({lat:event.latLng.lat(),lng:event.latLng.lng()});}});
       circle=new google.maps.Circle({map,center:draft,radius:getRadius(),clickable:false,strokeColor:'#178463',strokeWeight:2,fillColor:'#78e3c0',fillOpacity:.22});
     }else{marker.setPosition(draft);marker.setMap(map);circle.setCenter(draft);circle.setMap(map);updateRadius();}
-    map.setCenter(draft);map.setZoom(getRadius()<=500?16:getRadius()<=2000?14:getRadius()<=5000?13:10);
+    map.setCenter(draft);updateRadius();
     status.textContent=t('Проверьте точку и нажмите «Искать вокруг этой точки».','Nuqtani tekshiring va «Shu nuqta atrofida qidirish»ni bosing.');
   }
   async function show(request){
