@@ -57,6 +57,7 @@ class NearbySearch(BaseModel):
     longitude: float = Field(ge=-180, le=180)
     radius_km: float = Field(default=15, gt=0)
     limit: int = Field(default=200, ge=1, le=200)
+    category: str = Field(default="ALL", max_length=80)
 
 
 class ManualPlaceCreate(BaseModel):
@@ -200,4 +201,3 @@ class AccountRecovery(BaseModel):
 
 class RecoveryCodeCreate(BaseModel):
     current_password: str = Field(min_length=8, max_length=200)
-

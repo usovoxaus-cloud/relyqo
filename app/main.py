@@ -3097,6 +3097,19 @@ def public_catalog_stats(response: Response, db: Session = Depends(get_db)):
     }
 
 
+def nearby_category_codes(db: Session, category: str) -> set[str] | None:
+    if category == "ALL":
+        return None
+    catalog = category_catalog(db)
+    if category not in GROUPS and not any(item["code"] == category for item in catalog):
+        raise HTTPException(422, "Неизвестная сфера услуг")
+    codes = {category}
+    if category in GROUPS:
+        codes.update(item["code"] for item in catalog if item["group"] == category)
+        codes.update(alias for alias, group in SERVICE_CATEGORY_ALIASES.items() if group == category)
+    return codes
+
+
 @app.post("/v1/public/branches/nearby")
 def public_nearby_branches(
     search: NearbySearch,
@@ -3108,6 +3121,7 @@ def public_nearby_branches(
     longitude = search.longitude
     radius_km = search.radius_km
     limit = search.limit
+    categories = nearby_category_codes(db, search.category)
     lat_delta = radius_km / 110.574
     # Keep the bounding box conservative; haversine below enforces the exact radius.
     # 111.320 excluded places just inside the east/west edge of a 300 m circle.
@@ -3119,6 +3133,7 @@ def public_nearby_branches(
         .where(
             Branch.active.is_(True),
             Organization.profile_status.in_({"PUBLISHED", "VERIFIED_PARTNER"}),
+            True if categories is None else func.upper(Organization.category).in_(categories),
             Branch.latitude.is_not(None),
             Branch.longitude.is_not(None),
             Branch.latitude.between(latitude - lat_delta, latitude + lat_delta),
@@ -3386,6 +3401,7 @@ def public_manual_places_nearby(
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store, max-age=0"
+    categories = nearby_category_codes(db, search.category)
     lat_delta = search.radius_km / 110.574
     # Match the conservative branch prefilter; exact distance is checked below.
     longitude_scale = max(0.01, 110.574 * math.cos(math.radians(min(90, abs(search.latitude) + lat_delta))))
@@ -3394,6 +3410,7 @@ def public_manual_places_nearby(
         select(ManualPlace)
         .where(
             ManualPlace.active.is_(True),
+            True if categories is None else func.upper(ManualPlace.category).in_(categories),
             ManualPlace.latitude.between(
                 search.latitude - lat_delta, search.latitude + lat_delta
             ),
@@ -4719,4 +4736,3 @@ register_editor_routes(app, session_user)
 @app.get("/admin/editor", include_in_schema=False)
 def app_editor_page():
     return FileResponse(static / "admin-editor.html")
-

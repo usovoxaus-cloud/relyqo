@@ -101,7 +101,8 @@
         }
         const {places} = await withDeadline(Place.searchByText(requestBody), 12000);
         return (places || []).map(place => ({place,item:externalPlaceItem(place,null)}))
-          .filter(({place,item}) => item && inScope(place,item,city,region,data))
+          .filter(({place,item}) => item && inScope(place,item,city,region,data)
+            && (body.category === 'ALL' || item.category === body.category || categoryGroup(item.category) === body.category))
           .map(({item}) => ({...item,distance:null}));
       }
       let found = await find(plainQuery);

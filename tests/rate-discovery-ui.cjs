@@ -18,8 +18,8 @@ async function harness(options={}) {
   document.getElementById('manualForm').reportValidity=function(){return !options.invalidManual;};
   const calls=[],markers=[],timers=new Map(),stored=new Map();let timer=0,map,gps=0,permission;
   if(options.saved)stored.set('relyqo.consumer.place.v1',JSON.stringify(options.saved));
-  const google={maps:{Map:function(root,config){map=this;this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.addListener=()=>{};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};this.setPosition=value=>{this.position=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return {places:[externalPlace()]};}}})}};
-  const window={google:options.noGoogle?undefined:google,relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer;},clearTimeout:id=>timers.delete(id)};
+  const google={maps:{Map:function(root,config){map=this;this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.addListener=()=>{};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};this.setPosition=value=>{this.position=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return options.textSearch?options.textSearch(body):{places:[externalPlace()]};}}})}};
+  const window={google:options.noGoogle?undefined:google,relyqoCategoryGroup:code=>options.categoryGroups?.[code],relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer;},clearTimeout:id=>timers.delete(id)};
   const context={document,window,google,Event:events.Event,MutationObserver:events.MutationObserver,URLSearchParams,Intl,AbortController,Map,Set,location:{search:options.search??'?find=search',pathname:options.pathname||'/rate',href:'/rate'},Option:function(text,value=text){const o=document.createElement('option');o.textContent=text;o.value=value;return o;},setTimeout:window.setTimeout,clearTimeout:window.clearTimeout,localStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)},navigator:{language:'ru',geolocation:{getCurrentPosition(resolve,reject,settings){gps++;permission={resolve,reject,settings};if(options.gps==='denied')reject({code:1});else if(options.gps!=='pending')resolve({coords:{latitude:41.3,longitude:69.2,accuracy:options.accuracy??20}});}}},fetch:async(url,settings={})=>{
     const body=settings.body?JSON.parse(settings.body):null;calls.push({url,body,method:settings.method||'GET'});
     if(url.startsWith('/v1/public/rated-organizations'))return reply({items:options.localPlaces||[localPlace],total:1,geography:[],facets:{countries:['UZ'],cities:[]}});
@@ -175,6 +175,96 @@ const latitudeAt=meters=>41.3+meters/(6371008.8*Math.PI/180);
 const localAt=meters=>({...localPlace,id:`local-${meters}`,name:`Local ${meters}`,latitude:latitudeAt(meters),longitude:69.2,distance_km:Math.round(meters/10)/100});
 const googleAt=meters=>({...externalPlace(`google-${meters}`),displayName:`Google ${meters}`,location:{lat:()=>latitudeAt(meters),lng:()=>69.2}});
 const names=x=>[...x.document.querySelectorAll('.currentPlaceCandidate h3')].map(n=>n.textContent);
+
+async function chooseSector(x,value){
+  const select=x.document.getElementById('discoveryCategory');select.value=value;
+  select.dispatchEvent(new x.events.Event('change'));await settle();
+}
+const sectorPlace=(id,category)=>({...localAt(100),id,name:`Test ${id}`,category});
+const sectorGoogle=(id,primaryType)=>({...googleAt(150),id,displayName:`Map ${id}`,primaryType});
+
+test('a visible RU/UZ sector filter is available on both consumer entrances without requesting GPS',async()=>{
+  for(const pathname of ['/consumer','/rate'])for(const uz of [false,true]){
+    const x=await harness({pathname,search:'',uz}),select=x.document.getElementById('discoveryCategory');
+    assert(select);assert.equal(select.closest('label').getAttribute('for'),'discoveryCategory');
+    assert.equal(select.closest('label').firstChild.textContent,uz?'Soha':'Сфера');
+    assert.equal(select.closest('[hidden]'),null);assert.equal(select.closest('details'),null);
+    assert.equal(select.options.length,11);assert.equal(select.value,'ALL');
+    assert.equal(select.options[0].textContent,uz?'Barcha sohalar':'Все сферы');
+    assert.equal([...select.options].find(o=>o.value==='EDUCATION').textContent,uz?'Ta’lim':'Образование');
+    assert.equal(x.gps(),0);
+  }
+});
+
+test('sector list search filters local and live map results, retains the query, and resets with All',async()=>{
+  const rows=[sectorPlace('cafe','CAFE'),sectorPlace('school','EDUCATION'),sectorPlace('courses','LEARNING_CENTER'),sectorPlace('dentist','DENTAL')];
+  const external=[sectorGoogle('cafe','cafe'),sectorGoogle('school','school'),sectorGoogle('dentist','dentist')];
+  const x=await harness({localPlaces:rows,textSearch:()=>({places:external})});
+  await chooseSector(x,'EDUCATION');
+  assert.deepEqual(names(x).sort(),['Test courses','Test school']);
+  assert.equal(new URL(x.calls.filter(c=>c.url?.startsWith('/v1/public/rated-organizations')).at(-1).url,'https://test.local').searchParams.get('category'),'EDUCATION');
+  await x.runTimer(350);assert.deepEqual(names(x).sort(),['Map school','Test courses','Test school']);
+  assert.match(x.calls.filter(c=>c.text).at(-1).text.textQuery,/Образование/);
+  await x.type('Test');await x.runTimer(250);await x.click('#catalogSearchButton');
+  assert.equal(x.document.getElementById('discoveryCategory').value,'EDUCATION');
+  assert.equal(x.document.getElementById('catalogQuery').value,'Test');
+  assert.deepEqual(names(x).sort(),['Test courses','Test school']);
+  await chooseSector(x,'HEALTH');await x.runTimer(350);
+  assert.deepEqual(names(x).sort(),['Map dentist','Test dentist']);
+  await chooseSector(x,'ALL');await x.runTimer(350);
+  assert.equal(names(x).length,7);assert.equal(x.gps(),0);
+});
+
+test('nearby sectors filter every source, keep the radius, and reuse the location',async()=>{
+  const x=await harness({localPlaces:[sectorPlace('cafe','CAFE'),sectorPlace('school','EDUCATION'),sectorPlace('courses','CUSTOM_COURSES')],
+    categoryGroups:{CUSTOM_COURSES:'EDUCATION'},nearby:()=>({places:[sectorGoogle('cafe','cafe'),sectorGoogle('school','university')]})});
+  await chooseSector(x,'EDUCATION');await x.click('#discoveryHere');
+  assertScope(x,300);assert(nearbyCalls(x).slice(-2).every(c=>c.body.category==='EDUCATION'));
+  assert.deepEqual(names(x).sort(),['Map school','Test courses','Test school']);
+  assert(x.calls.filter(c=>c.nearby).at(-1).nearby.includedPrimaryTypes.includes('university'));
+  await chooseSector(x,'FOOD');assert.equal(x.gps(),1);assertScope(x,300);
+  assert.deepEqual(names(x).sort(),['Map cafe','Test cafe']);
+  assert(x.calls.filter(c=>c.nearby).at(-1).nearby.includedPrimaryTypes.includes('cafe'));
+  await x.click('[data-radius="1000"]');assertScope(x,1000);
+  assert(nearbyCalls(x).slice(-2).every(c=>c.body.category==='FOOD'));assert.equal(x.gps(),1);
+  await x.click('#discoveryByName');assert.equal(x.document.getElementById('discoveryCategory').value,'FOOD');
+  assert.deepEqual(names(x),['Test cafe']);
+  await x.click('#discoveryHere');assertScope(x,1000);assert.equal(x.gps(),2);
+  await chooseSector(x,'ALL');assert.equal(names(x).length,5);
+  assert.equal(x.calls.filter(c=>c.nearby).at(-1).nearby.includedPrimaryTypes,undefined);
+  assert(nearbyCalls(x).slice(-2).every(c=>c.body.category==='ALL'));
+});
+
+test('sector changes during pending GPS keep the attempt and apply the final selection to the first search',async()=>{
+  for(const outcome of ['resolve','reject']){
+    const x=await harness({search:'?find=here',gps:'pending',localPlaces:[sectorPlace('school','KINDERGARTEN'),sectorPlace('cafe','CAFE')],nearby:()=>({places:[]})});
+    await chooseSector(x,'FOOD');await chooseSector(x,'EDUCATION');
+    assert.equal(x.gps(),1);assert.equal(nearbyCalls(x).length,0);
+    assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
+    x.permission()[outcome](outcome==='resolve'?{coords:{latitude:41.3,longitude:69.2,accuracy:20}}:{code:1});await settle();
+    assert.equal(x.document.getElementById('discoveryCategory').value,'EDUCATION');
+    assert.deepEqual(names(x),['Test school']);assert.equal(x.gps(),1);
+    if(outcome==='resolve')assert(nearbyCalls(x).every(c=>c.body.category==='EDUCATION'));
+    else assert.equal(x.document.getElementById('discoveryByName').getAttribute('aria-pressed'),'true');
+  }
+});
+
+test('late responses from a previous nearby sector cannot replace the current sector or its markers',async()=>{
+  const slowLocal=deferred(),slowGoogle=deferred();
+  const x=await harness({search:'?find=here',localNearby:(url,body)=>body.category==='FOOD'?slowLocal.promise:reply({items:url.includes('/manual-places/')?[sectorPlace('school','EDUCATION')]:[]}),
+    nearby:body=>body.includedPrimaryTypes?.includes('cafe')?slowGoogle.promise:{places:[sectorGoogle('school','school')]}});
+  await chooseSector(x,'FOOD');await chooseSector(x,'EDUCATION');
+  slowLocal.resolve(reply({items:[sectorPlace('cafe','CAFE')]}));slowGoogle.resolve({places:[sectorGoogle('cafe','cafe')]});await settle();
+  assert.deepEqual(names(x).sort(),['Map school','Test school']);assert.equal(x.gps(),1);
+  assert(x.markers.filter(m=>m.map&&m.title!=='Вы находитесь здесь').every(m=>/school/.test(m.title)));
+});
+
+test('an empty sector has a working add-organization action and changing to All restores results',async()=>{
+  const x=await harness();await chooseSector(x,'HOTEL');await x.runTimer(350);
+  assert.equal(names(x).length,0);assert(!x.document.getElementById('addPlace').disabled);
+  await x.click('#addPlace');assert(x.document.getElementById('manualDialog').open);await x.click('#cancelManual');
+  await chooseSector(x,'ALL');assert(names(x).length>0);assert.equal(x.gps(),0);
+});
 
 test('300m boundary and distance order apply to every candidate, list card and marker without a five or twenty item cap',async()=>{
   const local=[299.99,150,300.01,5,290,200,120,80,300].map(localAt);
