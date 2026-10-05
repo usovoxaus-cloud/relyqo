@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from app.config import settings
-from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent
+from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent, ServiceRequest, ServiceMessage
 from app.analytics import AnalyticsFilter, build_report
 from app.backups import create_snapshot, restore_snapshot
 
@@ -31,6 +31,8 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     # Remove only the new, empty tables to reproduce an actual pre-0024 schema.
     with engine.begin() as c:
         for table in (
+            "service_messages",
+            "service_requests",
             "app_content",
             "backup_agents",
             "improvement_events",
@@ -92,6 +94,12 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     command.upgrade(cfg, "head")
     with Session(engine) as db:
         assert db.get(Rating, rating_id).comment == "Restore fixture"
+        request = ServiceRequest(rating_id=rating_id, rating_type="VERIFIED", consumer_user_id=db.get(Rating, rating_id).consumer_user_id, object_key="relyqo:"+db.get(Visit, db.get(Rating, rating_id).visit_id).branch_id, organization_id=db.get(Rating, rating_id).organization_id, branch_id=db.get(Visit, db.get(Rating, rating_id).visit_id).branch_id, status="OPEN")
+        db.add(request)
+        db.flush()
+        db.add(ServiceMessage(request_id=request.id, author_id=request.consumer_user_id, side="CONSUMER", body="Shared PostgreSQL fixture"))
+        db.commit()
+        request_id = request.id
         report = build_report(
             db,
             AnalyticsFilter(
@@ -118,9 +126,12 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0027"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0028"
+        assert db.get(ServiceRequest, request_id).consent_version == "2026-10-05"
+        assert db.scalar(select(ServiceMessage.body)) == "Shared PostgreSQL fixture"
     with pytest.raises(ValueError):
         restore_snapshot(target, archive, phrase)
     target.dispose()
     engine.dispose()
     admin.dispose()
+

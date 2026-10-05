@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -308,6 +309,42 @@ class AuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class ServiceRequest(Base):
+    """Explicitly shared conversation; original feedback remains private."""
+    __tablename__ = "service_requests"
+    __table_args__ = (
+        UniqueConstraint("rating_type", "rating_id", name="uq_service_request_rating"),
+        CheckConstraint("status IN ('WAITING_ORGANIZATION','OPEN','IN_PROGRESS','ANSWERED','RESOLVED','WITHDRAWN')", name="ck_service_request_status"),
+        CheckConstraint("rating_type IN ('VERIFIED','COMMUNITY')", name="ck_service_request_rating_type"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    rating_id: Mapped[str] = mapped_column(String(36))
+    rating_type: Mapped[str] = mapped_column(String(20))
+    consumer_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    object_key: Mapped[str] = mapped_column(String(320))
+    branch_id: Mapped[str | None] = mapped_column(ForeignKey("branches.id"), nullable=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    consent_version: Mapped[str] = mapped_column(String(20), default="2026-10-05")
+    consent_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    assigned_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    assignment_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+
+
+class ServiceMessage(Base):
+    __tablename__ = "service_messages"
+    __table_args__ = (CheckConstraint("side IN ('CONSUMER','BUSINESS')", name="ck_service_message_side"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    request_id: Mapped[str] = mapped_column(ForeignKey("service_requests.id"), index=True)
+    author_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    side: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class ConsumerFavorite(Base):
     __tablename__ = "consumer_favorites"
     __table_args__ = (UniqueConstraint("user_id", "object_key"),)
@@ -455,3 +492,4 @@ class AppContent(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+

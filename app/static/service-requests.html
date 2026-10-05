@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ответы организаций — RELYQO</title>
+  <script src="/static/i18n.js?v=service-requests-20261005"></script>
+  <link rel="stylesheet" href="/static/service-requests.css?v=1">
+  <script src="/static/service-requests.js?v=1" defer></script>
+</head>
+<body>
+<main class="requestsShell">
+  <header class="requestsTop"><a class="brand" href="/consumer"><span>R</span> RELYQO</a><a id="backLink" href="/me">← Мой профиль</a></header>
+  <p class="eyebrow">RELYQO · ОБРАТНАЯ СВЯЗЬ</p>
+  <h1 id="pageTitle">Ответы организаций</h1>
+  <p id="pageLead" class="muted">Обсудите ситуацию с организацией. Только вы подтверждаете, что проблема решена.</p>
+  <p class="notice">Переписка не меняет вашу оценку и рейтинг организации.</p>
+  <p id="requestError" class="error" role="alert" hidden></p>
+  <section id="loginGate" class="panel" hidden><h2>Войдите в свой аккаунт</h2><a id="loginLink" class="button" href="/me">Войти</a></section>
+  <section id="newRequest" class="panel" hidden>
+    <p class="eyebrow">НОВОЕ ОБРАЩЕНИЕ</p><h2 id="newOrganization" data-user-content></h2><p id="newAddress" class="muted" data-user-content></p>
+    <p id="deliveryNote" class="notice"></p>
+    <form id="createRequestForm">
+      <label for="requestText">Что нужно исправить?</label><textarea id="requestText" data-user-content required minlength="10" maxlength="2000" rows="5" placeholder="Опишите ситуацию и какой результат вы ожидаете"></textarea>
+      <p class="muted small">От 10 до 2000 символов. Не указывайте пароли, данные карты и документы.</p>
+      <label class="check"><input id="shareConsent" type="checkbox" required><span>Согласен передать текст этого обращения и дальнейшей переписки подтверждённой организации и администратору RELYQO. Мой исходный комментарий, причины оценки, фотографии и данные аккаунта не передаются.</span></label>
+      <button type="submit">Отправить обращение</button>
+    </form>
+  </section>
+  <section id="inbox" class="panel" hidden>
+    <div class="sectionHead"><h2 id="inboxTitle">Мои обращения</h2><button id="reloadList" class="secondary" type="button">Обновить</button></div>
+    <p id="emptyRequests" class="muted" hidden>Обращений пока нет. Откройте свою оценку в профиле и нажмите «Получить ответ организации».</p>
+    <div id="requestList" class="requestList"></div><button id="moreRequests" class="secondary" type="button" hidden>Показать ещё</button>
+  </section>
+  <section id="conversation" class="panel" hidden tabindex="-1">
+    <div class="sectionHead"><h2 id="conversationName" data-user-content></h2><button id="reloadConversation" class="secondary" type="button">Обновить переписку</button></div>
+    <p id="conversationAddress" class="muted" data-user-content></p><p id="conversationStatus" class="badge"></p><p id="conversationHint" class="muted"></p>
+    <p id="recipient" class="muted" hidden><span>Получатель:</span> <b id="recipientName" data-user-content></b></p>
+    <div id="messages" class="messages" aria-label="Переписка"></div>
+    <div id="requestActions" class="actions"></div>
+    <form id="replyForm" hidden><label for="replyText">Ваше сообщение</label><textarea id="replyText" data-user-content required minlength="2" maxlength="2000" rows="4"></textarea><button id="sendReply" type="submit">Отправить сообщение</button></form>
+    <section id="assignment" hidden>
+      <h3>Подключить организацию</h3><p class="muted">Проверьте название, адрес и владельца. Отправляйте обращение только в кабинет той организации, которую оценил потребитель.</p>
+      <form id="branchSearch"><label for="branchQuery">Название организации</label><div class="searchRow"><input id="branchQuery" required minlength="2" maxlength="100"><button type="submit">Найти</button></div></form>
+      <p id="branchResult" role="status"></p>
+      <form id="assignForm" hidden><label for="branchChoice">Подтверждённый филиал</label><select id="branchChoice" required></select><label for="assignmentNote">Основание проверки</label><textarea id="assignmentNote" data-user-content required minlength="10" maxlength="1000" rows="3"></textarea><label class="check"><input id="matchConfirmed" type="checkbox" required><span>Я проверил, что это та же организация и тот же адрес.</span></label><button type="submit">Передать организации</button></form>
+    </section>
+    <p id="actionNotice" role="status" class="notice" hidden></p>
+  </section>
+</main>
+</body>
+</html>

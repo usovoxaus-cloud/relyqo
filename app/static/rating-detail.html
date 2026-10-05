@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<script src="/static/i18n.js?v=polish-20261004"></script>
+<script src="/static/i18n.js?v=service-requests-20261005"></script>
   <meta charset="utf-8">
 <script src="/static/service-categories.js?v=20260922" defer></script>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -24,11 +24,13 @@
         <section class="card"><p class="eyebrow">КРИТЕРИИ СФЕРЫ</p><h2 class="sectionTitle">Как вы оценили услугу</h2><div id="metrics" class="metrics"></div><div class="actions"><a id="placeLink" class="button primary" href="/nearby">Открыть организацию</a><a class="button" href="/nearby">Вернуться к карте</a></div></section>
         <section id="photoCard" class="card photo"><div id="noPhoto" class="noPhoto">К этой оценке фотография не добавлялась.</div><div id="photoContent" class="hidden"><img id="photo" alt="Фотография к оценке"><div class="photoCopy"><h2>Фотография потребителя</h2><p id="analysis" class="analysis hidden"></p></div></div></section>
       </div>
+      <section class="card"><h2>Нужен ответ организации?</h2><p class="description">Создайте отдельное обращение. Только выбранный вами текст будет передан организации с вашего согласия.</p><a id="requestOrganization" class="button primary">Получить ответ организации</a></section>
       <section id="principle" class="card principle"></section>
     </section>
   </main>
   <script>
     const params=new URLSearchParams(location.search);const ratingId=params.get('rating_id');const $=id=>document.getElementById(id);
+    $('requestOrganization').href='/me/requests?rating_id='+encodeURIComponent(ratingId);
     const foodCategories=new Set(['FOOD','RESTAURANT','CAFE','COFFEE_SHOP','BAKERY','BAR','FOOD_COURT']);
     function categoryGroup(value){return window.relyqoCategoryGroup?.(value)||(foodCategories.has(value)?'FOOD':value)}
     let currentRating=null;

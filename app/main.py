@@ -4733,6 +4733,10 @@ app.include_router(search_router)
 
 register_editor_routes(app, session_user)
 
+from .service_requests import register_service_requests
+register_service_requests(app, session_user)
+
 @app.get("/admin/editor", include_in_schema=False)
 def app_editor_page():
     return FileResponse(static / "admin-editor.html")
+
