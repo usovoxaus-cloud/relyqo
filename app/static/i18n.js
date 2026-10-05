@@ -104,7 +104,7 @@
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController(), deadline = setTimeout(() => controller.abort(), 8000);
       try {
-        const response = await fetch('/static/i18n-uz.json?v=location-scope-20261005', {signal:controller.signal, cache:attempt ? 'reload' : 'default'});
+        const response = await fetch('/static/i18n-uz.json?v=service-requests-20261005', {signal:controller.signal, cache:attempt ? 'reload' : 'default'});
         if (!response.ok) throw Error('Dictionary unavailable');
         dictionary = await response.json();
         const keys = Object.keys(dictionary).filter(key => /[А-Яа-яЁё]/.test(key) && !key.includes('<') && !key.includes('">')).sort((a, b) => b.length - a.length).map(escape);
@@ -123,3 +123,4 @@
   window.relyqoLanguageReady = language === 'uz' ? loadDictionary() : Promise.resolve();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ui); else ui();
 })();
+

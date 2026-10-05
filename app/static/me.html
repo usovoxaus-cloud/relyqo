@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<script src="/static/i18n.js?v=polish-20261004"></script>
+<script src="/static/i18n.js?v=service-requests-20261005"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#071827">
@@ -29,6 +29,7 @@
       <div class="itemActions"><button id="copyNewRecovery" class="button secondary" type="button">Копировать код</button><button id="continueAfterRecovery" class="button" type="button">Я сохранил код</button></div>
     </section>
     <section id="dashboard" class="hidden">
+      <section class="card section"><h2>Ответы организаций</h2><p class="lead">Следите за ответами на обращения и подтверждайте решение проблемы.</p><a class="button" href="/me/requests">Мои обращения</a></section>
       <div class="accountBar"><span>Выполнен вход: <b id="username"></b></span><button id="logout" class="button secondary" type="button">Выйти</button></div>
       <section class="card section recoveryEmail"><h2>Восстановление доступа</h2><p id="recoveryEmailStatus" role="status">Добавьте и подтвердите email, чтобы не потерять доступ к аккаунту.</p><form id="recoveryEmailForm"><label class="field">Email для восстановления<input name="email" type="email" autocomplete="email" maxlength="254" required></label><label class="field">Текущий пароль<input name="current_password" type="password" autocomplete="current-password" minlength="8" maxlength="200" required></label><button class="button" type="submit">Подтвердить почту</button></form><p id="recoveryEmailError" class="error hidden" role="alert"></p><p class="lead">Адрес станет доступен для восстановления только после подтверждения по ссылке из письма. При смене адреса прежний действует до подтверждения нового.</p></section>
       <section class="card section">

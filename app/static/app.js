@@ -277,6 +277,13 @@ $("#submit").onclick = async () => {
       $("#photoAnalysis").textContent = window.relyqoT?.("Фото сохранено как дополнительный материал оценки. AI-анализ временно недоступен.") || "Фото сохранено как дополнительный материал оценки. AI-анализ временно недоступен.";
       $("#photoAnalysis").classList.remove("hidden");
     }
+    if (result.saved_to_consumer_history && result.rating_id) {
+      const link = document.createElement('a');
+      link.className = 'button';
+      link.href = '/me/requests?rating_id=' + encodeURIComponent(result.rating_id);
+      link.textContent = window.relyqoT?.('Получить ответ организации') || 'Получить ответ организации';
+      $("#done").append(link);
+    }
     $("#rating").classList.add("hidden");
     $("#done").classList.remove("hidden");
   } catch (error) { $("#rateError").textContent = error.message; }

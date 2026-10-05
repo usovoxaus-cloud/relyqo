@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<script src="/static/i18n.js?v=polish-20261004"></script>
+<script src="/static/i18n.js?v=service-requests-20261005"></script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#07131f">
@@ -48,7 +48,7 @@
   <main id="dashboard" class="workspaceShell hidden">
     <aside class="sidebar">
       <div class="sideBrand"><span class="mark">R</span><div><b>RELYQO BUSINESS</b><small>OWNER WORKSPACE</small></div></div>
-      <nav class="sideNav" aria-label="Разделы кабинета">
+      <nav class="sideNav" aria-label="Разделы кабинета"><a class="navLink" href="/business/requests"><span class="navIcon">↗</span>Обращения потребителей</a>
         <button class="navBtn active" type="button" data-view="overview"><span class="navIcon">O</span>Обзор</button>
         <button class="navBtn" type="button" data-view="profile"><span class="navIcon">P</span>Профиль организации</button>
         <button class="navBtn" type="button" data-view="qr"><span class="navIcon">QR</span>Verified QR</button>
@@ -62,7 +62,7 @@
     <section class="workspace">
       <header class="workspaceTop"><div><h1 id="workspaceTitle">Обзор бизнеса</h1><p>Профиль, статус проверки и Verified QR в одном месте.</p></div><span id="profileStatus" class="statusPill">—</span></header>
 
-      <section id="view-overview" class="view active"><div class="actions"><a class="button secondary" href="/business">Аналитика и рекомендации</a><a class="button secondary" href="/owner#staff">Сотрудники и журнал QR</a><a class="button secondary" data-public-profile hidden>Карточка организации</a><a class="button secondary" href="/account-security">Безопасность</a></div>
+      <section id="view-overview" class="view active"><div class="actions"><a class="button secondary" href="/business/requests">Обращения потребителей</a><a class="button secondary" href="/business">Аналитика и рекомендации</a><a class="button secondary" href="/owner#staff">Сотрудники и журнал QR</a><a class="button secondary" data-public-profile hidden>Карточка организации</a><a class="button secondary" href="/account-security">Безопасность</a></div>
         <div class="dashboardHero"><p class="eyebrow">BUSINESS CONTROL CENTER</p><h2 id="organizationTitle">Ваша организация</h2><p id="organizationLead" class="lead">Загрузка профиля…</p></div>
         <div class="stats">
           <div class="stat"><small>VERIFIED RELYQO SCORE</small><b id="verifiedScore">0.0</b><span>Рассчитывается только по подтверждённым оценкам потребителей.</span></div>
