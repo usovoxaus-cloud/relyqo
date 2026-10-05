@@ -1,5 +1,5 @@
 /* A visitor-selected search origin is ephemeral and never creates an organization. */
-window.relyqoSearchOrigin = ({parent, loadMaps, getCenter, getRadius, onSelect}) => {
+window.relyqoSearchOrigin = ({parent, toggleParent=parent, loadMaps, getCenter, getRadius, onOpen, onSelect}) => {
   const t=(ru,uz)=>document.documentElement.lang==='uz'?uz:ru;
   const node=(tag,id,text='')=>{const el=document.createElement(tag);el.id=id;el.textContent=text;return el;};
   const toggle=node('button','searchOriginToggle',t('Указать точку на карте','Xaritada nuqta tanlash'));toggle.type='button';
@@ -13,7 +13,7 @@ window.relyqoSearchOrigin = ({parent, loadMaps, getCenter, getRadius, onSelect})
   const choices=node('div','searchOriginChoices');
   const root=node('div','searchOriginMap');root.className='searchOriginMap';root.hidden=true;root.setAttribute('aria-label',t('Центр и радиус поиска','Qidiruv markazi va radiusi'));
   const confirm=node('button','searchOriginConfirm',t('Искать вокруг этой точки','Shu nuqta atrofida qidirish'));confirm.type='button';confirm.disabled=true;
-  panel.append(instructions,form,status,choices,root,confirm);parent.append(toggle,panel);
+  panel.append(instructions,form,status,choices,root,confirm);toggleParent.append(toggle);parent.append(panel);
   let map,marker,circle,draft=null,revision=0;
   const valid=p=>p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat)<=90 && Math.abs(p.lng)<=180;
   const deadline=promise=>new Promise((resolve,reject)=>{
@@ -48,7 +48,9 @@ window.relyqoSearchOrigin = ({parent, loadMaps, getCenter, getRadius, onSelect})
   const unavailable=()=>{status.textContent=t('Карта недоступна. Повторите попытку или выберите «По списку».','Xarita mavjud emas. Qayta urinib ko‘ring yoki «Ro‘yxatdan»ni tanlang.');};
   toggle.addEventListener('click',async()=>{
     if(!panel.hidden){close();return;}
+    onOpen?.();
     panel.hidden=false;toggle.setAttribute('aria-expanded','true');
+    panel.scrollIntoView({behavior:'smooth',block:'start'});
     const request=++revision;draft=null;confirm.disabled=true;marker?.setMap(null);circle?.setMap(null);choices.replaceChildren();
     status.textContent=t('Открываем карту…','Xarita ochilmoqda…');
     try{if(!await show(request))throw Error('Map unavailable');if(request===revision)status.textContent=instructions.textContent;}
@@ -76,5 +78,5 @@ window.relyqoSearchOrigin = ({parent, loadMaps, getCenter, getRadius, onSelect})
   });
   input.addEventListener('input',()=>{++revision;search.disabled=false;choices.replaceChildren();draft=null;confirm.disabled=true;marker?.setMap(null);circle?.setMap(null);});
   confirm.addEventListener('click',()=>{if(panel.hidden || !valid(draft))return;const point={...draft};close();onSelect(point);});
-  return {close,updateRadius};
+  return {close,updateRadius,open:()=>toggle.click()};
 };

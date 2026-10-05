@@ -342,7 +342,8 @@ async function editRadius(x,value,apply=true){
 const nearbyCalls=x=>x.calls.filter(c=>c.url?.endsWith('/nearby'));
 function assertScope(x,meters){
   const local=nearbyCalls(x).slice(-2);assert.equal(local.length,2);assert(local.every(c=>c.body.radius_km===meters/1000));
-  assert.equal(x.calls.filter(c=>c.nearby).at(-1).nearby.locationRestriction.radius,meters);
+  const google=x.calls.filter(c=>c.nearby||c.text?.locationBias).at(-1);
+  assert.equal(google.nearby?.locationRestriction.radius ?? google.text.locationBias.radius,meters);
   assert.equal(x.document.getElementById('mapRadius').textContent,String(meters/1000));
 }
 
@@ -638,13 +639,16 @@ test('a cancelled GPS callback cannot enable the button for a newer pending near
   assert.equal(x.document.getElementById('discoveryHere').disabled,false);assertScope(x,300);
 });
 
-test('a catalog loading error after GPS failure remains visible alongside the location notice',async()=>{
+test('GPS failure does not start citywide loading; an explicit list search reports its own error',async()=>{
   const x=await harness({search:'?find=here',gps:'pending'}),original=x.context.fetch;
   x.context.fetch=(url,options)=>url.startsWith('/v1/public/rated-organizations')?Promise.reject(Error('catalog unavailable')):original(url,options);
   x.permission().reject({code:1});await settle();
+  assert(x.document.getElementById('error').classList.contains('hidden'));
+  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
+  await x.click('#discoveryByName');
   assert(!x.document.getElementById('error').classList.contains('hidden'));
   assert.match(x.document.getElementById('error').textContent,/catalog unavailable/);
-  assert.match(x.document.getElementById('discoveryLocationNotice').textContent,/геолокации запрещён/);
+  assert(x.document.getElementById('discoveryLocationNotice').hidden);
 });
 
 test('separate advanced nearby catalog retains its controls and does not receive the simple rating renderer',async()=>{
@@ -710,6 +714,17 @@ test('a confirmed map origin works after denied GPS, preserves scope, and never 
     await x.click('[data-radius="1000"]');assert.equal(x.circles.at(-1).radius,1000);assertScope(x,1000);assert.equal(x.gps(),1);
     assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'||c.url?.includes('/ratings')));
     assert(![...x.stored.values()].some(value=>/41\.3|latitude|longitude/.test(value)));
+  }
+});
+
+test('the map is an explicit alternative from the list and direct entry, without requesting GPS',async()=>{
+  for(const search of ['', '?find=map']){
+    const x=await harness({search});
+    if(!search)await x.click('#searchOriginToggle');
+    assert.equal(x.gps(),0);assert(x.document.body.classList.contains('findingCurrentPlace'));
+    assert(!x.document.getElementById('searchOriginPanel').hidden);assert(x.document.getElementById('searchOriginConfirm').disabled);
+    assert.equal(nearbyCalls(x).length,0);
+    await x.click('#discoveryByName');assert(x.document.getElementById('searchOriginPanel').hidden);
   }
 });
 

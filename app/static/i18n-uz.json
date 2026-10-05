@@ -2099,5 +2099,6 @@
   "Радиус": "Radius",
   "от выбранной точки, по прямой.": "tanlangan nuqtadan to‘g‘ri chiziq bo‘ylab.",
   "по прямой. Точность местоположения: ±": "to‘g‘ri chiziq bo‘ylab. Joylashuv aniqligi: ±",
-  "м от выбранной точки": "m tanlangan nuqtadan"
+  "м от выбранной точки": "m tanlangan nuqtadan",
+  "Укажите точку на карте, чтобы искать в выбранном радиусе.": "Tanlangan radiusda qidirish uchun xaritada nuqta belgilang."
 }

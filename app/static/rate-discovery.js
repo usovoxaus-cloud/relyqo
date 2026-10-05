@@ -83,7 +83,12 @@
     else clearLocationNotice();
     return valid;
   };
-  const originPicker=window.relyqoSearchOrigin({parent:currentPlace,loadMaps:loadGooglePlaces,getCenter:()=>currentCenter,getRadius:()=>currentPlaceRadiusMeters,onSelect:async point=>{
+  const originPicker=window.relyqoSearchOrigin({parent:currentPlace,toggleParent:panel,loadMaps:loadGooglePlaces,getCenter:()=>currentCenter,getRadius:()=>currentPlaceRadiusMeters,onOpen:()=>{
+    ++operation;++locationRequestId;here.disabled=false;retry.disabled=false;
+    if(!findingHere){cancelPending();choose(here);currentCenter=null;locationFix=null;nearMode();}
+    if(!locationFix)locationProblem(t('Укажите точку на карте, чтобы искать в выбранном радиусе.','Tanlangan radiusda qidirish uchun xaritada nuqta belgilang.'));
+    renderAll();
+  },onSelect:async point=>{
     if(!findingHere || !commitRadius())return;
     ++operation;cancelPending();clearLocationNotice();clearError();
     currentCenter=point;locationFix={source:'manual',accuracy:null};
@@ -265,6 +270,7 @@
   Promise.resolve(window.relyqoLocationsReady).then(()=>{
     if(operation!==initial)return;
     if(mode==='here'||mode==='nearby')return findHere();
+    if(mode==='map')return originPicker.open();
     return byNameSearch();
   });
 })();
