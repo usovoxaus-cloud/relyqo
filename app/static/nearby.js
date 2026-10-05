@@ -149,7 +149,7 @@ function restoreSearchPreferences() {
   try {
     const saved = JSON.parse(localStorage.getItem(searchPreferencesKey) || "null");
     if (!saved || typeof saved !== "object") return;
-    if ([...$("#serviceCategory").options].some((option) => option.value === saved.category)) {
+    if (!document.body.classList.contains('ratingDiscovery') && [...$("#serviceCategory").options].some((option) => option.value === saved.category)) {
       $("#serviceCategory").value = saved.category;
     }
     if (Number.isFinite(Number(saved.radius)) && Number(saved.radius) > 0) {
@@ -189,6 +189,16 @@ function categoryGroup(value) {
   const normalized = String(value || "").toUpperCase();
   const customGroup = window.relyqoCategoryGroup?.(normalized);
   if (customGroup) return customGroup;
+  // Built-in subcategories remain filterable if the category catalog is still loading.
+  const builtInGroup = {
+    CLINIC:'HEALTH',DENTAL:'HEALTH',PHARMACY:'HEALTH',VETERINARY:'HEALTH',
+    LEARNING_CENTER:'EDUCATION',LANGUAGE_SCHOOL:'EDUCATION',KINDERGARTEN:'EDUCATION',
+    SHOPPING_MALL:'RETAIL',CAR_WASH:'AUTO_SERVICE',TIRE_SERVICE:'AUTO_SERVICE',
+    TRAVEL_AGENCY:'PROFESSIONAL_SERVICE',DELIVERY:'PROFESSIONAL_SERVICE',CLEANING:'PROFESSIONAL_SERVICE',
+    HOME_REPAIR:'PROFESSIONAL_SERVICE',APPLIANCE_REPAIR:'PROFESSIONAL_SERVICE',LEGAL_SERVICE:'PROFESSIONAL_SERVICE',
+    REAL_ESTATE:'PROFESSIONAL_SERVICE',INSURANCE:'PROFESSIONAL_SERVICE',FITNESS:'OTHER',BANK:'OTHER',
+  }[normalized];
+  if (builtInGroup) return builtInGroup;
   if (foodCategories.has(normalized) || ["РЕСТОРАН", "КАФЕ", "КОФЕЙНЯ"].includes(normalized)) return "FOOD";
   if (normalized === "ГОСТИНИЦА") return "HOTEL";
   if (normalized === "ОБРАЗОВАНИЕ") return "EDUCATION";
@@ -214,12 +224,12 @@ function matchesRatedFilters(item) {
   const category = ratedFilterValue("#ratedCategory");
   const scoreType = ratedFilterValue("#ratedScoreType");
   const minimum = Math.max(0, Math.min(100, Number($("#ratedMinScore")?.value) || 0));
+  if (category !== "ALL" && item.category !== category && categoryGroup(item.category) !== category) return false;
   if (item._citySearch) return scoreType === "ALL" && minimum === 0;
   if (country !== "ALL" && String(item.country_code || "").toUpperCase() !== country) return false;
   const region = ratedFilterValue("#ratedRegion");
   if (region !== "ALL" && item.region_code !== region) return false;
   if (city !== "ALL" && String(item.city || "") !== city) return false;
-  if (category !== "ALL" && item.category !== category && categoryGroup(item.category) !== category) return false;
   if (scoreType === "VERIFIED" && Number(item.verified_rating_count) <= 0) return false;
   if (scoreType === "COMMUNITY" && Number(item.community_rating_count) <= 0) return false;
   const filteredScore = scoreType === "VERIFIED"
@@ -416,7 +426,7 @@ function viewRows() {
   if (showRatedOnly) rows.push(...lastCityPlaces.map(item => ({...item, kind:"external", title:item.name, _citySearch:true})).filter(item => !isAlreadyInRelyqo(item, rows)));
   // Use unrounded coordinates for the same boundary in cards, list and markers.
   // Do not apply the ordinary 20/50/100 display cap to current-place results.
-  if (findingHere) return currentCenter ? withinHere(rows).sort((a,b) => a.distance - b.distance) : [];
+  if (findingHere) return currentCenter ? withinHere(rows).filter(matchesCategory).sort((a,b) => a.distance - b.distance) : [];
   rows = rows.filter(showRatedOnly ? matchesRatedFilters : matchesCategory);
   if (query) {
     rows = rows.filter((item) => (
@@ -1140,6 +1150,7 @@ async function fetchNearby(url, scope = {center: currentCenter, radius: selected
       latitude: scope.center.lat,
       longitude: scope.center.lng,
       radius_km: scope.radius,
+      category: scope.category || "ALL",
       limit: 200,
     }),
     cache: "no-store",

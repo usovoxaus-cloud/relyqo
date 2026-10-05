@@ -42,7 +42,19 @@
   const radiusError=node('p','','currentRadiusError');radiusError.setAttribute('role','alert');radiusError.hidden=true;
   radiusControl.append(presets,radiusForm,radiusHint,radiusError);
   const panel = document.getElementById('directoryPanel');
-  panel.querySelector('.catalogSearchWrap').before(actions);panel.append(radiusControl);
+  const sectorField=node('label',t('Сфера','Soha'));sectorField.className='discoverySector';sectorField.htmlFor='discoveryCategory';
+  const sector=node('select','','discoveryCategory');
+  for(const [code,ru,uz] of [
+    ['ALL','Все сферы','Barcha sohalar'],['FOOD','Рестораны и кафе','Restoran va kafelar'],
+    ['EDUCATION','Образование','Ta’lim'],['HEALTH','Здоровье','Sog‘liq'],
+    ['BEAUTY','Красота и уход','Go‘zallik va parvarish'],['RETAIL','Магазины','Do‘konlar'],
+    ['AUTO_SERVICE','Автоуслуги','Avtoxizmatlar'],['HOTEL','Гостиницы','Mehmonxonalar'],
+    ['ENTERTAINMENT','Развлечения','Ko‘ngilochar xizmatlar'],
+    ['PROFESSIONAL_SERVICE','Профессиональные услуги','Professional xizmatlar'],['OTHER','Другие услуги','Boshqa xizmatlar'],
+  ]){const option=node('option',t(ru,uz));option.value=code;sector.append(option);}
+  sector.value='ALL';sectorField.append(sector);
+  const filters=node('div','');filters.className='discoveryFilters';filters.append(sectorField,radiusControl);
+  panel.querySelector('.catalogSearchWrap').before(actions);panel.querySelector('.catalogSearchWrap').after(filters);
   const addPlace = document.getElementById('addPlace');
   addPlace.textContent = t('Не нашли организацию? Добавить организацию', 'Tashkilotni topmadingizmi? Tashkilot qo‘shish');
   addPlace.classList.add('ratingAddPlace');
@@ -63,6 +75,10 @@
 
   let operation = 0, findingHere = false, savedScope = null;
   function clearLocationNotice() {locationNotice.hidden=true;locationNotice.textContent='';}
+  function syncSector() {
+    document.getElementById('serviceCategory').value=sector.value;
+    document.getElementById('ratedCategory').value=sector.value;
+  }
   function validateRadius() {
     const raw=radiusInput.value.trim(),value=Number(raw.replace(',','.'));
     const valid=/^\d+(?:[.,]\d+)?$/.test(raw) && Number.isFinite(value) && value>=100 && value<=50000;
@@ -93,6 +109,7 @@
   radiusForm.addEventListener('submit',event=>{event.preventDefault();applyRadius();});
   function choose(selected) {
     findingHere=selected===here;
+    syncSector();
     clearLocationNotice();
     if(!findingHere){here.disabled=false;retry.disabled=false;}
     const controls=['radius','resultLimit','sortMode'].map(id=>document.getElementById(id));
@@ -120,7 +137,7 @@
   function nearMode() {
     showRatedOnly=false;showFavoritesOnly=false;
     document.getElementById('sortMode').value='distance';
-    document.getElementById('serviceCategory').value='ALL';
+    syncSector();
     // Search near this point must not be hidden by a previously chosen name or rating threshold.
     input.value='';remoteSearchQuery='';remoteSearchIds=new Set();
     lastPartners=[];lastManualPlaces=[];lastExternalPlaces=[];
@@ -129,7 +146,8 @@
   function resetListFilters() {
     document.getElementById('sortMode').value='name';
     showFavoritesOnly=false;
-    for(const id of ['ratedRegion','ratedCity','ratedCategory','ratedScoreType'])document.getElementById(id).value='ALL';
+    for(const id of ['ratedRegion','ratedCity','ratedScoreType'])document.getElementById(id).value='ALL';
+    syncSector();
     document.getElementById('ratedMinScore').value='0';
   }
   async function byNameSearch() {
@@ -138,6 +156,13 @@
     if(request===operation)status.textContent='';
   }
   window.relyqoRatingSearch=byNameSearch;
+  sector.addEventListener('change',async()=>{
+    syncSector();clearLocationNotice();clearError();
+    if(!findingHere){await byNameSearch();return;}
+    // Changing the sector preserves the radius and an outstanding GPS request.
+    if(currentCenter && locationFix)await refreshCatalog();
+    else renderAll();
+  });
   window.relyqoRenderCurrentPlace = rows => {
     if(!findingHere)return;
     const label=currentPlaceRadiusLabel();

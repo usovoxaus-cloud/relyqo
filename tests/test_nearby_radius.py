@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base, get_db
 from app.main import app, haversine_km
-from app.models import Branch, ManualPlace, Organization
+from app.models import Branch, ManualPlace, Organization, ServiceCategory
 
 
 @pytest.fixture
@@ -92,3 +92,49 @@ def test_user_selected_radius_is_accepted_in_kilometres(catalog, endpoint, radiu
     assert data['radius_km'] == radius_km and data['location_stored'] is False
     assert len(data['items']) == expected_count
     assert all(haversine_km(41.3,69.2,row['latitude'],row['longitude']) <= radius_km for row in data['items'])
+
+
+@pytest.mark.parametrize('endpoint', ['branches', 'manual-places'])
+def test_nearby_sector_filters_before_limit_and_includes_subcategories(catalog, endpoint):
+    with catalog() as db:
+        db.add(ServiceCategory(code='CUSTOM_EDUCATION', label='Fixture courses', label_key='fixture courses', group_code='EDUCATION'))
+        for key, category, latitude in [
+            ('kindergarten', 'KINDERGARTEN', 41.3001),
+            ('courses', 'CUSTOM_EDUCATION', 41.3002),
+            ('clinic', 'DENTAL', 41.3003),
+            ('far-school', 'EDUCATION', 41.4),
+        ]:
+            org = Organization(name=key, category=category, city='Tashkent')
+            db.add(org); db.flush()
+            details = dict(name=key, city='Tashkent', country_code='UZ', address='Synthetic fixture', latitude=latitude, longitude=69.2)
+            db.add(Branch(organization_id=org.id, **details))
+            db.add(ManualPlace(identity_hash=key, category=category, description='Fixture', created_by_hash='test-only', **details))
+        db.commit()
+        before = [db.scalar(select(func.count()).select_from(model)) for model in (Organization, Branch, ManualPlace)]
+    client = TestClient(app)
+    def search(category, limit=200):
+        response = client.post(f'/v1/public/{endpoint}/nearby', json={
+            'latitude':41.3, 'longitude':69.2, 'radius_km':.3, 'limit':limit, 'category':category,
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()['location_stored'] is False
+        return response.json()['items']
+    # The original fixture has 24 nearby cafes, enough to exhaust limit * 3.
+    assert len(search('EDUCATION', limit=1)) == 1
+    assert {row['category'] for row in search('EDUCATION')} == {'KINDERGARTEN', 'CUSTOM_EDUCATION'}
+    assert {row['category'] for row in search('HEALTH')} == {'DENTAL'}
+    assert {row['category'] for row in search('KINDERGARTEN')} == {'KINDERGARTEN'}
+    assert len(search('FOOD')) == 24
+    assert len(search('ALL')) == 27
+    assert search('HOTEL') == []
+    with catalog() as db:
+        assert [db.scalar(select(func.count()).select_from(model)) for model in (Organization, Branch, ManualPlace)] == before
+
+
+@pytest.mark.parametrize('endpoint', ['branches', 'manual-places'])
+def test_nearby_rejects_unknown_sectors(catalog, endpoint):
+    for category in ['UNKNOWN_SECTOR', '', 'X' * 81]:
+        response = TestClient(app).post(f'/v1/public/{endpoint}/nearby', json={
+            'latitude':41.3, 'longitude':69.2, 'radius_km':.3, 'category':category,
+        })
+        assert response.status_code == 422
