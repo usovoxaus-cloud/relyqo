@@ -310,6 +310,12 @@ def register_service_requests(app, session_user):
             status = "ANSWERED" if owner else ("WAITING_ORGANIZATION" if item.status == "WAITING_ORGANIZATION" else "IN_PROGRESS")
         else:
             status = {"start": "IN_PROGRESS", "resolve": "RESOLVED", "reopen": "IN_PROGRESS", "withdraw": "WITHDRAWN"}[body.action]
+        if not owner and body.action in {"reply", "reopen"}:
+            # A revoked or disabled recipient must not leave follow-ups in an unowned queue.
+            representative = active_representative(db, item.object_key)
+            ready = usable_organization(db, item.organization_id) or bool(
+                representative and representative != item.consumer_user_id)
+            status = "IN_PROGRESS" if ready else "WAITING_ORGANIZATION"
         bump(db, item, body.version, status=status)
         if body.action in {"reply", "reopen"}:
             db.add(ServiceMessage(request_id=item.id, author_id=user.id,

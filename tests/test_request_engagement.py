@@ -153,6 +153,39 @@ def test_conflicting_claims_rejection_and_resubmission_require_current_versions(
     with f() as db:assert db.scalar(select(func.count()).select_from(ServiceRepresentative))==1
 
 
+@pytest.mark.parametrize('resolved', [False, True])
+def test_followup_after_representative_revocation_waits_for_a_new_recipient(conversations, resolved):
+    c,f,ids,_=conversations;key=manual_key(f,ids)
+    approved=decision(c('admin'),claim(c('other'),key).json()).json()
+    item=create(c('consumer'),ids['community']);url='/v1/service-requests/'+item['id']
+    response=c('other').post(url+'/actions?view=business',json={'version':item['version'],'action':'reply','message':'First response'})
+    assert response.status_code==200,response.text
+    item=response.json()
+    if resolved:item=action(c('consumer'),item,'resolve').json()
+    assert decision(c('admin'),approved,'revoke').status_code==200
+    item=c('consumer').get(url).json()
+    reply=action(c('consumer'),item,'reopen' if resolved else 'reply','Please continue helping')
+    assert reply.status_code==200,reply.text
+    assert reply.json()['status']=='WAITING_ORGANIZATION'
+    waiting=c('admin').get('/v1/service-requests?filter=WAITING_ORGANIZATION').json()['items']
+    assert item['id'] in [r['id'] for r in waiting]
+    assert decision(c('admin'),claim(c('owner'),key).json()).status_code==200
+    reopened=c('owner').get(url+'?view=business')
+    assert reopened.status_code==200 and reopened.json()['status']=='OPEN'
+    assert reopened.json()['messages'][-1]['body']=='Please continue helping'
+    with f() as db:
+        assert db.get(CommunityRating,ids['community']).community_score==30
+
+
+def test_followup_after_owner_disabled_waits_without_exposing_messages(conversations):
+    c,f,ids,_=conversations;item=create(c('consumer'),ids['rating'])
+    item=action(c('owner'),item,'reply','First business answer').json()
+    with f() as db:db.get(User,ids['owner']).active=False;db.commit()
+    response=action(c('consumer'),item,'reply','I still need assistance')
+    assert response.status_code==200 and response.json()['status']=='WAITING_ORGANIZATION'
+    assert c('owner').get('/v1/service-requests/'+item['id']).status_code==401
+
+
 def test_validation_active_applicant_and_private_claim_fields(conversations):
     c,f,ids,_=conversations;key=manual_key(f,ids)
     assert claim(c('other'),'manual:missing').status_code==404

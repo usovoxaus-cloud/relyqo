@@ -208,7 +208,9 @@
     const root=document.getElementById('results');root.replaceChildren();
     for(const item of rows){
       const card=node('article','');card.className='place currentPlaceCandidate';card.id=markerCardId(item);
-      const name=node('h3',item.title);name.setAttribute('data-user-content','');
+      const name=node('h3','');name.setAttribute('data-user-content','');
+      if(item.kind==='external')name.textContent=item.title;
+      else {const detail=node('a',item.title);detail.href=profileUrl(item);detail.className='placeDetailsLink';name.append(detail);}
       const address=node('p',item.address||t('Адрес не указан','Manzil ko‘rsatilmagan'));address.setAttribute('data-user-content','');
       const meters=Math.max(1,Math.round(item.distance*1000));
       const distance=node('small',locationFix?.source==='manual' ? t(`Примерно ${meters} м от выбранной точки`,`Tanlangan nuqtadan taxminan ${meters} m`) : t(`Примерно ${meters} м от вас`,`Sizdan taxminan ${meters} m`));
@@ -274,3 +276,5 @@
     return byNameSearch();
   });
 })();
+
+

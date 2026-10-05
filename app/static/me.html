@@ -49,8 +49,21 @@
     </section>
   </main>
   <script>
-    const $=id=>document.getElementById(id);const sourceFor=key=>key.startsWith('manual:')?'MANUAL':key.startsWith('relyqo:')?'RELYQO_PARTNER':null;const requestedReturn=new URLSearchParams(location.search).get('return_to')||'';const returnTo=requestedReturn.startsWith('/')&&!requestedReturn.startsWith('//')?requestedReturn:'';
-    async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||'Не удалось выполнить запрос');return data}
+    const $=id=>document.getElementById(id);const sourceFor=key=>key.startsWith('manual:')?'MANUAL':key.startsWith('relyqo:')?'RELYQO_PARTNER':null;
+    function safeReturnPath(value){
+      // Only supported destinations; reject browser-normalized host escapes and login loops.
+      if(/[\\\u0000-\u0020\u007f]/.test(value))return '';
+      return /^\/(?:consumer|rate|community-rate|place|representative|business\/requests|me\/(?:requests|rating))(?:[?#]|$)/.test(value)?value:'';
+    }
+    const requestedReturn=new URLSearchParams(location.search).get('return_to')||'';
+    const returnTo=safeReturnPath(requestedReturn);
+    let authPending=false;
+    async function api(url,options={}){
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+      try{const response=await fetch(url,{cache:'no-store',...options,signal:controller.signal});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить запрос');return data}
+      catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw new Error('Не удалось связаться с сервером. Текст сохранён в форме. Проверьте соединение и повторите.');throw error}
+      finally{clearTimeout(timer);}
+    }
     function showError(message){$('authError').textContent=message;$('authError').classList.remove('hidden')}
     function hideError(){$('authError').classList.add('hidden')}
     async function importLocalFavorites(){let keys=[];try{const value=JSON.parse(localStorage.getItem('relyqo_favorites_v1')||'[]');if(Array.isArray(value))keys=value}catch{}for(const object_key of keys){const source=sourceFor(object_key);if(source)await api('/v1/consumer/favorites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({object_key,source,saved:true})}).catch(()=>{})}}
@@ -62,7 +75,13 @@
     async function loadDashboard(){try{const data=await api('/v1/consumer/dashboard');$('auth').classList.add('hidden');$('dashboard').classList.remove('hidden');$('username').textContent=data.username;renderItems($('favorites'),data.favorites,'favorite');ratingHistory=data.ratings||[];renderRatingHistory();renderPhotos(data.photos||[]);return true}catch(error){if(!String(error.message).includes('Войдите')&&!String(error.message).includes('Сессия'))showError(error.message);return false}}
     async function finishAuthenticatedFlow(){await importLocalFavorites();if(returnTo){location.href=returnTo;return}await loadDashboard()}
     async function copyRecoveryValue(value,button){try{await navigator.clipboard.writeText(value);const original=button.textContent;button.textContent='Скопировано ✓';setTimeout(()=>button.textContent=original,1400)}catch{showError('Не удалось скопировать автоматически. Выделите код и скопируйте его вручную.')}}
-    async function authenticate(form,url){hideError();const body=Object.fromEntries(new FormData(form));try{const data=await api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(data.role!=='CONSUMER')throw new Error('Этот аккаунт предназначен для другой панели RELYQO');if(data.recovery_code){$('auth').classList.add('hidden');$('newRecoveryCode').textContent=data.recovery_code;$('newRecoveryNotice').classList.remove('hidden');return}await finishAuthenticatedFlow()}catch(error){showError(error.message)}}
+    async function authenticate(form,url){
+      if(authPending)return;
+      const body=Object.fromEntries(new FormData(form));authPending=true;hideError();
+      const controls=[...document.querySelectorAll('#auth input,#auth button')];controls.forEach(control=>control.disabled=true);
+      try{const data=await api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(data.role!=='CONSUMER')throw new Error('Этот аккаунт предназначен для другой панели RELYQO');if(data.recovery_code){$('auth').classList.add('hidden');$('newRecoveryCode').textContent=data.recovery_code;$('newRecoveryNotice').classList.remove('hidden');return}await finishAuthenticatedFlow()}
+      catch(error){showError(error.message)}finally{authPending=false;controls.forEach(control=>control.disabled=false);}
+    }
     $('copyNewRecovery').addEventListener('click',()=>copyRecoveryValue($('newRecoveryCode').textContent,$('copyNewRecovery')));
     $('continueAfterRecovery').addEventListener('click',async()=>{$('newRecoveryNotice').classList.add('hidden');await finishAuthenticatedFlow()});
     $('recoveryCodeForm').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{hideError();const data=await api('/v1/auth/recovery-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:$('recoveryPassword').value})});$('recoveryPassword').value='';$('recoveryCodeValue').textContent=data.recovery_code;$('recoveryCodeResult').classList.remove('hidden')}catch(error){showError(error.message)}finally{button.disabled=false}});

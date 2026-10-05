@@ -169,7 +169,7 @@
     text('emptyRequests','Обращений пока нет. Здесь появятся сообщения, которые потребители согласились передать организации.');
   }
   if(mode==='admin')$('claimsAdminLink').hidden=false;
-  if(mode==='business'){$('backLink').href='/representative';$('loginLink').href='/me?return_to='+encodeURIComponent(location.pathname+location.search);}
+  if(mode==='business'){$('backLink').href='/representative';$('loginLink').href='/me?return_to='+encodeURIComponent(location.pathname+location.search);$('ownerLoginLink').hidden=false;}
   if(['ALL','UNREAD','NEEDS_REPLY','OVERDUE','WAITING_ORGANIZATION','ANSWERED','RESOLVED','WITHDRAWN'].includes(params.get('filter')))$('requestFilter').value=params.get('filter');
   // Drafts stay only in memory and are never stored in browser storage.
   window.addEventListener('beforeunload',event => { if ($('replyText').value || $('requestText').value) { event.preventDefault(); event.returnValue = ''; } });
