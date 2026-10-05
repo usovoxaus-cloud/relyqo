@@ -699,6 +699,12 @@ test('nearby name search keeps category and radius, and excludes external text m
   assert.equal(x.document.getElementById('discoveryCategory').value,'FOOD');
 });
 
+test('nearby text results can match a service without repeating the query in the business name',async()=>{
+  const x=await harness({search:'?find=here',localPlaces:[],textSearch:()=>({places:[{...googleAt(100),displayName:'Smile clinic',primaryType:'dentist'},{...googleAt(900),displayName:'Distant clinic',primaryType:'dentist'}]})});
+  await chooseSector(x,'HEALTH');await x.type('стоматология');await x.runTimer(250);
+  assert.deepEqual(names(x),['Smile clinic']);assertScope(x,300);assert.equal(x.gps(),1);
+});
+
 test('a confirmed map origin works after denied GPS, preserves scope, and never stores or creates a place',async()=>{
   for(const uz of [false,true]){
     const x=await harness({search:'?find=here',gps:'denied',uz,localPlaces:[localAt(299.99),localAt(300.01)],nearby:()=>({places:[]})});

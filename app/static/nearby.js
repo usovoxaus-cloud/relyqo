@@ -427,7 +427,10 @@ function viewRows() {
   // Use unrounded coordinates for the same boundary in cards, list and markers.
   // Do not apply the ordinary 20/50/100 display cap to current-place results.
   if (findingHere) return currentCenter && window.relyqoLocationUsable?.() !== false
-    ? withinHere(rows).filter(matchesCategory).filter(item => !query || normalizeSearch(query).split(' ').every(token => normalizeSearch([item.title,item.address,item.city,categoryNames[item.category]].filter(Boolean).join(' ')).includes(token))).sort((a,b) => a.distance - b.distance) : [];
+    ? withinHere(rows).filter(matchesCategory).filter(item => !query
+      || (item.kind === 'external' && item._nearbyQuery === query)
+      || normalizeSearch(query).split(' ').every(token => normalizeSearch([item.title,item.address,item.city,categoryNames[item.category]].filter(Boolean).join(' ')).includes(token)))
+      .sort((a,b) => a.distance - b.distance) : [];
   rows = rows.filter(showRatedOnly ? matchesRatedFilters : matchesCategory);
   if (query) {
     rows = rows.filter((item) => (
@@ -1251,6 +1254,7 @@ async function fetchExternalPlaces(scope = { center: currentCenter, radius: sele
         latitude: coordinates.lat,
         longitude: coordinates.lng,
         distance,
+        _nearbyQuery: (scope.query || '').toLocaleLowerCase('ru'),
         mapsUri: place.googleMapsURI || "",
         google_details: {rating:place.rating, userRatingCount:place.userRatingCount, googleMapsURI:place.googleMapsURI, attributions:place.attributions},
       });

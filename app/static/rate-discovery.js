@@ -160,7 +160,7 @@
     showRatedOnly=false;showFavoritesOnly=false;
     document.getElementById('sortMode').value='distance';
     syncSector();
-    // Search near this point must not be hidden by a previously chosen name or rating threshold.
+    // Preserve the name query while dropping results from the previous origin.
     remoteSearchQuery='';remoteSearchIds=new Set();
     lastPartners=[];lastManualPlaces=[];lastExternalPlaces=[];
     renderAll();
@@ -246,7 +246,7 @@
   }
   here.addEventListener('click',findHere);retry.addEventListener('click',findHere);
   byName.addEventListener('click',byNameSearch);
-  // City and typed searches supersede a pending permission dialog or map opening.
+  // Explicit list filters supersede a pending location request or map opening.
   for(const id of ['ratedRegion','ratedCity','ratedCategory'])document.getElementById(id).addEventListener('change',()=>{if(!window.relyqoRestoringLocation){++operation;choose(byName);}});
   input.addEventListener('input',()=>{
     if(findingHere){
