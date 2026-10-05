@@ -55,9 +55,15 @@
       if(/[\\\u0000-\u0020\u007f]/.test(value))return '';
       return /^\/(?:consumer|rate|community-rate|place|representative|business\/requests|me\/(?:requests|rating))(?:[?#]|$)/.test(value)?value:'';
     }
-    const returnTo=safeReturnPath(new URLSearchParams(location.search).get('return_to')||'');
+    const requestedReturn=new URLSearchParams(location.search).get('return_to')||'';
+    const returnTo=safeReturnPath(requestedReturn);
     let authPending=false;
-    async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||'Не удалось выполнить запрос');return data}
+    async function api(url,options={}){
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);
+      try{const response=await fetch(url,{cache:'no-store',...options,signal:controller.signal});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить запрос');return data}
+      catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw new Error('Не удалось связаться с сервером. Текст сохранён в форме. Проверьте соединение и повторите.');throw error}
+      finally{clearTimeout(timer);}
+    }
     function showError(message){$('authError').textContent=message;$('authError').classList.remove('hidden')}
     function hideError(){$('authError').classList.add('hidden')}
     async function importLocalFavorites(){let keys=[];try{const value=JSON.parse(localStorage.getItem('relyqo_favorites_v1')||'[]');if(Array.isArray(value))keys=value}catch{}for(const object_key of keys){const source=sourceFor(object_key);if(source)await api('/v1/consumer/favorites',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({object_key,source,saved:true})}).catch(()=>{})}}
