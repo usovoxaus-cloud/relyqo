@@ -78,6 +78,12 @@ test('withdrawn conversation has no sharing actions and expired session shows lo
   const x=await setup({status:'WITHDRAWN'});assert(x.get('replyForm').hidden);assert.equal(x.get('requestActions').children.length,0);
   const auth=await setup({auth:true,query:'?rating_id=own-rating'});assert(!auth.get('loginGate').hidden);assert.match(auth.get('loginLink').href,/return_to=/);assert(auth.get('newRequest').hidden);
 });
+test('business access offers both personal representative and business owner login paths',async()=>{
+  const x=await setup({mode:'business',auth:true});assert(!x.get('loginGate').hidden);
+  assert.match(x.get('loginLink').href,/^\/me\?return_to=/);assert(!x.get('ownerLoginLink').hidden);
+  assert.equal(x.get('ownerLoginLink').href,'/business-owner');
+  const consumer=await setup({auth:true});assert(consumer.get('ownerLoginLink').hidden);
+});
 
 test('Uzbek runtime labels and untrusted authored content remain separate',async()=>{
   const message='<img src=x onerror=alert(1)> Название организации';

@@ -50,6 +50,9 @@ test('rating name search preserves the query and leads to the selected organizat
   assert.equal(x.gps(),0);assert.equal(x.map(),undefined);
   assert(x.calls.some(c=>c.url?.includes('q=Test')));
   const link=x.document.querySelector('#place-manual-fixture-local .rateLink');
+  const details=x.document.querySelector('#place-manual-fixture-local h3 a');assert(details);
+  assert.equal(new URL(details.href,'https://example.test').searchParams.get('object_key'),'manual:fixture-local');
+  assert.equal(new URL(details.href,'https://example.test').pathname,'/place');
   const url=new URL(link.getAttribute('href'),'https://example.test');assert.equal(url.pathname,'/community-rate');assert.equal(url.searchParams.get('object_key'),'manual:fixture-local');
   assert(!x.calls.some(c=>c.method!=='GET'));
   assert.equal(x.document.querySelector('.ratingQr').href,'/rate?find=qr');
@@ -64,6 +67,7 @@ test('nearby requests permission once, uses real coordinates and opens external 
   assert.equal(x.document.getElementById('sortMode').value,'distance');
   assert.equal(x.calls.find(c=>c.nearby).nearby.rankPreference,'DISTANCE');
   assert(x.document.querySelector('#place-external-fixture-google'));
+  assert.equal(x.document.querySelector('#place-external-fixture-google .placeDetailsLink'),null);
   assert.equal(x.document.querySelector('#place-external-foreign'),null);
   const marker=x.markers.findLast(m=>m.map&&m.title?.startsWith('Test map cafe'));
   marker.listeners.click();assert(x.document.getElementById('place-external-fixture-google').classList.contains('highlight'));
@@ -820,3 +824,5 @@ test('invalid forms never write and rejected additions retain user input for cor
   assert.equal(x.document.getElementById('manualError').textContent,'Check the address');assert(!x.document.querySelector('#manualForm [type=submit]').disabled);
   assert.equal(x.context.location.href,'/rate');assert(!x.calls.some(c=>c.url?.includes('/ratings')));
 });
+
+

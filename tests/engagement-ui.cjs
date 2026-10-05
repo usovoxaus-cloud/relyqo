@@ -24,6 +24,13 @@ test('hidden tabs do not poll; expired sessions clear private notification names
   const x=await notifications();const before=x.calls();Object.defineProperty(x.document,'hidden',{configurable:true,value:true});x.poll();await settle();assert.equal(x.calls(),before);
   Object.defineProperty(x.document,'hidden',{configurable:true,value:false});x.setStatus(401);x.poll();await settle();assert(x.document.getElementById('engagementInbox').hidden);assert.equal(x.document.querySelectorAll('.engagementLinks a').length,0);
 });
+test('returning from browser back-forward cache restarts notification updates',async()=>{
+  const x=await notifications();const before=x.calls();x.window.dispatchEvent(new x.window.Event('pagehide'));
+  x.setData({unread:2,overdue:0,pending_claims:0,items:[],business:false,admin:false});
+  const show=new x.window.Event('pageshow');Object.defineProperty(show,'persisted',{value:true});x.window.dispatchEvent(show);await settle();
+  assert.equal(x.calls(),before+1);assert.match(x.document.getElementById('engagementInbox').textContent,/Уведомления · 2/);
+  x.poll();await settle();assert.equal(x.calls(),before+2);
+});
 test('Uzbek notification controls and claim decisions use translated labels',async()=>{
   const x=await notifications('uz');x.setData({unread:1,overdue:0,pending_claims:0,items:[{name:'Кафе',status:'CLAIM_APPROVED',href:'/representative?object_key=manual%3Aone'}],business:true,admin:false});x.poll();await settle();
   const text=x.document.getElementById('engagementInbox').textContent;assert(text.includes(dictionary['Есть решение по вашей заявке']));assert(text.includes('Кафе'));assert(text.includes(dictionary['Кабинет представителя']));

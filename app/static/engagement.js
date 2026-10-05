@@ -41,6 +41,8 @@
   document.addEventListener('visibilitychange',refresh);
   window.addEventListener('relyqo-inbox-updated',refresh);
   window.addEventListener('online',refresh);
+  function startPolling(){clearInterval(timer);refresh();timer=setInterval(refresh,45000);}
   window.addEventListener('pagehide',()=>clearInterval(timer));
-  Promise.resolve(window.relyqoLanguageReady).then(()=>{refresh();timer=setInterval(refresh,45000);});
+  window.addEventListener('pageshow',event=>{if(event.persisted)startPolling();});
+  Promise.resolve(window.relyqoLanguageReady).then(startPolling);
 })();
