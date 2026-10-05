@@ -51,8 +51,8 @@ test('rating name search preserves the query and leads to the selected organizat
   assert(x.calls.some(c=>c.url?.includes('q=Test')));
   const link=x.document.querySelector('#place-manual-fixture-local .rateLink');
   const details=x.document.querySelector('#place-manual-fixture-local h3 a');assert(details);
-  assert.equal(new URL(details.href,'https://example.test').searchParams.get('object_key'),'manual:fixture-local');
-  assert.equal(new URL(details.href,'https://example.test').pathname,'/place');
+  assert.equal(new URL(details.getAttribute('href'),'https://example.test').searchParams.get('object_key'),'manual:fixture-local');
+  assert.equal(new URL(details.getAttribute('href'),'https://example.test').pathname,'/place');
   const url=new URL(link.getAttribute('href'),'https://example.test');assert.equal(url.pathname,'/community-rate');assert.equal(url.searchParams.get('object_key'),'manual:fixture-local');
   assert(!x.calls.some(c=>c.method!=='GET'));
   assert.equal(x.document.querySelector('.ratingQr').href,'/rate?find=qr');
@@ -111,7 +111,7 @@ test('explicit nearby entry locates once using a fresh fix and a small search ar
   assert.equal(x.calls.find(c=>c.nearby).nearby.locationRestriction.radius,300);
   assert.equal(x.document.getElementById('discoveryHere').getAttribute('aria-pressed'),'true');
   assert.match(x.document.getElementById('currentPlaceMessage').textContent,/300 м.*±20 м/);
-  const link=x.document.querySelector('#currentPlaceCandidates a');
+  const link=x.document.querySelector('#currentPlaceCandidates .rateLink');
   assert.equal(link.textContent,'Оценить');
   assert.equal(new URL(link.getAttribute('href'),'https://example.test').searchParams.get('object_key'),'manual:here');
   assert(!x.calls.some(c=>c.url==='/v1/public/manual-places'||c.url?.includes('/ratings')));
@@ -532,7 +532,8 @@ test('ordinary consumer and rate entry show one list and two primary modes, with
     assert.equal(x.document.querySelectorAll('#results .place').length,1);
     assert.equal(x.document.querySelectorAll('#results .rateLink').length,1);
     assert.equal(x.document.querySelector('#results .rateLink').textContent,uz?'Baholash':'Оценить');
-    assert.equal(x.document.querySelectorAll('#results button,#results a').length,1);
+    assert.equal(x.document.querySelectorAll('#results button,#results a').length,2);
+    assert.equal(x.document.querySelectorAll('#results h3 .placeDetailsLink').length,1);
     assert(!x.document.querySelector('#results small')); // No invented distance without coordinates.
     assert.equal(x.document.querySelector('.ratingQr').href,'/rate?find=qr');
     await openRatingForm(x.document.querySelector('#results .rateLink').getAttribute('href'));
@@ -824,5 +825,6 @@ test('invalid forms never write and rejected additions retain user input for cor
   assert.equal(x.document.getElementById('manualError').textContent,'Check the address');assert(!x.document.querySelector('#manualForm [type=submit]').disabled);
   assert.equal(x.context.location.href,'/rate');assert(!x.calls.some(c=>c.url?.includes('/ratings')));
 });
+
 
 
