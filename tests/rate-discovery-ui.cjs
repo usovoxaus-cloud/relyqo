@@ -323,7 +323,7 @@ test('late local and Google replies from an old fix cannot replace a newer searc
 });
 
 test('current-place scope stays separate from ordinary map settings and restores them on exit',async()=>{
-  const x=await harness({search:'?find=map'});const radius=x.document.getElementById('radius'),limit=x.document.getElementById('resultLimit');
+  const x=await harness({search:'?find=search'});const radius=x.document.getElementById('radius'),limit=x.document.getElementById('resultLimit');
   radius.value='8';limit.value='50';await x.click('#discoveryHere');
   assert.equal(radius.value,'0.3');assert.equal(radius.disabled,true);assert.equal(limit.disabled,true);
   assert.equal(x.document.getElementById('sortMode').disabled,true);
