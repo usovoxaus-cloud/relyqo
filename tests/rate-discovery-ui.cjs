@@ -869,3 +869,18 @@ test('different partner branches keep separate cards and preserve nodes during a
   await x.runTimer(350);
   assert.equal(x.document.getElementById('place-partner-one'),first);assert.equal(x.document.getElementById('place-partner-two'),second);
 });
+
+test('list name and address search rejects unrelated provider results without broadening through AI',async()=>{
+  const providers=[
+    {...externalPlace('name'),displayName:'Scopus',formattedAddress:'Street 1',primaryType:'school'},
+    {...externalPlace('address'),displayName:'Branch',formattedAddress:'SCOPUS street 2',primaryType:'school'},
+    {...externalPlace('unrelated'),displayName:'National university',formattedAddress:'University street 3',primaryType:'school'},
+  ];
+  const x=await harness({search:'?find=search&q=SCOPUS',localPlaces:[],textSearch:()=>({places:providers})});
+  await chooseSector(x,'EDUCATION');await x.runTimer(350);
+  assert.deepEqual(names(x).sort(),['Branch','Scopus']);
+  assert(!x.calls.some(c=>c.url==='/v1/public/search/plan'));
+  assert.equal(x.calls.filter(c=>c.text).length,1);
+  assert(!x.calls.find(c=>c.text).text.textQuery.includes('Образование'));
+  assert.equal(x.gps(),0);
+});
