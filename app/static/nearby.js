@@ -441,7 +441,8 @@ function viewRows() {
   }
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
   if (showRatedOnly && ratedFilterValue("#ratedScoreType") === "RATED") rows = rows.filter(hasRelyqoRatings);
-  sortRows(rows);
+  if(document.body.classList.contains('ratingDiscovery') && window.relyqoOrderRatingRows)rows=window.relyqoOrderRatingRows(rows);
+  else sortRows(rows);
   return showRatedOnly ? rows : rows.slice(0, selectedLimit());
 }
 
@@ -855,6 +856,7 @@ function openManualDialog(item = null, action = "save") {
     }
   }
   const submit = $("#manualForm").querySelector('[type="submit"]');
+  window.relyqoSuggestExisting?.();
   const uz = document.documentElement.lang === "uz";
   submit.textContent = action === "rate"
     ? item ? (uz ? "Baholashga o‘tish" : "Продолжить к оценке") : (uz ? "Qo‘shish va baholash" : "Добавить и оценить")

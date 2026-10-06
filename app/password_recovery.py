@@ -131,7 +131,7 @@ class NoMailRedirect(HTTPRedirectHandler):
         return None
 
 
-def send_email(address, subject, text):
+def send_email(address, subject, text, *, idempotency_key=None):
     request = MailRequest(
         "https://api.resend.com/emails",
         data=json.dumps(
@@ -146,6 +146,7 @@ def send_email(address, subject, text):
             "Authorization": "Bearer " + settings.resend_api_key,
             "Content-Type": "application/json",
             "User-Agent": "RELYQO-Recovery/1",
+            **({"Idempotency-Key": idempotency_key} if idempotency_key else {}),
         },
         method="POST",
     )

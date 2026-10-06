@@ -23,8 +23,8 @@
         card.append(el('p', org.rating_count ? `Подтверждённые оценки: ${org.rating_count} · ${Number(org.score).toFixed(1)}/100` : 'Подтверждённых оценок пока нет'));
         const details = el('details', ''); details.append(el('summary', `Филиалы: ${org.branches.length}`));
         org.branches.forEach(branch => {
-          const p = el('p', ''), details = el('span', `${branch.name} · ${branch.address || branch.city || ''}`);
-          details.dataset.userContent = 'true'; p.append(details);
+          const p = el('p', ''), branchText = el('span', `${branch.name} · ${branch.address || branch.city || ''}`);
+          branchText.dataset.userContent = 'true'; p.append(branchText);
           if (!branch.active) p.append(el('span', ' · неактивен'));
           if (branch.active && ['PUBLISHED','VERIFIED_PARTNER'].includes(org.profile_status)) {
             const a = el('a', ' Открыть карточку →');
@@ -45,4 +45,3 @@
   document.addEventListener('relyqo:admin-loaded', () => load());
   if (!$('appView').classList.contains('hidden')) load();
 })();
-

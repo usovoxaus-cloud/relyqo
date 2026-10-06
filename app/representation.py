@@ -164,11 +164,14 @@ def register_representation(app, session_user):
             db.rollback()
             raise HTTPException(409, "Заявка обновилась. Обновите страницу")
         try:
+            changed_requests = []
             if body.action == "approve":
                 if not db.get(ServiceRepresentative, row.object_key):
                     db.add(ServiceRepresentative(object_key=row.object_key, user_id=row.user_id, claim_id=row.id))
                     db.flush()
                 # Consent is for this exact card. Never transfer ratings or private feedback.
+                changed_requests = list(db.scalars(select(ServiceRequest).where(ServiceRequest.object_key == row.object_key,
+                    ServiceRequest.consumer_user_id != row.user_id, ServiceRequest.status == "WAITING_ORGANIZATION").with_for_update()))
                 db.execute(update(ServiceRequest).where(ServiceRequest.object_key == row.object_key,
                     ServiceRequest.consumer_user_id != row.user_id, ServiceRequest.status == "WAITING_ORGANIZATION")
                     .values(status="OPEN", version=ServiceRequest.version+1, updated_at=datetime.utcnow()))
@@ -177,13 +180,19 @@ def register_representation(app, session_user):
                                                                ServiceRepresentative.claim_id == row.id))
                 for request in db.scalars(select(ServiceRequest).where(ServiceRequest.object_key == row.object_key,
                                                          ServiceRequest.status != "WITHDRAWN").with_for_update()):
+                    changed_requests.append(request)
                     state = request.status
                     if state in {"OPEN", "IN_PROGRESS"} and not usable_organization(db, request.organization_id):
                         state = "WAITING_ORGANIZATION"
                     db.execute(update(ServiceRequest).where(ServiceRequest.id == request.id).values(status=state,
                                version=ServiceRequest.version+1, updated_at=datetime.utcnow()))
             db.add(AuditLog(actor_type=admin.role, action="REPRESENTATION_"+target, entity_type="REPRESENTATION", entity_id=row.id))
+            from .request_notifications import queue_request_notifications, wake
+            for request in changed_requests:
+                db.refresh(request)
+                queue_request_notifications(db, request, admin.id)
             db.commit()
+            wake.set()
         except IntegrityError:
             db.rollback()
             raise HTTPException(409, "У карточки уже есть представитель. Сначала проверьте и отзовите прежний доступ")

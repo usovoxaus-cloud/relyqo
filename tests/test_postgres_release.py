@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent, ServiceRequest, ServiceMessage
 from app.models import ServiceRequestRead, RepresentationClaim, ServiceRepresentative
+from app.models import RequestEmailPreference, RequestEmailJob
 from app.analytics import AnalyticsFilter, build_report
 from app.backups import create_snapshot, restore_snapshot
 from app.request_engagement import statistics
@@ -33,6 +34,8 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     # Remove only the new, empty tables to reproduce an actual pre-0024 schema.
     with engine.begin() as c:
         for table in (
+            "request_email_jobs",
+            "request_email_preferences",
             "service_request_reads",
             "service_representatives",
             "representation_claims",
@@ -108,6 +111,9 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         db.add(claim)
         db.flush()
         db.add(ServiceRepresentative(object_key=request.object_key, user_id=request.consumer_user_id, claim_id=claim.id))
+        db.add(RequestEmailPreference(user_id=request.consumer_user_id, enabled=True, email_hash="fixture-mail-hash"))
+        db.add(RequestEmailJob(user_id=request.consumer_user_id, request_id=request.id, version=1,
+            view="consumer", email_hash="fixture-mail-hash", language="uz", origin="https://relyqo.example.test"))
         db.commit()
         request_id = request.id
         assert statistics(db, select(ServiceRequest))["total"] == 1
@@ -138,15 +144,17 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0029"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0030"
         assert db.get(ServiceRequest, request_id).consent_version == "2026-10-05"
         assert db.scalar(select(ServiceMessage.body)) == "Shared PostgreSQL fixture"
         assert db.scalar(select(ServiceRequestRead.version)) == 1
         assert db.scalar(select(RepresentationClaim.applicant_seen_version)) == 1
         assert db.scalar(select(ServiceRepresentative.claim_id)) is not None
+        assert db.scalar(select(RequestEmailPreference.enabled)) is True
+        assert db.scalar(select(RequestEmailJob.status)) == "PENDING"
+        assert db.scalar(select(RequestEmailJob.first_attempt_at)) is None
     with pytest.raises(ValueError):
         restore_snapshot(target, archive, phrase)
     target.dispose()
     engine.dispose()
     admin.dispose()
-

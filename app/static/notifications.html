@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script src="/static/i18n.js?v=finish-20261006"></script><title>Уведомления — RELYQO</title>
+<link rel="stylesheet" href="/static/service-requests.css?v=engagement-20261005">
+<style>#notificationStatus{overflow-wrap:anywhere}#notificationIntro{line-height:1.6}</style>
+<script src="/static/notifications.js?v=finish-20261006" defer></script>
+</head><body class="ui-audit"><main class="requestsShell"><!--consumer-navigation-->
+<section class="panel"><h1 id="notificationTitle">Уведомления по email</h1><p id="notificationIntro"></p>
+<p id="notificationStatus" role="status"></p><p id="notificationError" role="alert" hidden></p>
+<div id="notificationLogin" hidden><a href="/me?return_to=%2Fnotifications" id="notificationSignIn">Войти</a> · <a href="/business-owner" id="notificationBusinessSignIn">Вход для владельца бизнеса</a></div>
+<a href="/account-security" id="notificationVerify" hidden>Подтвердить email</a>
+<form id="notificationForm" hidden><label class="check"><input type="checkbox" id="notificationConsent"><span id="notificationConsentLabel"></span></label>
+<button type="submit" id="notificationSave">Сохранить</button></form>
+<p id="notificationSaved" role="status"></p></section></main></body></html>

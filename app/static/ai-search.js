@@ -121,7 +121,11 @@
         try {
           const refined = await find(plan.text_query);
           if (!current()) return;
-          if (refined.length) {found = refined; lastCityPlaces = refined; renderAll();}
+          if (refined.length) {
+            found = document.body.classList.contains('ratingDiscovery')
+              ? [...new Map([...found,...refined].map(item=>[item.id,item])).values()] : refined;
+            lastCityPlaces = found; renderAll();
+          }
           status(refined.length ? `ИИ уточнил запрос.${interpreted} Найдено организаций: ${found.length}.` : "ИИ не нашёл дополнительных совпадений. Показаны результаты обычного поиска.");
         } catch (_) {if (current()) status("Показаны результаты поиска. Уточнение с ИИ сейчас недоступно.");}
       } else if (plan?.ai_generated) status(`ИИ уточнил запрос.${interpreted} Найдено организаций: ${found.length}.`);

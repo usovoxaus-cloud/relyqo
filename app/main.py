@@ -3324,7 +3324,12 @@ def create_manual_place(
                 ManualPlace.active.is_(True),
             )
         )
+    if existing is None:
+        from .place_duplicates import existing_manual_place
+        existing = existing_manual_place(db, name, address, city, country_code, body.latitude, body.longitude, google_place_id)
     if existing:
+        if google_place_id and existing.google_place_id and google_place_id != existing.google_place_id:
+            raise HTTPException(409, "Название и адрес совпадают, но объекты Google Maps разные. Проверьте выбранную организацию")
         if google_place_id and existing.google_place_id is None:
             existing.google_place_id = google_place_id
             reference = db.get(GooglePlaceReference, google_place_id)
@@ -4739,8 +4744,11 @@ from .request_engagement import register_engagement
 from .representation import register_representation
 register_engagement(app, session_user)
 register_representation(app, session_user)
+from .request_notifications import register_request_notifications
+register_request_notifications(app, session_user)
+from .place_duplicates import register_duplicate_review
+register_duplicate_review(app, session_user)
 
 @app.get("/admin/editor", include_in_schema=False)
 def app_editor_page():
     return FileResponse(static / "admin-editor.html")
-

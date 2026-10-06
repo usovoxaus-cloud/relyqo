@@ -19,7 +19,8 @@ async function harness(options={}) {
   const calls=[],markers=[],maps=[],circles=[],timers=new Map(),stored=new Map();let timer=0,map,gps=0,permission;
   if(options.saved)stored.set('relyqo.consumer.place.v1',JSON.stringify(options.saved));
   const google={maps:{Map:function(root,config){map=this;maps.push(this);this.root=root;this.listeners={};this.center={...config.center};this.setCenter=p=>{this.center={...p};};this.setZoom=z=>{this.zoom=z;};this.fitBounds=(bounds,padding)=>{this.bounds=bounds;this.padding=padding;};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.getCenter=()=>({lat:()=>this.center.lat,lng:()=>this.center.lng});},Circle:function(config){Object.assign(this,config);this.setRadius=v=>{this.radius=v;};this.getBounds=()=>({center:this.center,radius:this.radius});this.setCenter=v=>{this.center=v;};this.setMap=v=>{this.map=v;};circles.push(this);},Marker:function(config){Object.assign(this,config);this.listeners={};this.addListener=(event,fn)=>{this.listeners[event]=fn;};this.setMap=value=>{this.map=value;};this.setPosition=value=>{this.position=value;};markers.push(this);},importLibrary:async()=>({SearchNearbyRankPreference:{DISTANCE:'DISTANCE',POPULARITY:'POPULARITY'},Place:{searchNearby:async body=>{calls.push({nearby:body});return options.nearby?options.nearby(body):{places:[externalPlace(),externalPlace('foreign','KZ')]};},searchByText:async body=>{calls.push({text:body});return options.textSearch?options.textSearch(body):{places:[externalPlace()]};}}})}};
-  const window={google:options.noGoogle?undefined:google,relyqoCategoryGroup:code=>options.categoryGroups?.[code],relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer;},clearTimeout:id=>timers.delete(id)};
+  const handlers=new Map(),history={state:options.historyState||null,replaceState(state){if(options.historyBlocked)throw Error('blocked');this.state=state;}};
+  const window={history,scrollY:0,scrollTo(x,y){this.scrollY=y;},addEventListener:(name,handler)=>handlers.set(name,handler),google:options.noGoogle?undefined:google,relyqoCategoryGroup:code=>options.categoryGroups?.[code],relyqoCategoriesReady:Promise.resolve([]),setTimeout:(fn,delay)=>{timers.set(++timer,{fn,delay});return timer;},clearTimeout:id=>timers.delete(id)};
   const context={document,window,google,Event:events.Event,MutationObserver:events.MutationObserver,URLSearchParams,Intl,AbortController,Map,Set,location:{search:options.search??'?find=search',pathname:options.pathname||'/rate',href:'/rate'},Option:function(text,value=text){const o=document.createElement('option');o.textContent=text;o.value=value;return o;},setTimeout:window.setTimeout,clearTimeout:window.clearTimeout,localStorage:{getItem:key=>stored.get(key)||null,setItem:(key,value)=>stored.set(key,value)},navigator:{language:'ru',geolocation:{getCurrentPosition(resolve,reject,settings){gps++;permission={resolve,reject,settings};if(options.gps==='denied')reject({code:1});else if(options.gps!=='pending')resolve({coords:{latitude:41.3,longitude:69.2,accuracy:options.accuracy??20}});}}},fetch:async(url,settings={})=>{
     const body=settings.body?JSON.parse(settings.body):null;calls.push({url,body,method:settings.method||'GET'});
     if(url.startsWith('/v1/public/rated-organizations'))return reply({items:options.localPlaces||[localPlace],total:1,geography:[],facets:{countries:['UZ'],cities:[]}});
@@ -40,7 +41,7 @@ async function harness(options={}) {
   const click=async selector=>{document.querySelector(selector).click();await settle();};
   const type=async value=>{document.getElementById('catalogQuery').value=value;document.getElementById('catalogQuery').dispatchEvent(new events.Event('input'));await settle();};
   const runTimer=async delay=>{const entry=[...timers].find(([,value])=>value.delay===delay);assert(entry,`expected ${delay}ms timer`);timers.delete(entry[0]);entry[1].fn();await settle();};
-  return {document,window,context,events,calls,markers,maps,circles,stored,timers,click,type,runTimer,gps:()=>gps,map:()=>map,permission:()=>permission};
+  return {document,window,context,events,calls,markers,maps,circles,stored,timers,click,type,runTimer,handlers,history,gps:()=>gps,map:()=>map,permission:()=>permission};
 }
 
 test('rating name search preserves the query and leads to the selected organization without GPS or writes',async()=>{
@@ -283,7 +284,7 @@ test('300m boundary and distance order apply to every candidate, list card and m
   const markers=x.markers.filter(m=>m.map&&m.title!=='Вы находитесь здесь');assert.equal(markers.length,expected.length);
   assert(markers.every(m=>m.position.lat<=latitudeAt(300)+1e-12));
   assert(!x.calls.some(c=>c.url&&c.method!=='GET'&&!c.url.endsWith('/nearby')));
-  assert.match(x.document.querySelector('.currentPlaceNote').textContent,/до 20.*неполным/);
+  assert.match(x.document.querySelector('.currentPlaceNote').textContent,/Список Google.*неполным/);
 });
 
 test('ready Google map and automatic results never wait for either local endpoint',async()=>{
@@ -828,3 +829,43 @@ test('invalid forms never write and rejected additions retain user input for cor
 
 
 
+test('returning to a search history entry restores its query, sector, radius and scroll without saving GPS or map data',async()=>{
+  const x=await harness({search:'?find=search&q=Test'});
+  await chooseSector(x,'FOOD');
+  x.document.getElementById('currentRadiusMeters').value='750';
+  x.document.querySelector('.ratingRadiusForm').dispatchEvent(new x.events.Event('submit',{cancelable:true}));await settle();
+  x.window.scrollY=420;x.handlers.get('pagehide')();
+  const saved=x.history.state.relyqoDiscovery;
+  assert.equal(saved.query,'Test');assert.equal(saved.sector,'FOOD');assert.equal(saved.radius,750);assert.equal(saved.y,420);
+  assert(!/latitude|longitude|google_details|41\.3/.test(JSON.stringify(saved)));
+  const back=await harness({search:'',historyState:x.history.state});
+  assert.equal(back.document.getElementById('catalogQuery').value,'Test');assert.equal(back.document.getElementById('discoveryCategory').value,'FOOD');
+  assert.equal(back.document.getElementById('currentRadiusMeters').value,'750');assert.equal(back.gps(),0);
+  await back.runTimer(350);assert.equal(back.window.scrollY,420);
+  assert(back.calls.some(c=>c.url?.includes('q=Test')&&c.url.includes('category=FOOD')));
+});
+test('history belongs to its page and invalid or unavailable history never breaks searching',async()=>{
+  for(const state of [{relyqoDiscovery:{version:1,path:'/consumer',query:'Wrong',mode:'search',sector:'FOOD',radius:300}},{relyqoDiscovery:{version:1,path:'/rate',query:'Wrong',mode:'here',sector:'FOOD',radius:-1}}]){
+    const x=await harness({historyState:state});assert.equal(x.document.getElementById('catalogQuery').value,'');assert.equal(x.gps(),0);
+  }
+  const x=await harness({historyBlocked:true});assert.doesNotThrow(()=>x.handlers.get('pagehide')());assert(x.document.querySelector('.rateLink'));
+});
+test('late map matches append without moving or replacing already displayed cards',async()=>{
+  const x=await harness({search:'?find=search&q=Test',localPlaces:[{...localPlace,id:'z',name:'Test Z'},{...localPlace,id:'exact',name:'Test'}],textSearch:()=>({places:[{...externalPlace(),displayName:'AAA provider match'}]})});
+  assert.deepEqual(names(x),['Test','Test Z']);
+  const existing=x.document.querySelector('#place-manual-exact'),link=existing.querySelector('.placeDetailsLink');
+  await x.runTimer(350);
+  assert.deepEqual(names(x),['Test','Test Z','AAA provider match']);
+  assert.equal(x.document.querySelector('#place-manual-exact'),existing);assert.equal(existing.querySelector('.placeDetailsLink'),link);
+  await x.type('Z');await x.runTimer(250);
+  assert.deepEqual(names(x),['Test Z']);
+});
+
+test('different partner branches keep separate cards and preserve nodes during a late result update',async()=>{
+  const rows=['one','two'].map((id,index)=>({kind:'partner',branch_id:id,organization:'Test '+(index+1),address:'Street '+(index+1),country_code:'UZ',city:'Tashkent',category:'CAFE'}));
+  const x=await harness({search:'?find=search&q=Test',localPlaces:rows});
+  const first=x.document.getElementById('place-partner-one'),second=x.document.getElementById('place-partner-two');
+  assert(first && second && first!==second);assert.notEqual(first.querySelector('.rateLink').href,second.querySelector('.rateLink').href);
+  await x.runTimer(350);
+  assert.equal(x.document.getElementById('place-partner-one'),first);assert.equal(x.document.getElementById('place-partner-two'),second);
+});
