@@ -77,8 +77,9 @@
   async function runSearch(request, key) {
     const current = () => request === searchRequest && key === scope() && showRatedOnly;
     const body = {country_code:"UZ", region_code:ratedFilterValue("#ratedRegion") === "ALL" ? "" : ratedFilterValue("#ratedRegion"), city:ratedFilterValue("#ratedCity"), category:ratedFilterValue("#ratedCategory"), query:$("#catalogQuery").value.trim(), language:language()};
+    const literalSearch = document.body.classList.contains('ratingDiscovery');
     // The planner and provider load in parallel; ordinary results never wait for the planner.
-    const advice = body.query ? searchPlan(body) : Promise.resolve(null);
+    const advice = body.query && !literalSearch ? searchPlan(body) : Promise.resolve(null);
     const library = loadGooglePlaces();
     try {
       const data = await locationsReady;
@@ -87,7 +88,7 @@
       const city = data.cities.find(row => row.city === body.city && (!region || row.region_code === region.code));
       const location = city ? cityName(city) : region ? cityName(region) : "Узбекистан";
       const service = categoryNames[body.category] || "организации и услуги";
-      const terms = body.query ? [body.query, body.category !== "ALL" ? service : ""].filter(Boolean).join(", ") : service;
+      const terms = body.query ? (literalSearch ? body.query : [body.query, body.category !== "ALL" ? service : ""].filter(Boolean).join(", ")) : service;
       const plainQuery = `${terms}, ${location}, Узбекистан`;
       if (!await library) throw new Error("Places unavailable");
       if (!current()) return;
@@ -102,12 +103,19 @@
         const {places} = await withDeadline(Place.searchByText(requestBody), 12000);
         return (places || []).map(place => ({place,item:externalPlaceItem(place,null)}))
           .filter(({place,item}) => item && inScope(place,item,city,region,data)
-            && (body.category === 'ALL' || item.category === body.category || categoryGroup(item.category) === body.category))
+            && (body.category === 'ALL' || item.category === body.category || categoryGroup(item.category) === body.category)
+            && (!literalSearch || !body.query || normalizeSearch(body.query).split(' ').every(token =>
+              normalizeSearch([item.name,item.address,item.city,categoryNames[item.category]].filter(Boolean).join(' ')).includes(token))))
           .map(({item}) => ({...item,distance:null}));
       }
       let found = await find(plainQuery);
       if (!current()) return;
       lastCityPlaces = found;
+      if (literalSearch) {
+        window.relyqoSearchPending = false; renderAll();
+        status(found.length ? `Найдено организаций: ${found.length}.` : "По этому запросу организации не найдены. Попробуйте другую услугу или всю область.");
+        return;
+      }
       window.relyqoSearchPending = Boolean(body.query && !found.length);
       renderAll();
       status(body.query
