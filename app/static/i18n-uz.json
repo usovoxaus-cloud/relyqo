@@ -2274,5 +2274,7 @@
   "Похожее название, проверьте адреса": "O‘xshash nom, manzillarni tekshiring",
   "Список ограничен. Уточните название в поиске.": "Ro‘yxat cheklangan. Qidiruvda nomni aniqlashtiring.",
   "Не удалось проверить карточки. Повторите попытку.": "Sahifalarni tekshirib bo‘lmadi. Qayta urinib ko‘ring.",
-  "Название и адрес совпадают, но объекты Google Maps разные. Проверьте выбранную организацию": "Nom va manzil bir xil, lekin Google Maps obyektlari boshqa. Tanlangan tashkilotni tekshiring"
+  "Название и адрес совпадают, но объекты Google Maps разные. Проверьте выбранную организацию": "Nom va manzil bir xil, lekin Google Maps obyektlari boshqa. Tanlangan tashkilotni tekshiring",
+  "Подтвердите согласие на уведомления по email": "Email bildirishnomalariga roziligingizni tasdiqlang",
+  "Сначала подтвердите email в настройках аккаунта": "Avval hisob sozlamalarida emailni tasdiqlang"
 }

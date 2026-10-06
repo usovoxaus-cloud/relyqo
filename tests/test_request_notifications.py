@@ -10,6 +10,7 @@ from app.config import settings
 from app.models import ConsumerEmail, MailDelivery, RequestEmailJob, RequestEmailPreference, ServiceRequest, ServiceRequestRead, User
 from app.backups import create_snapshot, restore_snapshot
 from test_service_requests import conversations, create, action
+from test_request_engagement import claim, decision, manual_key
 
 
 @pytest.fixture
@@ -153,3 +154,19 @@ def test_email_preferences_and_queue_survive_encrypted_backup(conversations, con
         assert db.get(RequestEmailPreference, user_id).enabled is True
         assert db.scalar(select(RequestEmailJob)).status == 'PENDING'
     target.dispose()
+
+
+def test_approved_representative_gets_waiting_request_and_revocation_stops_access(conversations, configured_mail):
+    c, f, ids, _ = conversations
+    verify(f, 'consumer'); verify(f, 'other'); enable(c('consumer')); enable(c('other'))
+    item = create(c('consumer'), ids['community'])
+    assert item['status'] == 'WAITING_ORGANIZATION'
+    row = claim(c('other'), manual_key(f, ids)).json()
+    approved = decision(c('admin'), row); assert approved.status_code == 200
+    mail.drain_notifications(f)
+    assert len(configured_mail) == 2
+    representative = next(args for args, _ in configured_mail if args[0] == 'other@example.test')
+    assert '/business/requests?id=' + item['id'] in representative[2]
+    assert decision(c('admin'), approved.json(), 'revoke').status_code == 200
+    mail.drain_notifications(f)
+    assert len(configured_mail) == 3 and configured_mail[-1][0][0] == 'consumer@example.test'
