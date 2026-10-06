@@ -441,7 +441,8 @@ function viewRows() {
   }
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
   if (showRatedOnly && ratedFilterValue("#ratedScoreType") === "RATED") rows = rows.filter(hasRelyqoRatings);
-  sortRows(rows);
+  if(document.body.classList.contains('ratingDiscovery') && window.relyqoOrderRatingRows)rows=window.relyqoOrderRatingRows(rows);
+  else sortRows(rows);
   return showRatedOnly ? rows : rows.slice(0, selectedLimit());
 }
 

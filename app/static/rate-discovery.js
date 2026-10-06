@@ -1,10 +1,24 @@
 /* Rating entrance reuses the live search and map; no coordinates enter the URL or storage. */
 (() => {
   const params = new URLSearchParams(location.search);
-  const mode = params.get('find') || (['/rate','/consumer'].includes(location.pathname) ? 'search' : null);
+  let mode = params.get('find') || (['/rate','/consumer'].includes(location.pathname) ? 'search' : null);
   if (!['here','search','nearby','map'].includes(mode) || !document.getElementById('directoryPanel')) return;
   if (document.body.classList.contains('ratingDiscovery')) return;
   document.body.classList.add('ratingDiscovery');
+  // State belongs to this history entry, not every future visit or another tab.
+  // Never persist coordinates or third-party place details.
+  let restored = null;
+  try {
+    const saved = window.history?.state?.relyqoDiscovery;
+    if(saved?.version===1 && saved.path===location.pathname && typeof saved.query==='string'
+      && ['search','here'].includes(saved.mode) && typeof saved.sector==='string'
+      && Number.isFinite(saved.radius) && saved.radius>=100 && saved.radius<=50000){
+      restored={...saved,query:saved.query.slice(0,160),shown:Math.max(0,Math.min(500,Number(saved.shown)||0)),
+        anchor:typeof saved.anchor==='string'?saved.anchor.slice(0,180):'',
+        offset:Number.isFinite(saved.offset)?saved.offset:0,y:Math.max(0,Number(saved.y)||0)};
+      mode=restored.mode;currentPlaceRadiusMeters=restored.radius;
+    }
+  } catch {}
   const t = (ru, uz) => document.documentElement.lang === 'uz' ? uz : ru;
   const node = (tag, text, id) => {const n=document.createElement(tag);n.textContent=text;if(id)n.id=id;return n;};
   document.title = t('Найти организацию для оценки — RELYQO', 'Baholash uchun tashkilot topish — RELYQO');
@@ -13,7 +27,7 @@
   const hint = document.querySelector('.consumerHint');
   if (hint) hint.textContent = t('Найдите организацию и нажмите «Оценить».', 'Tashkilotni toping va «Baholash»ni bosing.');
   const input = document.getElementById('catalogQuery');
-  input.value = (params.get('q') || '').trim().slice(0,160);
+  input.value = (restored?.query ?? params.get('q') ?? '').trim().slice(0,160);
   input.placeholder = t('Название организации или адрес', 'Tashkilot nomi yoki manzili');
   input.setAttribute('aria-label', t('Найти организацию', 'Tashkilot topish'));
   const actions = node('div','');actions.className='ratingDiscoveryActions';
@@ -52,7 +66,7 @@
     ['ENTERTAINMENT','Развлечения','Ko‘ngilochar xizmatlar'],
     ['PROFESSIONAL_SERVICE','Профессиональные услуги','Professional xizmatlar'],['OTHER','Другие услуги','Boshqa xizmatlar'],
   ]){const option=node('option',t(ru,uz));option.value=code;sector.append(option);}
-  sector.value='ALL';sectorField.append(sector);
+  sector.value=[...sector.options].some(option=>option.value===restored?.sector)?restored.sector:'ALL';sectorField.append(sector);
   const filters=node('div','');filters.className='discoveryFilters';filters.append(sectorField,radiusControl);
   panel.querySelector('.catalogSearchWrap').before(actions);panel.querySelector('.catalogSearchWrap').after(filters);
   const addPlace = document.getElementById('addPlace');
@@ -74,6 +88,49 @@
   const results=document.getElementById('results');results.before(currentPlace,candidates);candidates.append(results);
 
   let operation = 0, findingHere = false, savedScope = null;
+  let restorePosition=restored, restoringPages=false;
+  function saveDiscoveryState(){
+    try {
+      const cards=[...results.querySelectorAll('article')];
+      const anchor=cards.find(card=>card.getBoundingClientRect?.().bottom>0);
+      const previous=window.history?.state;
+      const state={version:1,path:location.pathname,query:input.value.trim().slice(0,160),
+        mode:findingHere?'here':'search',sector:sector.value,radius:currentPlaceRadiusMeters,
+        shown:Math.min(500,lastRatedPlaces.length),anchor:anchor?.id||'',
+        offset:anchor?.getBoundingClientRect?.().top||0,y:window.scrollY||0};
+      window.history?.replaceState({...((previous && typeof previous==='object')?previous:{}),relyqoDiscovery:state},'');
+    } catch {} // History restrictions must never prevent searching or navigation.
+  }
+  function restoreDiscoveryPosition(){
+    if(!restorePosition)return;
+    const anchor=restorePosition.anchor && document.getElementById(restorePosition.anchor);
+    if(anchor?.getBoundingClientRect){
+      window.scrollTo?.(0,(window.scrollY||0)+anchor.getBoundingClientRect().top-restorePosition.offset);
+      restorePosition=null;
+    }else if(!restoringPages && !window.relyqoLocalSearchPending && !window.relyqoSearchPending && !window.relyqoNearbyPending){
+      window.scrollTo?.(0,restorePosition.y);restorePosition=null;
+    }
+  }
+  function cancelRestoration(){restorePosition=null;}
+  window.addEventListener?.('pagehide',saveDiscoveryState);
+  window.addEventListener?.('wheel',cancelRestoration,{passive:true});
+  window.addEventListener?.('touchstart',cancelRestoration,{passive:true});
+  document.addEventListener('keydown',cancelRestoration);
+  results.addEventListener('click',event=>{if(event.target.closest('a'))saveDiscoveryState();});
+  let orderScope='',stableOrder=new Map();
+  const rowKey=item=>`${item.kind}:${item.id}`;
+  window.relyqoOrderRatingRows=rows=>{
+    const scope=JSON.stringify([input.value.trim(),sector.value]);
+    if(scope!==orderScope){orderScope=scope;stableOrder=new Map();}
+    const query=normalizeSearch(input.value.trim());
+    const rank=item=>{const name=normalizeSearch(item.title);return !query?0:name===query?0:name.startsWith(query)?1:name.includes(query)?2:3;};
+    const additions=rows.filter(item=>!stableOrder.has(rowKey(item))).sort((a,b)=>rank(a)-rank(b)
+      || Number(a.kind==='external')-Number(b.kind==='external')
+      || String(a.title).localeCompare(String(b.title),document.documentElement.lang==='uz'?'uz':'ru')
+      || rowKey(a).localeCompare(rowKey(b)));
+    for(const item of additions)stableOrder.set(rowKey(item),stableOrder.size);
+    return rows.sort((a,b)=>stableOrder.get(rowKey(a))-stableOrder.get(rowKey(b)));
+  };
   function clearLocationNotice() {locationNotice.hidden=true;locationNotice.textContent='';window.relyqoLocationError='';}
   function locationProblem(message) {window.relyqoLocationError=message;locationNotice.textContent=message;locationNotice.hidden=!message;}
   window.relyqoLocationUsable=()=>{
@@ -186,6 +243,7 @@
     return findHere();
   };
   sector.addEventListener('change',async()=>{
+    cancelRestoration();
     syncSector();clearError();
     if(!findingHere){await byNameSearch();return;}
     // Changing the sector preserves the radius and an outstanding GPS request.
@@ -204,9 +262,13 @@
         ? t(`Радиус ${label} по прямой. Точность местоположения: ±${Math.ceil(accuracy)} м.`, `To‘g‘ri chiziq bo‘ylab ${label} radius. Joylashuv aniqligi: ±${Math.ceil(accuracy)} m.`) : '';
   };
   // One list for both modes; rating is the only primary action on each place.
+  const renderedCards=new Map();
   window.relyqoRenderRatingRows = rows => {
-    const root=document.getElementById('results');root.replaceChildren();
+    const root=document.getElementById('results'),cards=[];
     for(const item of rows){
+      const key=rowKey(item),signature=JSON.stringify([item, findingHere, locationFix?.source, document.documentElement.lang]);
+      const cached=renderedCards.get(key);
+      if(cached?.signature===signature){cards.push(cached.card);continue;}
       const card=node('article','');card.className='place currentPlaceCandidate';card.id=markerCardId(item);
       const name=node('h3','');name.setAttribute('data-user-content','');
       if(item.kind==='external')name.textContent=item.title;
@@ -224,10 +286,15 @@
         if(item.google_details && window.relyqoGoogleRating)window.relyqoGoogleRating.render(attribution,item.google_details,true);
         card.append(attribution);
       }
-      card.append(select);root.append(card);
+      card.append(select);cards.push(card);renderedCards.set(key,{signature,card});
     }
-    if(rows.some(item=>item.kind==='external')){const note=node('p',t('Google показывает до 20 мест; список может быть неполным.','Google 20 tagacha joy ko‘rsatadi; ro‘yxat to‘liq bo‘lmasligi mumkin.'));note.className='currentPlaceNote';root.append(note);}
+    for(const [key] of renderedCards)if(!rows.some(item=>rowKey(item)===key))renderedCards.delete(key);
+    if(rows.some(item=>item.kind==='external')){const note=node('p',t('Список Google может быть неполным.','Google ro‘yxati to‘liq bo‘lmasligi mumkin.'));note.className='currentPlaceNote';cards.push(note);}
+    // Keep existing nodes connected so late results cannot steal focus or reset a card.
+    for(let index=0;index<cards.length;index++)if(root.children[index]!==cards[index])root.insertBefore(cards[index],root.children[index]||null);
+    for(const child of [...root.children])if(!cards.includes(child))child.remove();
     document.getElementById('listCount').textContent=t(`${rows.length} найдено`,`${rows.length} ta topildi`);
+    restoreDiscoveryPosition();
   };
   async function findHere() {
     if(!commitRadius()){radiusControl.hidden=false;radiusControl.open=true;return;}
@@ -251,6 +318,7 @@
   // Explicit list filters supersede a pending location request or map opening.
   for(const id of ['ratedRegion','ratedCity','ratedCategory'])document.getElementById(id).addEventListener('change',()=>{if(!window.relyqoRestoringLocation){++operation;choose(byName);}});
   input.addEventListener('input',()=>{
+    cancelRestoration();
     if(findingHere){
       ++catalogRequestId;window.relyqoNearbyPending=false;
       clearTimeout(nearbyQueryTimer);renderAll();
@@ -269,12 +337,17 @@
     for(const element of document.querySelectorAll(selector))element.hidden=true;
   }
   const initial=operation;
-  Promise.resolve(window.relyqoLocationsReady).then(()=>{
+  restoringPages=Boolean(restored?.shown>50);
+  Promise.resolve(window.relyqoLocationsReady).then(async()=>{
     if(operation!==initial)return;
     if(mode==='here'||mode==='nearby')return findHere();
     if(mode==='map')return originPicker.open();
-    return byNameSearch();
+    await byNameSearch();
+    while(restorePosition && restored?.shown>lastRatedPlaces.length && ratedCatalogHasMore){
+      const before=lastRatedPlaces.length;
+      try{await loadRatedCatalog(false);renderAll();}catch{break;}
+      if(lastRatedPlaces.length<=before)break;
+    }
+    restoringPages=false;restoreDiscoveryPosition();
   });
 })();
-
-
