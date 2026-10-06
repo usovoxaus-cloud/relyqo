@@ -35,6 +35,7 @@
       if(data.business)link('Кабинет представителя','/business/requests');
       link('Открыть обращения',data.admin?'/admin/requests':data.business?'/business/requests':'/me/requests');
       if(!data.admin)link('Мои заявки представителя','/representative');
+      if(!data.admin)link(document.documentElement.lang==='uz'?'Email bildirishnomalari':'Уведомления по email','/notifications',true);
     }catch{if(!box.hidden)status.textContent=t('Не удалось обновить уведомления. Повторим при подключении.');}
     finally{busy=false;clearTimeout(timeout);}
   }

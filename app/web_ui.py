@@ -38,10 +38,9 @@ def consumer_html(filename: str, *, active_tab: str | None = None) -> HTMLRespon
         )
     content = content.replace(
         "</head>", '<link rel="stylesheet" href="/static/consumer-nav.css?v=1">'
-        '<link rel="stylesheet" href="/static/engagement.css?v=1"><script src="/static/engagement.js?v=release-20261005" defer></script>'
+        '<link rel="stylesheet" href="/static/engagement.css?v=1"><script src="/static/engagement.js?v=finish-20261006" defer></script>'
         '<link rel="stylesheet" href="/static/ads.css?v=ads-3"></head>', 1,
     ).replace(
         "</body>", '<script src="/static/ads.js?v=ads-3"></script></body>', 1,
     )
     return HTMLResponse(content, headers={"Cache-Control": "no-store, max-age=0"})
-

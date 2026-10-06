@@ -398,6 +398,33 @@ class ConsumerEmail(Base):
     verified_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class RequestEmailPreference(Base):
+    __tablename__ = "request_email_preferences"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class RequestEmailJob(Base):
+    __tablename__ = "request_email_jobs"
+    __table_args__ = (UniqueConstraint("user_id", "request_id", "version", name="uq_request_email_event"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    request_id: Mapped[str] = mapped_column(ForeignKey("service_requests.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    view: Mapped[str] = mapped_column(String(20))
+    email_hash: Mapped[str] = mapped_column(String(64))
+    language: Mapped[str] = mapped_column(String(2))
+    origin: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    first_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime, default=now, index=True)
+    provider_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class PasswordRecoveryToken(Base):
     __tablename__ = "password_recovery_tokens"
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -528,4 +555,3 @@ class AppContent(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
-

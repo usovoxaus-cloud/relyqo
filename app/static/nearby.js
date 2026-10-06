@@ -856,6 +856,7 @@ function openManualDialog(item = null, action = "save") {
     }
   }
   const submit = $("#manualForm").querySelector('[type="submit"]');
+  window.relyqoSuggestExisting?.();
   const uz = document.documentElement.lang === "uz";
   submit.textContent = action === "rate"
     ? item ? (uz ? "Baholashga o‘tish" : "Продолжить к оценке") : (uz ? "Qo‘shish va baholash" : "Добавить и оценить")

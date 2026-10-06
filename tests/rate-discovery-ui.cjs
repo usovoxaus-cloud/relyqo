@@ -860,3 +860,12 @@ test('late map matches append without moving or replacing already displayed card
   await x.type('Z');await x.runTimer(250);
   assert.deepEqual(names(x),['Test Z']);
 });
+
+test('different partner branches keep separate cards and preserve nodes during a late result update',async()=>{
+  const rows=['one','two'].map((id,index)=>({kind:'partner',branch_id:id,organization:'Test '+(index+1),address:'Street '+(index+1),country_code:'UZ',city:'Tashkent',category:'CAFE'}));
+  const x=await harness({search:'?find=search&q=Test',localPlaces:rows});
+  const first=x.document.getElementById('place-partner-one'),second=x.document.getElementById('place-partner-two');
+  assert(first && second && first!==second);assert.notEqual(first.querySelector('.rateLink').href,second.querySelector('.rateLink').href);
+  await x.runTimer(350);
+  assert.equal(x.document.getElementById('place-partner-one'),first);assert.equal(x.document.getElementById('place-partner-two'),second);
+});

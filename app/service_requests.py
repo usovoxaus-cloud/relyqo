@@ -15,6 +15,7 @@ from .db import get_db
 from .models import (AuditLog, Branch, CommunityRating, ManualPlace, Organization,
                      Rating, ServiceMessage, ServiceRequest, User, Visit)
 from .password_recovery import limited
+from .request_notifications import queue_request_notifications, wake
 from .request_engagement import (active_representative, decorate_rows, mark_read, overdue_condition,
                                  represented_keys, statistics, unread_condition)
 
@@ -217,7 +218,9 @@ def register_service_requests(app, session_user):
             db.add(ServiceMessage(request_id=item.id, author_id=user.id, side="CONSUMER", body=message))
             mark_read(db, user.id, item.id, item.version)
             audit(db, user, item, "CREATED")
+            queue_request_notifications(db, item, user.id)
             db.commit()
+            wake.set()
         except IntegrityError:
             db.rollback()
             item = db.scalar(query)
@@ -283,7 +286,9 @@ def register_service_requests(app, session_user):
              status="OPEN", assigned_by=user.id, assignment_note=body.note.strip())
         audit(db, user, item, "ASSIGNED")
         mark_read(db, user.id, item.id, item.version)
+        queue_request_notifications(db, item, user.id)
         db.commit()
+        wake.set()
         return serialize(db, item, user, True)
 
     @api.post("/v1/service-requests/{request_id}/actions")
@@ -322,7 +327,9 @@ def register_service_requests(app, session_user):
                                   side="BUSINESS" if owner else "CONSUMER", body=message))
         audit(db, user, item, body.action.upper())
         mark_read(db, user.id, item.id, item.version)
+        queue_request_notifications(db, item, user.id)
         db.commit()
+        wake.set()
         return serialize(db, item, user, True)
 
     app.include_router(api)

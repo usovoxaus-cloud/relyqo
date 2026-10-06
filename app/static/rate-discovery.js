@@ -118,7 +118,7 @@
   document.addEventListener('keydown',cancelRestoration);
   results.addEventListener('click',event=>{if(event.target.closest('a'))saveDiscoveryState();});
   let orderScope='',stableOrder=new Map();
-  const rowKey=item=>`${item.kind}:${item.id}`;
+  const rowKey=item=>`${item.kind}:${item.branch_id || item.id}`;
   window.relyqoOrderRatingRows=rows=>{
     const scope=JSON.stringify([input.value.trim(),sector.value]);
     if(scope!==orderScope){orderScope=scope;stableOrder=new Map();}
@@ -337,7 +337,7 @@
     for(const element of document.querySelectorAll(selector))element.hidden=true;
   }
   const initial=operation;
-  restoringPages=Boolean(restored?.shown>50);
+  restoringPages=mode==='search' && Boolean(restored?.shown>50);
   Promise.resolve(window.relyqoLocationsReady).then(async()=>{
     if(operation!==initial)return;
     if(mode==='here'||mode==='nearby')return findHere();

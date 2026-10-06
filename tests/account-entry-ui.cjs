@@ -26,7 +26,7 @@ test('login return paths stay within supported site pages and do not loop to the
   for(const path of ['https://example.test','//example.test','/\\example.test','/\texample.test','/me','/me?return_to=/me','/me/','/consumer/../me','/%2f%2fexample.test','/unknown']){
     const x=await account({returnTo:path,loggedIn:true});assert.equal(x.location.href,'/me',path);
   }
-  for(const path of ['/me/requests?id=own-request','/business/requests','/representative?object_key=manual%3Aone','/place?object_key=relyqo%3Aone','/community-rate?object_key=manual%3Aone']){
+  for(const path of ['/notifications','/me/requests?id=own-request','/business/requests','/representative?object_key=manual%3Aone','/place?object_key=relyqo%3Aone','/community-rate?object_key=manual%3Aone']){
     const x=await account({returnTo:path,loggedIn:true});assert.equal(x.location.href,path);
   }
 });
