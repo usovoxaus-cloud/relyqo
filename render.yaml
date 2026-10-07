@@ -2,7 +2,7 @@ services:
   - type: web
     name: relyqo
     runtime: docker
-    plan: free
+    plan: 0.5c-512mb
     healthCheckPath: /v1/health
     envVars:
       - key: DATABASE_URL
