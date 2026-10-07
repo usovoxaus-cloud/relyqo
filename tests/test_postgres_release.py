@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent, ServiceRequest, ServiceMessage
 from app.models import ServiceRequestRead, RepresentationClaim, ServiceRepresentative
-from app.models import RequestEmailPreference, RequestEmailJob
+from app.models import RequestEmailPreference, RequestEmailJob, AuditLog, ManualPlace
+from test_location_cleanup import cleanup_migration, seed_bad_locations
 from app.analytics import AnalyticsFilter, build_report
 from app.backups import create_snapshot, restore_snapshot
 from app.request_engagement import statistics
@@ -49,6 +50,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         ):
             c.execute(text("DROP TABLE " + table))
     with Session(engine) as db:
+        seed_bad_locations(db)
         user = User(
             username="ci-fixture",
             role="CONSUMER",
@@ -101,6 +103,10 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         connection.execute(text("ALTER TABLE manual_places ALTER COLUMN longitude SET NOT NULL"))
     command.upgrade(cfg, "head")
     with Session(engine) as db:
+        for table, record_id, *_ in cleanup_migration().REPAIRS:
+            card = db.get(ManualPlace if table == "manual_places" else Branch, record_id)
+            assert card.active and card.latitude is None and card.longitude is None
+        assert len(list(db.scalars(select(AuditLog).where(AuditLog.action.like("LOCATION_QUARANTINED_0031:%"))))) == 3
         assert db.get(Rating, rating_id).comment == "Restore fixture"
         request = ServiceRequest(rating_id=rating_id, rating_type="VERIFIED", consumer_user_id=db.get(Rating, rating_id).consumer_user_id, object_key="relyqo:"+db.get(Visit, db.get(Rating, rating_id).visit_id).branch_id, organization_id=db.get(Rating, rating_id).organization_id, branch_id=db.get(Visit, db.get(Rating, rating_id).visit_id).branch_id, status="OPEN")
         db.add(request)
@@ -144,7 +150,11 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0030"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0031"
+        assert len(list(db.scalars(select(AuditLog).where(AuditLog.action.like("LOCATION_QUARANTINED_0031:%"))))) == 3
+        for table, record_id, *_ in cleanup_migration().REPAIRS:
+            card = db.get(ManualPlace if table == "manual_places" else Branch, record_id)
+            assert card.active and card.latitude is None and card.longitude is None
         assert db.get(ServiceRequest, request_id).consent_version == "2026-10-05"
         assert db.scalar(select(ServiceMessage.body)) == "Shared PostgreSQL fixture"
         assert db.scalar(select(ServiceRequestRead.version)) == 1
