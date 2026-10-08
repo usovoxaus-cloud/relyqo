@@ -104,7 +104,7 @@
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController(), deadline = setTimeout(() => controller.abort(), 8000);
       try {
-        const response = await fetch('/static/i18n-uz.json?v=finish-20261006', {signal:controller.signal, cache:attempt ? 'reload' : 'default'});
+        const response = await fetch('/static/i18n-uz.json?v=audit-20261008', {signal:controller.signal, cache:attempt ? 'reload' : 'default'});
         if (!response.ok) throw Error('Dictionary unavailable');
         dictionary = await response.json();
         const keys = Object.keys(dictionary).filter(key => /[А-Яа-яЁё]/.test(key) && !key.includes('<') && !key.includes('">')).sort((a, b) => b.length - a.length).map(escape);

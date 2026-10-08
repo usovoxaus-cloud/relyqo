@@ -28,11 +28,21 @@ services:
       - key: RECOVERY_EMAIL_FROM
         sync: false
       - key: RECOVERY_ALLOW_LOCAL_URLS
-        value: false
+        value: "false"
       - key: PUBLIC_BASE_URL
         value: https://relyqo.onrender.com
       - key: DEMO_MODE
-        value: false
+        value: "false"
+      - key: DATABASE_PLAN
+        value: paid
+      - key: DATABASE_EXPIRES_AT
+        value: ""
+      - key: AUTOMATIC_BACKUP_STATUS
+        value: enabled
+      - key: BACKUP_RECOVERY_DAYS
+        value: "3"
+      - key: HOSTING_CHECKED_AT
+        value: "2026-10-08"
   - type: keyvalue
     name: relyqo-redis
     plan: free

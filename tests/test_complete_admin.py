@@ -24,6 +24,30 @@ from test_admin_analytics import PASSWORD, PERIOD, data as shared_data
 data = shared_data
 
 
+@pytest.mark.parametrize('plan,expires', [('paid', None), ('free', '2026-09-28'), ('unknown', '2026-09-28')])
+def test_operations_separates_hosted_recovery_and_trial_expiry(data, monkeypatch, plan, expires):
+    from app.config import settings
+    client, _, _ = data
+    monkeypatch.setattr(settings, 'database_plan', plan)
+    monkeypatch.setattr(settings, 'database_expires_at', '2026-09-28')
+    monkeypatch.setattr(settings, 'automatic_backup_status', 'enabled')
+    monkeypatch.setattr(settings, 'backup_recovery_days', '3')
+    monkeypatch.setattr(settings, 'hosting_checked_at', '2026-10-08')
+    result = client.get('/v1/admin/operations')
+    assert result.status_code == 200
+    assert result.json()['database_expires_at'] == expires
+    assert result.json()['provider_backups'] == {'status': 'enabled', 'recovery_days': 3, 'checked_at': '2026-10-08'}
+    assert result.json()['local_backups']['status'] != 'recent'
+    assert 'no-store' in result.headers['cache-control']
+
+
+def test_operations_invalid_recovery_window_is_unknown(data, monkeypatch):
+    from app.config import settings
+    client, _, _ = data
+    monkeypatch.setattr(settings, 'backup_recovery_days', 'unknown')
+    assert client.get('/v1/admin/operations').json()['provider_backups']['recovery_days'] is None
+
+
 def rating(db, org_id, user_id, at, score=9, included=True):
     branch = db.scalar(select(Branch).where(Branch.organization_id == org_id))
     visit = Visit(branch_id=branch.id, verified_at=at)

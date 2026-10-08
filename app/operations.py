@@ -107,7 +107,18 @@ def register_operations_routes(app, session_user):
             "mail_status_note": "ACCEPTED означает принятие провайдером, а не подтверждение доставки.",
             "automatic_backups": settings.automatic_backup_status,
             "local_backups": backup_client_status(db, user),
-            "database_expires_at": settings.database_expires_at or None,
+            # A paid database has no free-tier expiry. Never show the old trial date.
+            "database_expires_at": (
+                settings.database_expires_at or None
+            ) if settings.database_plan != "paid" else None,
+            "database_plan": settings.database_plan,
+            "provider_backups": {
+                "status": settings.automatic_backup_status,
+                "recovery_days": int(settings.backup_recovery_days)
+                if settings.backup_recovery_days.isdigit()
+                and 0 < int(settings.backup_recovery_days) <= 365 else None,
+                "checked_at": settings.hosting_checked_at or None,
+            },
             "monitoring": "Ошибки API: письмо на подтверждённую почту администратора, не чаще раза в час. Недоступность всего сайта: отдельная проверка GitHub Actions.",
             "events": [
                 {

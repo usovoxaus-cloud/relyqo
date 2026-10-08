@@ -20,8 +20,8 @@ def register_admin_directory(app, session_user):
         query = select(Organization)
         if q.strip():
             query = query.where(or_(
-                Organization.name.contains(q.strip(), autoescape=True),
-                Organization.city.contains(q.strip(), autoescape=True),
+                Organization.name.icontains(q.strip(), autoescape=True),
+                Organization.city.icontains(q.strip(), autoescape=True),
             ))
         total = db.scalar(select(func.count()).select_from(query.subquery()))
         rows = db.scalars(query.order_by(Organization.name, Organization.id).offset(offset).limit(50)).all()
