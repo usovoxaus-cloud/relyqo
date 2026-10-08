@@ -27,6 +27,9 @@ class Settings:
             "AUTOMATIC_BACKUP_STATUS", "not_configured"
         )
         self.database_expires_at = os.getenv("DATABASE_EXPIRES_AT", "")
+        self.database_plan = os.getenv("DATABASE_PLAN", "unknown").strip().lower()
+        self.backup_recovery_days = os.getenv("BACKUP_RECOVERY_DAYS", "")
+        self.hosting_checked_at = os.getenv("HOSTING_CHECKED_AT", "")
         self.redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self.qr_secret = os.getenv("QR_SECRET", "development-secret-change-me-32chars")
         self.owner_password = os.getenv("OWNER_PASSWORD") or None

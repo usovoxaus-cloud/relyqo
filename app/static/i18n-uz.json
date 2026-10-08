@@ -2276,5 +2276,17 @@
   "Не удалось проверить карточки. Повторите попытку.": "Sahifalarni tekshirib bo‘lmadi. Qayta urinib ko‘ring.",
   "Название и адрес совпадают, но объекты Google Maps разные. Проверьте выбранную организацию": "Nom va manzil bir xil, lekin Google Maps obyektlari boshqa. Tanlangan tashkilotni tekshiring",
   "Подтвердите согласие на уведомления по email": "Email bildirishnomalariga roziligingizni tasdiqlang",
-  "Сначала подтвердите email в настройках аккаунта": "Avval hisob sozlamalarida emailni tasdiqlang"
+  "Сначала подтвердите email в настройках аккаунта": "Avval hisob sozlamalarida emailni tasdiqlang",
+  "Тариф базы данных": "Ma’lumotlar bazasi tarifi",
+  "платный": "pullik",
+  "бесплатный": "bepul",
+  "не подтверждён": "tasdiqlanmagan",
+  "Восстановление у хостинга": "Xostingda tiklash",
+  "включено": "yoqilgan",
+  "отключено": "o‘chirilgan",
+  "не подтверждено": "tasdiqlanmagan",
+  "Период восстановления, дней": "Tiklash davri, kun",
+  "Сведения о хостинге проверены": "Xosting ma’lumotlari tekshirilgan",
+  "Сведения о резервировании у хостинга ещё не подтверждены.": "Xostingdagi zaxiralash ma’lumotlari hali tasdiqlanmagan.",
+  "Сведения о хостинге обновляются после проверки в Render. Копии на компьютере проверяются отдельно ниже.": "Xosting ma’lumotlari Render orqali tekshirilgandan keyin yangilanadi. Kompyuterdagi nusxalar quyida alohida tekshiriladi."
 }
