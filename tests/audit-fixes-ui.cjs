@@ -62,3 +62,28 @@ test('unverified provider status never claims backups are enabled',async()=>{
  await settle();
  assert.match(document.getElementById('operationsSummary').textContent,/Восстановление у хостинга: не подтверждено/);
 });
+
+for(const lang of ['ru','uz'])test(`admin directory waits for category names and translates them (${lang})`,async()=>{
+ const {window,document}=dom(read('admin.html'));
+ let resolveCategories;
+ const categories=new Promise(resolve=>{resolveCategories=resolve;});
+ const context={window,document,URLSearchParams,URL,console,
+  location:{search:'?lang='+lang,href:'https://relyqo.test/admin?lang='+lang,protocol:'https:'},
+  fetch:async url=>url.includes('/service-categories')?categories:{ok:true,json:async()=>url.startsWith('/static/i18n-uz')?dictionary:{items:[{name:'School',city:'Образование',category:'EDUCATION',profile_status:'PUBLISHED',rating_count:0,branches:[{id:'branch',name:'Campus',active:true}]}],total:1,next_offset:null}}};
+ language(context);
+ assert(document.querySelector('script[src^="/static/service-categories.js"]'));
+ vm.runInNewContext(read('service-categories.js'),context);
+ vm.runInNewContext(read('admin-directory.js'),context);
+ document.getElementById('directoryForm').dispatchEvent(new window.Event('submit',{cancelable:true}));
+ await settle();
+ assert.equal(document.querySelectorAll('#organizationDirectory article').length,0);
+ resolveCategories({ok:true,json:async()=>({items:[{code:'EDUCATION',label:'Образование'}]})});
+ await window.relyqoLanguageReady;await settle();
+ const card=document.querySelector('#organizationDirectory article');
+ assert.match(card.textContent,lang==='uz'?/Ta’lim/:/Образование/);
+ assert.doesNotMatch(card.textContent,/EDUCATION/);
+ assert.equal(card.querySelector('p [data-user-content]').textContent,'Образование');
+ const href=new URL(card.querySelector('a').href,'https://relyqo.test');
+ assert.equal(href.searchParams.get('category_code'),'EDUCATION');
+ assert.equal(href.searchParams.get('category'),'Образование');
+});

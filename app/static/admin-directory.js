@@ -13,13 +13,18 @@
       const query = new URLSearchParams({q:queryText, offset:String(append ? next || 0 : 0)});
       const response = await fetch('/v1/admin/organizations?' + query, {cache:'no-store'});
       const data = await response.json();
+      await window.relyqoCategoriesReady;
       if (id !== requestId) return;
       if (!response.ok) throw Error(data.detail || 'Не удалось загрузить организации');
       if (!append) $('organizationDirectory').replaceChildren();
       data.items.forEach(org => {
         const card = el('article', ''); card.className = 'appCard';
         const title = el('h3', org.name); title.dataset.userContent = 'true';
-        card.append(title, el('p', `${org.city || ''} · ${window.relyqoCategoryLabel?.(org.category) || org.category} · ${statuses[org.profile_status] || org.profile_status}`));
+        const category = window.relyqoCategoryLabel?.(org.category) || (typeof categoryNames !== 'undefined' && categoryNames[org.category]) || 'Другая услуга';
+        const meta = el('p', ''), city = el('span', org.city || '');
+        city.dataset.userContent = 'true';
+        meta.append(city, el('span', ` · ${category} · ${statuses[org.profile_status] || org.profile_status}`));
+        card.append(title, meta);
         card.append(el('p', org.rating_count ? `Подтверждённые оценки: ${org.rating_count} · ${Number(org.score).toFixed(1)}/100` : 'Подтверждённых оценок пока нет'));
         const details = el('details', ''); details.append(el('summary', `Филиалы: ${org.branches.length}`));
         org.branches.forEach(branch => {
@@ -28,7 +33,7 @@
           if (!branch.active) p.append(el('span', ' · неактивен'));
           if (branch.active && ['PUBLISHED','VERIFIED_PARTNER'].includes(org.profile_status)) {
             const a = el('a', ' Открыть карточку →');
-            a.href = '/place?' + new URLSearchParams({object_key:'relyqo:' + branch.id,source:'RELYQO_PARTNER',name:org.name,category_code:org.category,category:window.relyqoCategoryLabel?.(org.category)||org.category,address:branch.address||branch.city||'',profile_status:org.profile_status,verified_score:org.score,verified_count:org.rating_count}); p.append(a);
+            a.href = '/place?' + new URLSearchParams({object_key:'relyqo:' + branch.id,source:'RELYQO_PARTNER',name:org.name,category_code:org.category,category,address:branch.address||branch.city||'',profile_status:org.profile_status,verified_score:org.score,verified_count:org.rating_count}); p.append(a);
           }
           details.append(p);
         });
