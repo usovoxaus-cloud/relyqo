@@ -23,7 +23,7 @@ export const strings = {
     country: 'O‘zbekiston', search: 'Qidiruv', qr: 'Baholash', top: 'Reytinglar', account: 'Profil',
     back: 'Orqaga', settings: 'Ilova menyusi', close: 'Yopish', loading: 'RELYQO ochilmoqda…',
     slow: 'Server ishga tushmoqda. Birinchi ochilish bir daqiqacha vaqt olishi mumkin.',
-    failed: 'Ulanib bo‘lmadi', offline: 'Internetni tekshiring va qayta urinib ko‘ring. Hisobingiz saqlangan.',
+    failed: 'Ulanib bo‘lmadi', offline: 'Internetni tekshiring va qayta urinib ko‘ring. Profilingiz saqlangan.',
     retry: 'Qayta urinish', browser: 'Brauzerda ochish', scanTitle: 'Tashrifni baholang',
     scanHint: 'Kamerani chekdagi bir martalik RELYQO QR-kodiga qarating.',
     cameraHint: 'Kamera faqat QR-kod uchun kerak. Video yozib olinmaydi.',
