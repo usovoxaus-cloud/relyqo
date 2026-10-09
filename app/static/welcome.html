@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#081923"><meta name="referrer" content="no-referrer">
+  <title>Добро пожаловать в RELYQO</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/welcome.css?v=1">
+  <script src="/static/i18n.js?v=entry-20261009"></script>
+  <script src="/static/welcome.js?v=1" defer></script>
+</head>
+<body class="page-welcome">
+  <main class="entry">
+    <div class="brand" aria-label="RELYQO"><span aria-hidden="true">R</span> RELYQO</div>
+    <header><p class="eyebrow">ВАШЕ МНЕНИЕ ИМЕЕТ ЗНАЧЕНИЕ</p><h1>Добро пожаловать</h1><p class="lead">Создайте аккаунт или войдите, чтобы находить организации и оценивать обслуживание.</p></header>
+    <section class="card" aria-label="Вход в RELYQO">
+      <div id="auth">
+        <div class="switch" role="group" aria-label="Вход или регистрация">
+          <button id="showRegister" type="button" aria-pressed="true" aria-controls="registerForm">Регистрация</button>
+          <button id="showLogin" type="button" aria-pressed="false" aria-controls="loginForm">Войти</button>
+        </div>
+        <form id="registerForm">
+          <h2>Создайте свой аккаунт</h2><p class="hint">Регистрация бесплатная.</p>
+          <label>Имя пользователя<input name="username" minlength="3" maxlength="80" autocomplete="username" autocapitalize="none" spellcheck="false" required placeholder="например: kamol"></label>
+          <label>Пароль<input name="password" type="password" minlength="10" maxlength="200" autocomplete="new-password" required aria-describedby="passwordHint"></label><p id="passwordHint" class="hint">Минимум 10 символов.</p>
+          <label>Email <span class="optional">(необязательно)</span><input name="email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com" aria-describedby="emailHint"></label>
+          <p id="emailHint" class="hint">Для восстановления доступа. До подтверждения email входите по имени пользователя.</p>
+          <button class="primary" type="submit">Зарегистрироваться</button>
+        </form>
+        <form id="loginForm" hidden>
+          <h2>Рады видеть вас снова</h2><p class="hint">Войдите в свой аккаунт RELYQO.</p>
+          <label>Email или имя пользователя<input name="username" maxlength="254" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+          <label>Пароль<input name="password" type="password" maxlength="200" autocomplete="current-password" required></label>
+          <button class="primary" type="submit">Войти</button>
+          <a class="help" href="/forgot-password">Забыли пароль?</a>
+          <a class="help secondary" href="/recover?account=consumer">Восстановить по резервному коду</a>
+        </form>
+      </div>
+      <p id="authError" class="error" role="alert" hidden></p>
+      <p id="authStatus" class="hint" role="status" hidden></p>
+      <section id="newRecoveryNotice" hidden aria-live="polite">
+        <p class="eyebrow">АККАУНТ СОЗДАН</p><h2>Сохраните резервный код</h2>
+        <p class="lead">Он поможет восстановить доступ, если вы забудете пароль. Этот код показывается только один раз.</p>
+        <code id="newRecoveryCode" translate="no"></code>
+        <button id="copyNewRecovery" class="secondaryButton" type="button">Копировать код</button>
+        <button id="continueAfterRecovery" class="primary" type="button">Я сохранил код. Открыть RELYQO</button>
+      </section>
+    </section>
+    <footer><a href="/terms">Условия использования</a><span aria-hidden="true">·</span><a href="/privacy">Конфиденциальность</a></footer>
+  </main>
+  <noscript>Для входа включите JavaScript в браузере. / Kirish uchun brauzerda JavaScript’ni yoqing.</noscript>
+</body>
+</html>

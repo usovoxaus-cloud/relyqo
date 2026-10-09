@@ -75,16 +75,18 @@ def test_consumer_has_one_time_self_service_recovery():
 
 
 def test_consumer_recovery_ui_is_visible():
-    client = TestClient(app)
+    from test_program_structure import account
+    entry = TestClient(app).get("/welcome")
+    client, _ = account("CONSUMER")
     page = client.get("/me")
     recover = client.get("/recover")
     community = client.get("/community-rate?object_key=manual:test-place&source=MANUAL&name=Test&address=Test&category=OTHER")
     assert page.status_code == 200
     assert recover.status_code == 200
     assert community.status_code == 200
-    assert "Восстановить пароль по резервному коду" in page.text
+    assert "Восстановить по резервному коду" in entry.text
     assert 'id="recoveryCodeForm"' in page.text
-    assert 'id="newRecoveryNotice"' in page.text
+    assert 'id="newRecoveryNotice"' in entry.text
     assert "Войти в Мой RELYQO" in recover.text
     assert "Для потребителя резервный код показывается при регистрации" in recover.text
     assert 'id="inlineRecovery"' in community.text

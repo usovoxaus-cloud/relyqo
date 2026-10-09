@@ -35,8 +35,12 @@ export function navigationKind(value: string): 'internal' | 'external' | 'blocke
   return 'blocked';
 }
 
+export function entryUrl(language: Language): string {
+  return `${ORIGIN}/welcome?lang=${language}`;
+}
+
 export function tabUrl(tab: Tab, language: Language): string {
-  return `${ORIGIN}${paths[tab]}?lang=${language}`;
+  return `${ORIGIN}${paths[tab]}?lang=${language}${tab === 'qr' ? '&find=qr' : ''}`;
 }
 
 export function withLanguage(value: string, language: Language): string {
@@ -48,7 +52,7 @@ export function withLanguage(value: string, language: Language): string {
 export function tabForUrl(value: string): Tab {
   if (!isInternalUrl(value)) return 'search';
   const path = new URL(value).pathname;
-  if (path === '/' || path === '/rate' || path === '/community-rate' || (path === '/consumer' && new URL(value).searchParams.has('token'))) return 'qr';
+  if ((path === '/' && new URL(value).searchParams.has('token')) || path === '/rate' || path === '/community-rate' || (path === '/consumer' && new URL(value).searchParams.has('token'))) return 'qr';
   if (path === '/rankings') return 'search';
   if (['/me', '/recover', '/forgot-password', '/reset-password', '/account-security'].some(p => path === p || path.startsWith(p + '/'))) return 'account';
   return 'search';

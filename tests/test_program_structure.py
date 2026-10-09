@@ -34,12 +34,12 @@ def account(role="BUSINESS_OWNER", *, name=None, category="EDUCATION", score=80)
 
 
 def test_search_entry_and_old_qr_urls_keep_distinct_flows():
-    client = TestClient(main.app)
+    client, _ = account("CONSUMER")
     search = client.get("/consumer")
     assert 'id="directoryPanel"' in search.text
     assert '<a href="/consumer" aria-current="page">Найти</a>' in search.text
     assert 'id="token"' not in search.text
-    for url in ["/", "/rate?find=qr", "/rate?token=old-link", "/?token=old-link", "/consumer?token=old-link"]:
+    for url in ["/rate?find=qr", "/rate?token=old-link", "/?token=old-link", "/consumer?token=old-link"]:
         page = client.get(url)
         assert page.status_code == 200
         assert 'id="token"' in page.text
@@ -52,7 +52,7 @@ def test_search_entry_and_old_qr_urls_keep_distinct_flows():
 
 
 def test_rating_entry_offers_name_location_and_map_without_replacing_qr():
-    client = TestClient(main.app)
+    client, _ = account("CONSUMER")
     page = client.get('/rate?find=qr').text
     assert 'name="q"' in page and 'name="find" value="search"' in page
     assert '/rate?find=nearby' in page and '/rate?find=map' in page
