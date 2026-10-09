@@ -70,7 +70,7 @@ try:
     shot("03-uzbek-entry")
     adb("shell", "am", "force-stop", PACKAGE)
     launch()
-    wait_label("Hisobingizni yarating")
+    wait_label("Profilingizni yarating")
     wait_label("O‘zbekiston")
     shot("04-uzbek-persisted")
     adb("shell", "svc", "wifi", "disable")

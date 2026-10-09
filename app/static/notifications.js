@@ -7,7 +7,7 @@
     try {
       const response=await fetch('/v1/notifications/preferences',{credentials:'same-origin',cache:'no-store',signal:controller.signal,
         ...(body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{})});
-      if(response.status===401){$('notificationLogin').hidden=false;throw Error(t('Войдите, чтобы настроить уведомления.','Bildirishnomalarni sozlash uchun hisobingizga kiring.'));}
+      if(response.status===401){$('notificationLogin').hidden=false;throw Error(t('Войдите, чтобы настроить уведомления.','Bildirishnomalarni sozlash uchun profilingizga kiring.'));}
       if(!response.ok)throw Error(t('Не удалось сохранить настройки. Проверьте подтверждение почты и повторите.','Sozlamalar saqlanmadi. Email tasdiqlanganini tekshirib, qayta urinib ko‘ring.'));
       return await response.json();
     }catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw Error(t('Нет связи с сервером. Повторите попытку.','Server bilan aloqa yo‘q. Qayta urinib ko‘ring.'));throw error;}
