@@ -22,7 +22,7 @@ export const MOBILE_BRIDGE = `
       }
     }, true);
   }
-  window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready',language:document.documentElement.lang}));
+  window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready',language:document.documentElement.lang,authenticated:document.body.dataset.consumerAuthenticated==='true'}));
 })(); true;
 `;
 

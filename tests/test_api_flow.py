@@ -48,6 +48,13 @@ def register_consumer(client: TestClient) -> str:
     return username
 
 
+def consumer_document(path):
+    Base.metadata.create_all(engine)
+    client = TestClient(app)
+    register_consumer(client)
+    return client.get(path)
+
+
 def test_qr_rating_score_flow():
     Base.metadata.create_all(engine)
     with SessionLocal() as db:
@@ -171,7 +178,7 @@ def test_demo_button_is_hidden_when_demo_mode_is_disabled():
     previous = settings.demo_mode
     settings.demo_mode = False
     try:
-        response = TestClient(app).get("/")
+        response = consumer_document("/rate?find=qr")
         assert response.status_code == 200
         assert (
             'id="demo" class="secondary hidden" disabled aria-hidden="true"'
@@ -296,7 +303,7 @@ def test_business_page_loads_data_inline_without_cache():
 
 
 def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
-    page = TestClient(app).get("/")
+    page = consumer_document("/rate?find=qr")
     script = TestClient(app).get("/static/app.js")
     assert page.status_code == 200
     assert script.status_code == 200
@@ -320,7 +327,7 @@ def test_home_page_has_private_camera_qr_scanner_with_manual_fallback():
 
 
 def test_relyqo_map_discovers_external_places_without_importing_external_ratings(monkeypatch):
-    page = TestClient(app).get("/nearby")
+    page = consumer_document("/nearby")
     script = TestClient(app).get("/static/nearby.js")
     assert page.status_code == 200
     assert script.status_code == 200
@@ -633,13 +640,13 @@ def test_public_ai_advisor_uses_real_scores_and_keeps_score_types_separate(monke
 def test_community_rating_requires_consumer_and_stays_separate_from_score():
     Base.metadata.create_all(engine)
     client = TestClient(app)
-    rating_page = client.get("/community-rate")
+    rating_page = consumer_document("/community-rate")
     assert rating_page.status_code == 200
     assert rating_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Community Score" in rating_page.text
     assert "не меняет официальный RELYQO Score" in rating_page.text
     assert "return_to=" in rating_page.text
-    consumer_page = client.get("/me")
+    consumer_page = consumer_document("/me")
     assert "requestedReturn" in consumer_page.text
     assert "location.href=returnTo" in consumer_page.text
 
@@ -739,14 +746,14 @@ def test_place_profile_and_verified_rankings_are_public_and_separate():
         db.commit()
 
     client = TestClient(app)
-    place = client.get("/place")
+    place = consumer_document("/place")
     assert place.status_code == 200
     assert place.headers["cache-control"] == "no-store, max-age=0"
     assert "VERIFIED RELYQO SCORE" in place.text
     assert "COMMUNITY SCORE" in place.text
     assert "GOOGLE RATING" not in place.text
     assert "Verified учитывает оценки по одноразовым QR" in place.text
-    rankings_page = client.get("/rankings")
+    rankings_page = consumer_document("/rankings")
     assert rankings_page.status_code == 200
     assert rankings_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Лучшие организации" in rankings_page.text
@@ -1069,11 +1076,11 @@ def test_education_institutions_are_supported_across_relyqo():
     assert created.status_code == 200
     assert created.json()["item"]["category"] == "EDUCATION"
 
-    nearby_page = client.get("/nearby")
+    nearby_page = consumer_document("/nearby")
     nearby_script = client.get("/static/nearby.js")
-    rankings_page = client.get("/rankings")
+    rankings_page = consumer_document("/rankings")
     owner_page = client.get("/business-owner")
-    rating_page = client.get("/community-rate")
+    rating_page = consumer_document("/community-rate")
     home_script = client.get("/static/app.js")
 
     assert '<option value="EDUCATION">Образование и образовательные учреждения</option>' in nearby_page.text
@@ -1555,8 +1562,8 @@ def test_consumer_account_syncs_favorites_ratings_and_ai(monkeypatch):
     assert client.get("/v1/consumer/dashboard").json()["favorites"] == []
 
 
-def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
-    page = TestClient(app).get("/me")
+def test_consumer_profile_and_dashboard_require_consumer_login():
+    page = consumer_document("/me")
     assert page.status_code == 200
     assert page.headers["cache-control"] == "no-store, max-age=0"
     assert 'href="/me" aria-current="page">Профиль</a>' in page.text
@@ -1565,7 +1572,7 @@ def test_consumer_page_is_public_but_dashboard_requires_consumer_login():
     assert "Мои предпочтения" in page.text
     assert "История фотографий" in page.text
     assert TestClient(app).get("/v1/consumer/dashboard").status_code == 401
-    detail_page = TestClient(app).get("/me/rating")
+    detail_page = consumer_document("/me/rating")
     assert detail_page.status_code == 200
     assert "Подробная оценка" in detail_page.text
     assert 'id="scoreLabel"' in detail_page.text
@@ -1659,7 +1666,7 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert admin_page.headers["cache-control"] == "no-store, max-age=0"
     assert "Центр управления RELYQO" in admin_page.text
     assert "Админ‑панель отделена от приложения потребителей" in admin_page.text
-    consumer_page = TestClient(app).get("/consumer")
+    consumer_page = consumer_document("/consumer")
     assert consumer_page.status_code == 200
     assert consumer_page.headers["cache-control"] == "no-store, max-age=0"
     assert 'id="catalogQuery"' in consumer_page.text
@@ -1667,8 +1674,8 @@ def test_business_owner_page_is_public_but_profile_requires_owner_login():
     assert 'href="/consumer" aria-current="page"' in consumer_page.text
     assert 'href="/rate"' in consumer_page.text
     assert 'href="/me"' in consumer_page.text
-    assert 'id="directoryPanel"' in TestClient(app).get("/rate").text
-    assert 'id="token"' in TestClient(app).get("/rate?find=qr").text
+    assert 'id="directoryPanel"' in consumer_document("/rate").text
+    assert 'id="token"' in consumer_document("/rate?find=qr").text
     assert TestClient(app).get("/v1/admin/dashboard").status_code == 401
 
 
@@ -1797,7 +1804,7 @@ def test_admin_manages_ads_without_affecting_score_or_ranking():
         assert served.content == media_bytes
 
     public = TestClient(app)
-    page = public.get("/consumer")
+    page = consumer_document("/consumer")
     assert page.status_code == 200
     assert "/static/ads.css" in page.text
     assert "/static/ads.js" in page.text

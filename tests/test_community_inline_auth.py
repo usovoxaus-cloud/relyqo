@@ -1,10 +1,12 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from test_program_structure import account
 
 
 def test_community_rating_keeps_scores_on_page_and_authenticates_inline():
-    page = TestClient(app).get("/community-rate")
+    client, _ = account("CONSUMER")
+    page = client.get("/community-rate")
 
     assert page.status_code == 200
     assert "Community Score" in page.text

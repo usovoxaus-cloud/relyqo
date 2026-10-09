@@ -14,6 +14,7 @@ from .models import (ConsumerEmail, MailDelivery, RequestEmailJob, RequestEmailP
 from .password_recovery import require_mail_configuration, recovery_origin, send_email
 from .security import token_hash
 from .web_ui import consumer_html
+from .consumer_entry import require_account_page
 
 log = logging.getLogger(__name__)
 wake = Event()
@@ -211,7 +212,7 @@ def register_request_notifications(app, session_user):
         db.commit()
         return state(db, user)
 
-    @app.get("/notifications", include_in_schema=False)
+    @app.get("/notifications", include_in_schema=False, dependencies=[Depends(require_account_page)])
     def page():
         return consumer_html("notifications.html")
 

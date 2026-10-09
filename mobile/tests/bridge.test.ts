@@ -36,3 +36,15 @@ test('scanned text is serialized as data, never evaluated', () => {
 test('presentation bridge does nothing on an external page', () => {
   runInNewContext(MOBILE_BRIDGE, { location: { origin: 'https://evil.test' } });
 });
+
+test('native navigation is shown only after a guarded document reports an authenticated session', () => {
+  for (const authenticated of [undefined, 'false', 'true']) {
+    const messages: string[] = [];
+    runInNewContext(MOBILE_BRIDGE, {
+      location: {origin: ORIGIN},
+      document: {getElementById: () => ({}), documentElement: {lang: 'uz'}, body: {dataset: {consumerAuthenticated: authenticated}}},
+      window: {__relyqoNativeBridge: true, ReactNativeWebView: {postMessage: (message: string) => messages.push(message)}}
+    });
+    assert.deepEqual(JSON.parse(messages[0]), {type:'ready', language:'uz', authenticated:authenticated === 'true'});
+  }
+});

@@ -11,7 +11,7 @@ import { Icon } from './src/Icon';
 import { Scanner } from './src/Scanner';
 import { strings } from './src/strings';
 import { pageLoad } from './src/page-load';
-import { ORIGIN, isInternalUrl, isConsumerUrl, languageFromUrl, navigationKind, tabForUrl, tabUrl, withLanguage } from './src/navigation';
+import { ORIGIN, entryUrl, isInternalUrl, isConsumerUrl, languageFromUrl, navigationKind, tabForUrl, tabUrl, withLanguage } from './src/navigation';
 import type { Language, Tab } from './src/navigation';
 
 const LANGUAGE_KEY = 'relyqo.mobile.language';
@@ -24,8 +24,9 @@ export default function App() {
 function MobileApp() {
   const web = useRef<WebView>(null);
   const [language, setLanguage] = useState<Language>(() => getLocales()[0]?.languageCode === 'uz' ? 'uz' : 'ru');
+  const [authenticated, setAuthenticated] = useState(false);
   const [initialized, setInitialized] = useState(false);
-  const [uri, setUri] = useState(tabUrl('search', language));
+  const [uri, setUri] = useState(entryUrl(language));
   const currentUrl = useRef(uri);
   const [tab, setTab] = useState<Tab>('search');
   const [webKey, setWebKey] = useState(0);
@@ -58,7 +59,7 @@ function MobileApp() {
   useEffect(() => {
     let alive = true;
     AsyncStorage.getItem(LANGUAGE_KEY).then(saved => {
-      if (alive && (saved === 'ru' || saved === 'uz')) { setLanguage(saved); setUri(tabUrl('search', saved)); currentUrl.current = tabUrl('search', saved); }
+      if (alive && (saved === 'ru' || saved === 'uz')) { setLanguage(saved); setUri(entryUrl(saved)); currentUrl.current = entryUrl(saved); }
     }).catch(() => {}).finally(() => { if (alive) setInitialized(true); });
     return () => { alive = false; };
   }, []);
@@ -118,12 +119,15 @@ function MobileApp() {
     try {
       const message = JSON.parse(event.nativeEvent.data);
       if (!message || typeof message !== 'object') return;
-      if (message.type === 'scan') { setScanner(true); return; }
-      if (message.type !== 'ready') return;
+      if (message.type === 'scan') { if (authenticated) setScanner(true); return; }
+      if (message.type !== 'ready' || event.nativeEvent.url !== currentUrl.current) return;
+      const signedIn = message.authenticated === true;
+      setAuthenticated(signedIn);
+      if (!signedIn) { setScanner(false); setMenu(false); }
       if (message.language === 'ru' || message.language === 'uz') rememberLanguage(message.language);
       // A queued scan is delivered once, to the rating page only; never put it in a URL, log or disk storage.
       const path = new URL(event.nativeEvent.url).pathname;
-      if (pendingQr.current && ['/', '/consumer'].includes(path)) {
+      if (signedIn && pendingQr.current && ['/', '/consumer', '/rate'].includes(path)) {
         const token = pendingQr.current;
         pendingQr.current = null;
         web.current?.injectJavaScript(deliverQrScript(token));
@@ -147,7 +151,7 @@ function MobileApp() {
       <Pressable accessibilityRole="button" accessibilityLabel={copy.language} style={styles.language} onPress={() => {
         const next = language === 'ru' ? 'uz' : 'ru'; rememberLanguage(next); navigate(withLanguage(currentUrl.current, next));
       }}><Text style={styles.languageText}>{language.toUpperCase()}</Text></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel={copy.settings} style={styles.iconButton} onPress={() => setMenu(true)}><Icon name="menu" color="#eaf9f4"/></Pressable>
+      {authenticated && <Pressable accessibilityRole="button" accessibilityLabel={copy.settings} style={styles.iconButton} onPress={() => setMenu(true)}><Icon name="menu" color="#eaf9f4"/></Pressable>}
     </View>
     <View style={styles.content}>
       {initialized && <WebView ref={web} key={webKey} source={source} style={styles.web}
@@ -166,7 +170,7 @@ function MobileApp() {
         }}
         onNavigationStateChange={navigationChanged} onMessage={onMessage}
         injectedJavaScript={MOBILE_BRIDGE}
-        onLoadStart={() => loadEvent('start')}
+        onLoadStart={() => { loadEvent('start'); setAuthenticated(false); }}
         onLoad={() => loadEvent('success')}
         onError={event => { event.preventDefault(); pageFailed(); }} onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 400 && nativeEvent.url === currentUrl.current) pageFailed(); }}
         onContentProcessDidTerminate={pageFailed} onRenderProcessGone={pageFailed}
@@ -186,7 +190,7 @@ function MobileApp() {
         <Pressable accessibilityRole="button" style={styles.textButton} onPress={() => openExternal(currentUrl.current)}><Text style={styles.lightText}>{copy.browser}</Text></Pressable>
       </View>}
     </View>
-    {!keyboard && <View style={styles.tabs} accessibilityRole="tablist">{tabs.map(item => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={copy[item]} accessibilityState={{ selected: item === tab }} style={styles.tab} onPress={() => item === 'qr' ? setScanner(true) : navigate(tabUrl(item, language))}>
+    {authenticated && !keyboard && <View style={styles.tabs} accessibilityRole="tablist">{tabs.map(item => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={copy[item]} accessibilityState={{ selected: item === tab }} style={styles.tab} onPress={() => item === 'qr' ? setScanner(true) : navigate(tabUrl(item, language))}>
       <View style={[styles.tabIcon, item === tab && styles.activeIcon]}><Icon name={item} color={item === tab ? '#76e4c0' : '#8aa1aa'}/></View>
       <Text style={[styles.tabText, item === tab && styles.activeText]}>{copy[item]}</Text>
     </Pressable>)}</View>}

@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi import Request, APIRouter, Cookie, Depends, HTTPException, Query, Response
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy import false, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +16,7 @@ from .models import (AuditLog, Branch, CommunityRating, ManualPlace, Organizatio
                      Rating, ServiceMessage, ServiceRequest, User, Visit)
 from .password_recovery import limited
 from .request_notifications import queue_request_notifications, wake
+from .consumer_entry import require_consumer_page
 from .request_engagement import (active_representative, decorate_rows, mark_read, overdue_condition,
                                  represented_keys, statistics, unread_condition)
 
@@ -170,10 +171,13 @@ def register_service_requests(app, session_user):
         response.headers["Cache-Control"] = "private, no-store, max-age=0"
 
     api = APIRouter(dependencies=[Depends(private_response)])
-    @app.get("/me/requests", include_in_schema=False)
+    @app.get("/me/requests", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
     @app.get("/business/requests", include_in_schema=False)
     @app.get("/admin/requests", include_in_schema=False)
-    def page():
+    def page(request: Request):
+        if request.url.path == "/me/requests":
+            content = (Path(__file__).parent / "static" / "service-requests.html").read_text(encoding="utf-8")
+            return HTMLResponse(content.replace("<body", '<body data-consumer-authenticated="true"', 1), headers={"Cache-Control": "no-store"})
         return FileResponse(Path(__file__).parent / "static" / "service-requests.html", headers={"Cache-Control": "no-store"})
 
     @api.get("/v1/service-requests/context")

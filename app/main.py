@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
 from .web_ui import consumer_html
+from .consumer_entry import require_consumer_page, register_consumer_entry
 from .business import business_dashboard
 from .rating_guards import reserve_rating_window
 from .public_trust import organization_evidence, register_public_profiles, timestamp, rating_confidence
@@ -1079,19 +1080,19 @@ def business_profile_payload(user: User, db: Session) -> dict:
 
 
 
-@app.get("/rate", include_in_schema=False)
-@app.get("/", include_in_schema=False)
+@app.get("/rate", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
+@app.get("/", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def web(request: Request):
     mode = request.query_params.get("find")
     if "token" not in request.query_params and (
-        mode in {"here", "search", "nearby", "map"}
+        mode in {"here", "search", "nearby", "map"} or request.url.path == "/" and mode is None
         or (request.url.path == "/rate" and mode is None)
     ):
-        return consumer_html("nearby.html", active_tab="rate")
+        return consumer_html("nearby.html", active_tab="rate" if request.url.path == "/rate" else "search")
     return consumer_html("index.html")
 
 
-@app.get("/consumer", include_in_schema=False)
+@app.get("/consumer", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def consumer_entry_web(request: Request):
     """Search entrance; existing QR links still open the rating form."""
     return consumer_html("index.html" if "token" in request.query_params else "nearby.html")
@@ -1113,7 +1114,7 @@ def business_web():
     )
 
 
-@app.get("/nearby", include_in_schema=False)
+@app.get("/nearby", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def nearby_web():
     return consumer_html("nearby.html")
 
@@ -1127,17 +1128,17 @@ def legal_web():
     )
 
 
-@app.get("/community-rate", include_in_schema=False)
+@app.get("/community-rate", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def community_rate_web():
     return consumer_html("community-rate.html")
 
 
-@app.get("/place", include_in_schema=False)
+@app.get("/place", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def place_web():
     return consumer_html("place.html")
 
 
-@app.get("/rankings", include_in_schema=False)
+@app.get("/rankings", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def rankings_web():
     return consumer_html("rankings.html")
 
@@ -1166,12 +1167,12 @@ def recover_web():
     )
 
 
-@app.get("/me", include_in_schema=False)
+@app.get("/me", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def consumer_web():
     return consumer_html("me.html")
 
 
-@app.get("/me/rating", include_in_schema=False)
+@app.get("/me/rating", include_in_schema=False, dependencies=[Depends(require_consumer_page)])
 def consumer_rating_web():
     return consumer_html("rating-detail.html")
 
@@ -4714,6 +4715,8 @@ def business_ai_insights(user: User, db: Session):
         }
     return result
 
+
+register_consumer_entry(app, session_user)
 
 # Consumer recovery extends the same users, password hashes and session revocation.
 register_recovery_routes(app, session_user, revoke_user_sessions)

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ORIGIN, isInternalUrl, navigationKind, readVisitToken, tabForUrl, tabUrl, withLanguage, languageFromUrl, isManagementUrl, isConsumerUrl } from '../src/navigation.ts';
+import { ORIGIN, entryUrl, isInternalUrl, navigationKind, readVisitToken, tabForUrl, tabUrl, withLanguage, languageFromUrl, isManagementUrl, isConsumerUrl } from '../src/navigation.ts';
 
 test('only the exact HTTPS service origin stays inside the app', () => {
   assert.equal(isInternalUrl(ORIGIN + '/me?lang=ru'), true);
@@ -34,7 +34,7 @@ test('consumer tabs keep details and profile accessible', () => {
   assert.equal(tabForUrl(ORIGIN + '/place?id=1'), 'search');
   assert.equal(tabForUrl(ORIGIN + '/me/rating?id=1'), 'account');
   assert.equal(tabForUrl(ORIGIN + '/rankings'), 'search');
-  assert.equal(tabForUrl(ORIGIN + '/'), 'qr');
+  assert.equal(tabForUrl(ORIGIN + '/'), 'search');
   assert.equal(tabForUrl(ORIGIN + '/rate'), 'qr');
   assert.equal(tabForUrl(ORIGIN + '/community-rate'), 'qr');
   assert.equal(tabForUrl(ORIGIN + '/consumer'), 'search');
@@ -46,4 +46,10 @@ test('management paths are blocked inside the consumer app', () => {
   assert.equal(isManagementUrl(ORIGIN+path),true,path);assert.equal(isConsumerUrl(ORIGIN+path),false,path);assert.equal(navigationKind(ORIGIN+path),'blocked',path);
  }
  for (const path of ['/me','/account-security','/community-rate','/rating-detail','/nearby','/place']) assert.equal(isConsumerUrl(ORIGIN+path),true,path);
+});
+
+test('fresh installation starts at entry and queued scans open the QR form', () => {
+  assert.equal(entryUrl('uz'), ORIGIN + '/welcome?lang=uz');
+  assert.equal(tabForUrl(entryUrl('ru')), 'search');
+  assert.equal(new URL(tabUrl('qr','ru')).searchParams.get('find'), 'qr');
 });

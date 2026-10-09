@@ -31,6 +31,7 @@ def consumer_html(filename: str, *, active_tab: str | None = None) -> HTMLRespon
         + links + '</nav></header>'
     )
     content = content.replace("<!--consumer-navigation-->", navigation)
+    content = content.replace("<body", '<body data-consumer-authenticated="true"', 1)
     if filename == "index.html" and not settings.demo_mode:
         content = content.replace(
             'id="demo" class="secondary"',
