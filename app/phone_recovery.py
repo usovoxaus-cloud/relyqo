@@ -1,11 +1,14 @@
 """International SMS recovery; only a verified personal phone can reset a password.
 
-Twilio Verify owns OTP generation/delivery/checks. This module never stores codes.
+Eskiz codes are checked against a keyed digest; Twilio Verify checks its own codes.
+This module never persists plaintext codes.
 The public request response is independent of account existence and delivery.
 """
 
 import base64
 from datetime import datetime, timedelta
+import hashlib
+import hmac
 import json
 import logging
 from pathlib import Path
@@ -19,11 +22,12 @@ import phonenumbers
 from fastapi import BackgroundTasks, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import settings
+from . import sms_eskiz
 from .db import SessionLocal, get_db
 from .models import (
     AccountPhone,
@@ -49,15 +53,20 @@ GENERIC = (
 
 
 def regions():
-    return (
+    allowed = (
         set(settings.sms_allowed_regions.upper().replace(" ", "").split(","))
         & phonenumbers.SUPPORTED_REGIONS
     )
+    # The selected Eskiz integration uses its domestic endpoint, not international SMS.
+    return allowed & {"UZ"} if settings.sms_provider == "eskiz" else allowed
 
 
 def configured():
+    if settings.sms_provider == "eskiz":
+        return bool(sms_eskiz.configured() and regions())
     return bool(
-        re.fullmatch(r"AC[0-9a-fA-F]{32}", settings.twilio_account_sid)
+        settings.sms_provider == "twilio"
+        and re.fullmatch(r"AC[0-9a-fA-F]{32}", settings.twilio_account_sid)
         and settings.twilio_auth_token
         and re.fullmatch(r"VA[0-9a-fA-F]{32}", settings.twilio_verify_service_sid)
         and regions()
@@ -124,6 +133,26 @@ def provider_request(resource, fields):
     # Never forward a provider credential on redirects or log response bodies.
     with build_opener(NoMailRedirect()).open(request, timeout=10) as response:
         return json.load(response)
+
+
+def otp_digest(challenge, code):
+    # A database dump alone must not allow enumerating the one million possible codes.
+    # Binding the digest to this challenge prevents moving proofs between accounts.
+    message = json.dumps(
+        [
+            "eskiz-otp-v1",
+            challenge.token_hash,
+            challenge.user_id,
+            challenge.phone,
+            challenge.purpose,
+            challenge.password_fingerprint,
+            code,
+        ],
+        separators=(",", ":"),
+    )
+    return hmac.new(
+        settings.sms_otp_secret.encode(), message.encode(), hashlib.sha256
+    ).hexdigest()
 
 
 def provider_start(phone):
@@ -194,6 +223,7 @@ def ip_limit(db, request):
 
 def issue_sms(raw, phone, purpose, user_id=None, fingerprint=None):
     try:
+        require_config()
         with SessionLocal() as db:
             if purpose == "reset":
                 account = db.scalar(
@@ -232,18 +262,25 @@ def issue_sms(raw, phone, purpose, user_id=None, fingerprint=None):
                 phone=phone,
                 purpose=purpose,
                 password_fingerprint=current,
+                provider=settings.sms_provider,
                 expires_at=now + timedelta(minutes=10),
             )
             db.add(challenge)
             db.commit()
-            sid = provider_start(phone)
+            if challenge.provider == "eskiz":
+                code = f"{secrets.randbelow(1000000):06d}"
+                digest = otp_digest(challenge, code)
+                sms_eskiz.send_code(phone, code)
+                proof = {"code_digest": digest}
+            else:
+                proof = {"verification_sid": provider_start(phone)}
             db.execute(
                 update(PhoneChallenge)
                 .where(
                     PhoneChallenge.token_hash == token_hash(raw),
                     PhoneChallenge.consumed_at.is_(None),
                 )
-                .values(verification_sid=sid)
+                .values(**proof)
             )
             db.commit()
     except Exception:
@@ -252,6 +289,7 @@ def issue_sms(raw, phone, purpose, user_id=None, fingerprint=None):
 
 
 def check_challenge(db, body, purpose, owner_id=None):
+    require_config()
     now = datetime.utcnow()
     challenge_id = token_hash(body.challenge)
     condition = [
@@ -260,7 +298,17 @@ def check_challenge(db, body, purpose, owner_id=None):
         PhoneChallenge.consumed_at.is_(None),
         PhoneChallenge.expires_at > now,
         PhoneChallenge.attempts < 5,
-        PhoneChallenge.verification_sid.is_not(None),
+        PhoneChallenge.provider == settings.sms_provider,
+        or_(
+            and_(
+                PhoneChallenge.provider == "twilio",
+                PhoneChallenge.verification_sid.is_not(None),
+            ),
+            and_(
+                PhoneChallenge.provider == "eskiz",
+                PhoneChallenge.code_digest.is_not(None),
+            ),
+        ),
     ]
     if owner_id:
         condition.append(PhoneChallenge.user_id == owner_id)
@@ -275,7 +323,12 @@ def check_challenge(db, body, purpose, owner_id=None):
     challenge = db.get(PhoneChallenge, challenge_id)
     sid, phone = challenge.verification_sid, challenge.phone
     try:
-        approved = provider_check(sid, phone, body.code)
+        if challenge.provider == "eskiz":
+            approved = len(body.code) == 6 and hmac.compare_digest(
+                otp_digest(challenge, body.code), challenge.code_digest
+            )
+        else:
+            approved = provider_check(sid, phone, body.code)
     except Exception:
         logger.warning("SMS verification check unavailable")
         raise HTTPException(503, UNAVAILABLE)
@@ -304,11 +357,15 @@ def check_challenge(db, body, purpose, owner_id=None):
         db.rollback()
         raise HTTPException(400, INVALID)
     # Verify may reuse a SID during its validity window. Approval can be used once.
-    db.execute(
-        update(PhoneChallenge)
-        .where(PhoneChallenge.verification_sid == sid)
-        .values(consumed_at=datetime.utcnow())
-    )
+    if sid:
+        db.execute(
+            update(PhoneChallenge)
+            .where(
+                PhoneChallenge.provider == "twilio",
+                PhoneChallenge.verification_sid == sid,
+            )
+            .values(consumed_at=datetime.utcnow())
+        )
     return user, challenge
 
 

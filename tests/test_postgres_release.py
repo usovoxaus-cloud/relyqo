@@ -152,7 +152,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0032"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0033"
         assert len(list(db.scalars(select(AuditLog).where(AuditLog.action.like("LOCATION_QUARANTINED_0031:%"))))) == 3
         for table, record_id, *_ in cleanup_migration().REPAIRS:
             card = db.get(ManualPlace if table == "manual_places" else Branch, record_id)

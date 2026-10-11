@@ -39,6 +39,10 @@ class PhoneChallenge(Base):
     purpose: Mapped[str] = mapped_column(String(10))
     password_fingerprint: Mapped[str] = mapped_column(String(64))
     verification_sid: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    provider: Mapped[str] = mapped_column(
+        String(16), default="twilio", server_default="twilio"
+    )
+    code_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

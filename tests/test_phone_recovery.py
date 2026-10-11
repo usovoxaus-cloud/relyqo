@@ -29,8 +29,8 @@ PHONE = "+998901234567"
 SID = "VE" + "a" * 32
 
 
-@pytest.fixture
-def setup(tmp_path, monkeypatch):
+@pytest.fixture(params=["twilio", "eskiz"])
+def setup(tmp_path, monkeypatch, request):
     engine = create_engine(
         f"sqlite:///{tmp_path / 'phone.db'}",
         connect_args={"check_same_thread": False, "timeout": 20},
@@ -45,6 +45,12 @@ def setup(tmp_path, monkeypatch):
     app.dependency_overrides[get_db] = database
     monkeypatch.setattr(sms, "SessionLocal", factory)
     for key, value in dict(
+        sms_provider=request.param,
+        eskiz_email="sms@example.test",
+        eskiz_password="test-only-password",
+        eskiz_sender="4546",
+        eskiz_message_template="RELYQO: Tasdiqlash kodi {code}. Kodni hech kimga bermang.",
+        sms_otp_secret="test-only-otp-secret-32-characters-long",
         twilio_account_sid="AC" + "a" * 32,
         twilio_auth_token="test-only-secret",
         twilio_verify_service_sid="VA" + "b" * 32,
@@ -53,6 +59,10 @@ def setup(tmp_path, monkeypatch):
         monkeypatch.setattr(settings, key, value)
     sent, checks = [], []
     monkeypatch.setattr(sms, "provider_start", lambda phone: sent.append(phone) or SID)
+    monkeypatch.setattr(sms.secrets, "randbelow", lambda maximum: 123456)
+    monkeypatch.setattr(
+        sms.sms_eskiz, "send_code", lambda phone, code: sent.append(phone)
+    )
 
     def check(sid, phone, code):
         checks.append((sid, phone, code))
@@ -120,6 +130,20 @@ def test_international_numbers_bind_and_normalize(setup, region):
         region, phonenumbers.PhoneNumberType.MOBILE
     )
     local = phonenumbers.format_number(example, phonenumbers.PhoneNumberFormat.NATIONAL)
+    if settings.sms_provider == "eskiz" and region != "UZ":
+        response = setup[0].post(
+            "/v1/auth/recovery-phone",
+            json={
+                "phone": local,
+                "region": region,
+                "current_password": PASSWORD,
+            },
+        )
+        assert response.status_code == 422 and not setup[3]
+        assert setup[0].get("/v1/auth/phone-options").json()["regions"] == [
+            {"code": "UZ", "dial_code": "+998"}
+        ]
+        return
     bind(setup, local, region)
     status = setup[0].get("/v1/auth/recovery-phone").json()
     assert status == {
@@ -147,6 +171,10 @@ def test_full_reset_revokes_sessions_and_replay(setup):
         challenge = db.get(PhoneChallenge, token_hash(body["challenge"]))
         assert challenge and challenge.attempts == 0
         assert "123456" not in {str(v) for v in challenge.__dict__.values()}
+        assert challenge.provider == settings.sms_provider
+        if settings.sms_provider == "eskiz":
+            assert len(challenge.code_digest) == 64
+            assert challenge.verification_sid is None
     assert client.post("/v1/auth/reset-password-phone", json=body).status_code == 200
     assert client.get("/v1/auth/me").status_code == 401
     with TestClient(app) as other:
@@ -240,7 +268,9 @@ def test_wrong_codes_exhaust_persistent_attempts(setup):
         )
         clear_limits(factory)
     assert client.post("/v1/auth/reset-password-phone", json=body).status_code == 400
-    assert len(checks) == 5
+    assert len(checks) == (5 if settings.sms_provider == "twilio" else 0)
+    with factory() as db:
+        assert db.get(PhoneChallenge, token_hash(body["challenge"])).attempts == 5
 
 
 @pytest.mark.parametrize("change", ["expired", "password", "phone", "inactive", "role"])
@@ -363,14 +393,16 @@ def test_disabled_and_delivery_failure_do_not_leak_secrets(setup, monkeypatch, c
     client, factory, _, _, _ = setup
     bind(setup)
 
-    def broken(_):
+    def broken(*args):
         raise RuntimeError("secret-phone-and-token")
 
     monkeypatch.setattr(sms, "provider_start", broken)
+    monkeypatch.setattr(sms.sms_eskiz, "send_code", broken)
     body = request_reset(client)
     assert client.post("/v1/auth/reset-password-phone", json=body).status_code == 400
     assert "secret-phone-and-token" not in caplog.text
     monkeypatch.setattr(settings, "twilio_auth_token", "")
+    monkeypatch.setattr(settings, "eskiz_password", "")
     assert client.get("/v1/auth/phone-options").json()["enabled"] is False
     assert (
         client.post(
@@ -387,6 +419,7 @@ def test_disabled_and_delivery_failure_do_not_leak_secrets(setup, monkeypatch, c
 def test_transport_checks_response_identity_and_keeps_credentials_server_side(
     monkeypatch,
 ):
+    monkeypatch.setattr(settings, "sms_provider", "twilio")
     monkeypatch.setattr(settings, "twilio_account_sid", "AC" + "a" * 32)
     monkeypatch.setattr(settings, "twilio_auth_token", "test-only-secret")
     monkeypatch.setattr(settings, "twilio_verify_service_sid", "VA" + "b" * 32)
@@ -505,3 +538,29 @@ def test_unconfirmed_replacement_keeps_existing_phone(setup):
     )
     with factory() as db:
         assert db.get(AccountPhone, uid).phone == PHONE
+
+
+def test_switching_provider_rejects_outstanding_proof(setup, monkeypatch):
+    client = setup[0]
+    bind(setup)
+    body = request_reset(client)
+    monkeypatch.setattr(
+        settings,
+        "sms_provider",
+        "twilio" if settings.sms_provider == "eskiz" else "eskiz",
+    )
+    assert client.post("/v1/auth/reset-password-phone", json=body).status_code == 400
+
+
+def test_eskiz_secret_rotation_rejects_outstanding_proof(setup, monkeypatch):
+    client, factory, _, _, _ = setup
+    monkeypatch.setattr(settings, "sms_provider", "eskiz")
+    bind(setup)
+    body = request_reset(client)
+    monkeypatch.setattr(
+        settings, "sms_otp_secret", "rotated-test-secret-at-least-32-characters"
+    )
+    assert client.post("/v1/auth/reset-password-phone", json=body).status_code == 400
+    clear_limits(factory)
+    body = request_reset(client)
+    assert client.post("/v1/auth/reset-password-phone", json=body).status_code == 200
