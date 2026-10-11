@@ -24,6 +24,26 @@ def now():
     return datetime.utcnow()
 
 
+class AccountPhone(Base):
+    __tablename__ = "account_phones"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    phone: Mapped[str] = mapped_column(String(16), unique=True)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
+class PhoneChallenge(Base):
+    __tablename__ = "phone_challenges"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    phone: Mapped[str] = mapped_column(String(16))
+    purpose: Mapped[str] = mapped_column(String(10))
+    password_fingerprint: Mapped[str] = mapped_column(String(64))
+    verification_sid: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 class Organization(Base):
     __tablename__ = "organizations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)

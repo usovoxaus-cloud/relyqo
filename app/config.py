@@ -19,6 +19,11 @@ class Settings:
             os.getenv("DATABASE_URL", "sqlite:///./relyqo.db")
         )
         self.resend_api_key = os.getenv("RESEND_API_KEY", "")
+        self.twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+        self.twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+        self.twilio_verify_service_sid = os.getenv("TWILIO_VERIFY_SERVICE_SID", "")
+        # Enable countries explicitly after configuring Verify Geo Permissions.
+        self.sms_allowed_regions = os.getenv("SMS_ALLOWED_REGIONS", "")
         self.recovery_email_from = os.getenv("RECOVERY_EMAIL_FROM", "")
         self.recovery_allow_local_urls = (
             os.getenv("RECOVERY_ALLOW_LOCAL_URLS", "false").lower() == "true"

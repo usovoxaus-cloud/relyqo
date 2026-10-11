@@ -53,3 +53,12 @@ test('fresh installation starts at entry and queued scans open the QR form', () 
   assert.equal(tabForUrl(entryUrl('ru')), 'search');
   assert.equal(new URL(tabUrl('qr','ru')).searchParams.get('find'), 'qr');
 });
+
+test('international phone setup and recovery stay in the account flow', () => {
+  for (const path of ['/account-phone', '/phone-recovery']) {
+    const url = withLanguage(ORIGIN + path, 'uz');
+    assert.equal(navigationKind(url), 'internal');
+    assert.equal(tabForUrl(url), 'account');
+    assert.equal(languageFromUrl(url), 'uz');
+  }
+});

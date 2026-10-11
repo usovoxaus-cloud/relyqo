@@ -2308,5 +2308,18 @@
   "Подождите…": "Kutib turing…",
   "Регистрация": "Ro‘yxatdan o‘tish",
   "Для входа включите JavaScript в браузере. / Kirish uchun brauzerda JavaScript’ni yoqing.": "Kirish uchun brauzerda JavaScript’ni yoqing.",
-  "Нет соединения. Проверьте интернет и обновите страницу.": "Internet aloqasi yo‘q. Ulanishni tekshiring va sahifani yangilang."
+  "Нет соединения. Проверьте интернет и обновите страницу.": "Internet aloqasi yo‘q. Ulanishni tekshiring va sahifani yangilang.",
+  "Восстановить по SMS": "SMS orqali tiklash",
+  "Телефон для восстановления": "Tiklash uchun telefon",
+  "Телефон и восстановление — RELYQO": "Telefon va tiklash — RELYQO",
+  "Восстановление по SMS": "SMS orqali tiklash",
+  "Страна номера": "Raqam mamlakati",
+  "Мобильный номер": "Mobil raqam",
+  "Выберите страну вашего номера. Можно ввести номер с кодом страны или в местном формате.": "Raqamingiz mamlakatini tanlang. Raqamni mamlakat kodi bilan yoki mahalliy shaklda kiritishingiz mumkin.",
+  "Получить SMS-код": "SMS-kod olish",
+  "Код из SMS": "SMSdagi kod",
+  "Другой номер или новый код": "Boshqa raqam yoki yangi kod",
+  "Восстановить по email": "Email orqali tiklash",
+  "Использовать резервный код": "Zaxira koddan foydalanish",
+  "Войти в аккаунт": "Profilga kirish"
 }
