@@ -82,7 +82,26 @@ try:
     shot("05-offline")
     offline_xml = (OUTPUT / "last-ui.xml").read_text()
     assert 'text="Baholash"' not in offline_xml and 'text="Profil"' not in offline_xml
-    print("PASS: Release registration-first launch, separate login, guest navigation locked, persisted Uzbek and offline retry")
+    # Retry must stay available while offline, without resetting the saved language.
+    tap("Qayta urinish")
+    wait_label("Ulanib bo‘lmadi", timeout=20)
+    wait_label("O‘zbekiston")
+    adb("shell", "svc", "wifi", "enable")
+    adb("shell", "svc", "data", "enable")
+    # Exercise recovery instead of reporting success merely because retry is visible.
+    # Retry the user action while the emulator reconnects; require the real entry form.
+    deadline = time.monotonic() + 90
+    while True:
+        tap("Qayta urinish")
+        try:
+            wait_label("Profilingizni yarating", timeout=15)
+            break
+        except AssertionError:
+            if time.monotonic() >= deadline:
+                raise
+    wait_label("O‘zbekiston")
+    shot("06-online-again")
+    print("PASS: Release registration-first launch, separate login, guest navigation locked, persisted Uzbek, offline retry and restored connection")
 finally:
     try:
         shot("last-screen")

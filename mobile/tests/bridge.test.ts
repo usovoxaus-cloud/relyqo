@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
+import { readFileSync } from 'node:fs';
+import { pageLoad } from '../src/page-load.ts';
 import { deliverQrScript, MOBILE_BRIDGE } from '../src/bridge.ts';
 import { ORIGIN } from '../src/navigation.ts';
 
@@ -41,10 +43,69 @@ test('native navigation is shown only after a guarded document reports an authen
   for (const authenticated of [undefined, 'false', 'true']) {
     const messages: string[] = [];
     runInNewContext(MOBILE_BRIDGE, {
-      location: {origin: ORIGIN},
+      location: {origin: ORIGIN}, navigator: {onLine: true},
       document: {getElementById: () => ({}), documentElement: {lang: 'uz'}, body: {dataset: {consumerAuthenticated: authenticated}}},
       window: {__relyqoNativeBridge: true, ReactNativeWebView: {postMessage: (message: string) => messages.push(message)}}
     });
     assert.deepEqual(JSON.parse(messages[0]), {type:'ready', language:'uz', authenticated:authenticated === 'true'});
   }
+});
+
+function networkPage(onLine: boolean | undefined, fallback = false) {
+  const messages: string[] = [];
+  const listeners: Record<string, () => void> = {};
+  const context = {
+    location: {origin: ORIGIN}, navigator: {onLine},
+    document: {
+      getElementById: () => ({}), documentElement: {lang: fallback ? 'ru' : 'uz'},
+      body: {dataset: {relyqoOffline: fallback ? 'true' : undefined, consumerAuthenticated: 'true'}},
+      addEventListener() {},
+    },
+    window: {
+      addEventListener: (event: string, listener: () => void) => { assert.equal(listeners[event], undefined); listeners[event] = listener; },
+      ReactNativeWebView: {postMessage: (message: string) => messages.push(message)},
+    },
+  };
+  return {context, listeners, messages: () => messages.map(message => JSON.parse(message))};
+}
+
+test('service-worker fallback is a native error even when Wi-Fi reports online', async () => {
+  type Navigation = {request: {mode: string; method: string}; respondWith: (response: Promise<Response>) => void};
+  const handlers: Record<string, (event: Navigation) => void> = {};
+  runInNewContext(readFileSync(new URL('../../app/static/sw.js', import.meta.url), 'utf8'), {
+    self: {addEventListener: (type: string, handler: (event: Navigation) => void) => { handlers[type] = handler; }},
+    fetch: () => Promise.reject(new Error('No internet')), Response,
+  });
+  let response: Promise<Response> | undefined;
+  handlers.fetch({request: {mode: 'navigate', method: 'GET'}, respondWith: value => { response = value; }});
+  assert.ok(response);
+  const fallback = await response;
+  assert.equal(fallback.status, 503);
+  assert.equal(fallback.headers.get('Cache-Control'), 'no-store');
+  assert.match(await fallback.text(), /data-relyqo-offline="true"/);
+  const p = networkPage(true, true);
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  // No 'ready' message carrying the fallback's Russian language or auth state.
+  assert.deepEqual(p.messages(), [{type:'connection-error'}]);
+  assert.equal(pageLoad(pageLoad('ready', 'error'), 'success'), 'failed');
+});
+
+test('old fallback without the marker is detected after all network interfaces are disabled', () => {
+  const p = networkPage(false);
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  assert.deepEqual(p.messages(), [{type:'connection-error'}]);
+});
+
+test('loss of connection after a loaded document reports an error once per event', () => {
+  const p = networkPage(true);
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  p.listeners.offline();
+  assert.equal(p.messages().filter(message => message.type === 'connection-error').length, 1);
+});
+
+test('an unknown network state does not block a successfully loaded document', () => {
+  const p = networkPage(undefined);
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  assert.deepEqual(p.messages(), [{type:'ready', language:'uz', authenticated:true}]);
 });

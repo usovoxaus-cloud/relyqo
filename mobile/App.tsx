@@ -119,7 +119,8 @@ function MobileApp() {
     try {
       const message = JSON.parse(event.nativeEvent.data);
       if (!message || typeof message !== 'object') return;
-      if (message.type === 'scan') { if (authenticated) setScanner(true); return; }
+      if (message.type === 'connection-error' && event.nativeEvent.url === currentUrl.current) { pageFailed(); return; }
+      if (message.type === 'scan') { if (authenticated && !failed) setScanner(true); return; }
       if (message.type !== 'ready' || event.nativeEvent.url !== currentUrl.current) return;
       const signedIn = message.authenticated === true;
       setAuthenticated(signedIn);
@@ -141,7 +142,7 @@ function MobileApp() {
     navigate(tabUrl('qr', language), true);
   }
 
-  function pageFailed() { loadEvent('error'); }
+  function pageFailed() { loadEvent('error'); setAuthenticated(false); setScanner(false); setMenu(false); }
 
   return <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
     <StatusBar style="light"/>
@@ -151,7 +152,7 @@ function MobileApp() {
       <Pressable accessibilityRole="button" accessibilityLabel={copy.language} style={styles.language} onPress={() => {
         const next = language === 'ru' ? 'uz' : 'ru'; rememberLanguage(next); navigate(withLanguage(currentUrl.current, next));
       }}><Text style={styles.languageText}>{language.toUpperCase()}</Text></Pressable>
-      {authenticated && <Pressable accessibilityRole="button" accessibilityLabel={copy.settings} style={styles.iconButton} onPress={() => setMenu(true)}><Icon name="menu" color="#eaf9f4"/></Pressable>}
+      {authenticated && !failed && <Pressable accessibilityRole="button" accessibilityLabel={copy.settings} style={styles.iconButton} onPress={() => setMenu(true)}><Icon name="menu" color="#eaf9f4"/></Pressable>}
     </View>
     <View style={styles.content}>
       {initialized && <WebView ref={web} key={webKey} source={source} style={styles.web}
@@ -190,7 +191,7 @@ function MobileApp() {
         <Pressable accessibilityRole="button" style={styles.textButton} onPress={() => openExternal(currentUrl.current)}><Text style={styles.lightText}>{copy.browser}</Text></Pressable>
       </View>}
     </View>
-    {authenticated && !keyboard && <View style={styles.tabs} accessibilityRole="tablist">{tabs.map(item => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={copy[item]} accessibilityState={{ selected: item === tab }} style={styles.tab} onPress={() => item === 'qr' ? setScanner(true) : navigate(tabUrl(item, language))}>
+    {authenticated && !failed && !keyboard && <View style={styles.tabs} accessibilityRole="tablist">{tabs.map(item => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={copy[item]} accessibilityState={{ selected: item === tab }} style={styles.tab} onPress={() => item === 'qr' ? setScanner(true) : navigate(tabUrl(item, language))}>
       <View style={[styles.tabIcon, item === tab && styles.activeIcon]}><Icon name={item} color={item === tab ? '#76e4c0' : '#8aa1aa'}/></View>
       <Text style={[styles.tabText, item === tab && styles.activeText]}>{copy[item]}</Text>
     </Pressable>)}</View>}

@@ -6,6 +6,15 @@ import { ORIGIN } from './navigation.ts';
 export const MOBILE_BRIDGE = `
 (function () {
   if (location.origin !== ${JSON.stringify(ORIGIN)}) return;
+  // A service-worker fallback can fire onLoad without WebView's onHttpError.
+  // Report it before 'ready', preserving the saved language and native retry.
+  function connectionFailed() {
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'connection-error'}));
+  }
+  if (document.body.dataset.relyqoOffline === 'true' || navigator.onLine === false) {
+    connectionFailed();
+    return;
+  }
   if (!document.getElementById('relyqo-native-style')) {
     var style = document.createElement('style');
     style.id = 'relyqo-native-style';
@@ -15,6 +24,7 @@ export const MOBILE_BRIDGE = `
   ${CONSUMER_PRESENTATION}
   if (!window.__relyqoNativeBridge) {
     window.__relyqoNativeBridge = true;
+    window.addEventListener('offline', connectionFailed);
     document.addEventListener('click', function (event) {
       if (event.target.closest && event.target.closest('#startCamera')) {
         event.preventDefault(); event.stopImmediatePropagation();
