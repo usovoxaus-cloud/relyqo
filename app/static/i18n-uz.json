@@ -2321,5 +2321,9 @@
   "Другой номер или новый код": "Boshqa raqam yoki yangi kod",
   "Восстановить по email": "Email orqali tiklash",
   "Использовать резервный код": "Zaxira koddan foydalanish",
-  "Войти в аккаунт": "Profilga kirish"
+  "Войти в аккаунт": "Profilga kirish",
+  "SMS для этой страны пока недоступны.": "Bu mamlakat uchun SMS hozircha mavjud emas.",
+  "SMS пока недоступны. Используйте email или резервный код.": "SMS hozircha mavjud emas. Email yoki zaxira koddan foydalaning.",
+  "Код недействителен или истёк. Запросите новый SMS-код.": "Kod yaroqsiz yoki muddati tugagan. Yangi SMS-kod so‘rang.",
+  "Проверьте страну и номер телефона.": "Mamlakat va telefon raqamini tekshiring."
 }
