@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ActivityIndicator, Alert, AppState, BackHandler, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { getLocales } from 'expo-localization';
+import { useNetworkState } from 'expo-network';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -32,8 +33,11 @@ function MobileApp() {
   const [webKey, setWebKey] = useState(0);
   const [canGoBack, setCanGoBack] = useState(false);
   const [pageState, loadEvent] = useReducer(pageLoad, 'loading');
+  const network = useNetworkState();
+  // Undefined during initial detection is not evidence of a lost connection.
+  const offline = network.isConnected === false;
   const loading = pageState === 'loading';
-  const failed = pageState === 'failed';
+  const failed = pageState === 'failed' || offline;
   const [slow, setSlow] = useState(false);
   const [scanner, setScanner] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -55,6 +59,14 @@ function MobileApp() {
   }, [uri]);
 
   const goBack = useCallback(() => { loadEvent('retry'); web.current?.goBack(); }, []);
+
+  useEffect(() => {
+    // WebView may never emit an error for a service-worker response. Keep the
+    // native error latched until retry, including a retry while still offline.
+    if (offline && pageState !== 'failed') {
+      loadEvent('error'); setAuthenticated(false); setScanner(false); setMenu(false);
+    }
+  }, [offline, pageState]);
 
   useEffect(() => {
     let alive = true;
@@ -119,6 +131,7 @@ function MobileApp() {
     try {
       const message = JSON.parse(event.nativeEvent.data);
       if (!message || typeof message !== 'object') return;
+      if (offline) { pageFailed(); return; }
       if (message.type === 'connection-error' && event.nativeEvent.url === currentUrl.current) { pageFailed(); return; }
       if (message.type === 'scan') { if (authenticated && !failed) setScanner(true); return; }
       if (message.type !== 'ready' || event.nativeEvent.url !== currentUrl.current) return;

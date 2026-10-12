@@ -35,11 +35,27 @@ def wait_label(label, timeout=90):
     raise AssertionError(f"UI label missing: {label}")
 
 
-def tap(label):
-    node = wait_label(label)
+def tap_node(node):
     coords = list(map(int, re.findall(r"\d+", node.attrib["bounds"])))
     adb("shell", "input", "tap", str((coords[0] + coords[2]) // 2), str((coords[1] + coords[3]) // 2))
 
+
+def tap(label):
+    tap_node(wait_label(label))
+
+def recover_online():
+    deadline = time.monotonic() + 90
+    retry_after = 0
+    while time.monotonic() < deadline:
+        root = snapshot()
+        nodes = {node.get("text") or node.get("content-desc"): node for node in root.iter("node")}
+        if "Profilingizni yarating" in nodes and "Ulanib bo‘lmadi" not in nodes and "Qayta urinish" not in nodes:
+            return
+        if "Qayta urinish" in nodes and time.monotonic() >= retry_after:
+            tap_node(nodes["Qayta urinish"])
+            retry_after = time.monotonic() + 5
+        time.sleep(2)
+    raise AssertionError("Entry form did not recover after enabling the network")
 
 def shot(name):
     (OUTPUT / f"{name}.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
@@ -88,23 +104,26 @@ try:
     wait_label("O‘zbekiston")
     adb("shell", "svc", "wifi", "enable")
     adb("shell", "svc", "data", "enable")
-    # Exercise recovery instead of reporting success merely because retry is visible.
-    # Retry the user action while the emulator reconnects; require the real entry form.
-    deadline = time.monotonic() + 90
-    while True:
-        tap("Qayta urinish")
-        try:
-            wait_label("Profilingizni yarating", timeout=15)
-            break
-        except AssertionError:
-            if time.monotonic() >= deadline:
-                raise
+    # Require the actual form and no error overlay, not just a visible retry button.
+    recover_online()
     wait_label("O‘zbekiston")
     shot("06-online-again")
+    # Also cover connectivity events while the app stays open.
+    adb("shell", "svc", "wifi", "disable")
+    adb("shell", "svc", "data", "disable")
+    wait_label("Ulanib bo‘lmadi", timeout=20)
+    wait_label("Qayta urinish")
+    shot("07-network-lost-while-open")
+    adb("shell", "svc", "wifi", "enable")
+    adb("shell", "svc", "data", "enable")
+    recover_online()
+    wait_label("O‘zbekiston")
+    shot("08-recovered-while-open")
     print("PASS: Release registration-first launch, separate login, guest navigation locked, persisted Uzbek, offline retry and restored connection")
 finally:
     try:
         shot("last-screen")
+        (OUTPUT / "connectivity.txt").write_text(adb("shell", "dumpsys", "connectivity"))
         (OUTPUT / "logcat.txt").write_text(adb("logcat", "-d", "-s", "AndroidRuntime:E", "ReactNativeJS:E"))
     finally:
         adb("shell", "svc", "wifi", "enable")
