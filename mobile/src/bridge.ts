@@ -32,7 +32,29 @@ export const MOBILE_BRIDGE = `
       }
     }, true);
   }
-  window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready',language:document.documentElement.lang,authenticated:document.body.dataset.consumerAuthenticated==='true'}));
+  function ready(authenticated) {
+    if (navigator.onLine === false) { connectionFailed(); return; }
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready',language:document.documentElement.lang,authenticated:authenticated}));
+  }
+  var authenticated = document.body.dataset.consumerAuthenticated;
+  if (authenticated === 'true' || authenticated === 'false') {
+    ready(authenticated === 'true');
+  } else {
+    // Older/public documents may omit the marker even with a valid session.
+    // Ask the existing first-party endpoint; absence is not a logout signal.
+    if (!window.__relyqoNativeSessionCheck) {
+      var controller = new AbortController();
+      var timeout = setTimeout(function () { controller.abort(); }, 8000);
+      window.__relyqoNativeSessionCheck = fetch('/v1/auth/me', {
+        credentials:'same-origin', cache:'no-store', signal:controller.signal
+      }).then(function (response) {
+        return response.ok ? response.json() : null;
+      }).then(function (user) { return !!user && user.role === 'CONSUMER'; })
+        .catch(function () { return false; })
+        .finally(function () { clearTimeout(timeout); window.__relyqoNativeSessionCheck = null; });
+    }
+    window.__relyqoNativeSessionCheck.then(ready);
+  }
 })(); true;
 `;
 

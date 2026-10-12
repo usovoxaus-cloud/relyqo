@@ -184,8 +184,19 @@ function MobileApp() {
         }}
         onNavigationStateChange={navigationChanged} onMessage={onMessage}
         injectedJavaScript={MOBILE_BRIDGE}
-        onLoadStart={() => { loadEvent('start'); setAuthenticated(false); }}
-        onLoad={() => loadEvent('success')}
+        onLoadStart={({ nativeEvent }) => {
+          if (isConsumerUrl(nativeEvent.url)) currentUrl.current = nativeEvent.url;
+          loadEvent('start'); setAuthenticated(false);
+        }}
+        onLoad={({ nativeEvent }) => {
+          loadEvent('success');
+          if (isConsumerUrl(nativeEvent.url)) {
+            currentUrl.current = nativeEvent.url;
+            // Re-report after navigation callbacks settle. Android can deliver
+            // the initial injected message before its final URL is reported.
+            web.current?.injectJavaScript(MOBILE_BRIDGE);
+          }
+        }}
         onError={event => { event.preventDefault(); pageFailed(); }} onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 400 && nativeEvent.url === currentUrl.current) pageFailed(); }}
         onContentProcessDidTerminate={pageFailed} onRenderProcessGone={pageFailed}
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows

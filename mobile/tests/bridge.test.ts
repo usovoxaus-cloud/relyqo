@@ -39,8 +39,8 @@ test('presentation bridge does nothing on an external page', () => {
   runInNewContext(MOBILE_BRIDGE, { location: { origin: 'https://evil.test' } });
 });
 
-test('native navigation is shown only after a guarded document reports an authenticated session', () => {
-  for (const authenticated of [undefined, 'false', 'true']) {
+test('an explicit server session marker is reported without an extra request', () => {
+  for (const authenticated of ['false', 'true']) {
     const messages: string[] = [];
     runInNewContext(MOBILE_BRIDGE, {
       location: {origin: ORIGIN}, navigator: {onLine: true},
@@ -49,6 +49,61 @@ test('native navigation is shown only after a guarded document reports an authen
     });
     assert.deepEqual(JSON.parse(messages[0]), {type:'ready', language:'uz', authenticated:authenticated === 'true'});
   }
+});
+
+function unmarkedPage(fetchSession: typeof fetch) {
+  const p = networkPage(true);
+  delete (p.context.document.body.dataset as {consumerAuthenticated?: string}).consumerAuthenticated;
+  return {...p, context: {...p.context, fetch: fetchSession, AbortController, setTimeout, clearTimeout}};
+}
+
+async function flushBridge() { await new Promise(resolve => setImmediate(resolve)); }
+
+test('an unmarked community rating page retains navigation for a signed-in consumer', async () => {
+  const html = readFileSync(new URL('../../app/static/community-rate.html', import.meta.url), 'utf8');
+  assert.match(html, /page-community-rate/);
+  assert.doesNotMatch(html, /data-consumer-authenticated/);
+  let requests = 0;
+  const p = unmarkedPage(async (url, options) => {
+    requests++;
+    assert.equal(url, '/v1/auth/me');
+    assert.equal(options?.credentials, 'same-origin');
+    assert.equal(options?.cache, 'no-store');
+    return Response.json({role:'CONSUMER', username:'test-only'});
+  });
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  assert.deepEqual(p.messages(), []); // Missing marker must not emit a premature logout.
+  await flushBridge();
+  assert.equal(requests, 1);
+  assert.ok(p.messages().length > 0);
+  for (const message of p.messages()) assert.deepEqual(message, {type:'ready', language:'uz', authenticated:true});
+});
+
+test('missing, expired, non-consumer and failed sessions never enable navigation', async () => {
+  for (const response of [
+    () => new Response('', {status:401}),
+    () => Response.json({role:'RELYQO_ADMIN'}),
+    () => Response.json({}),
+    () => Response.json(null),
+    () => new Response('invalid json'),
+    () => { throw new Error('network failure'); },
+  ]) {
+    const p = unmarkedPage(async () => response());
+    runInNewContext(MOBILE_BRIDGE, p.context);
+    await flushBridge();
+    assert.deepEqual(p.messages(), [{type:'ready', language:'uz', authenticated:false}]);
+  }
+});
+
+test('a session check completing after disconnection cannot reopen native navigation', async () => {
+  let complete!: (response: Response) => void;
+  const p = unmarkedPage(() => new Promise(resolve => { complete = resolve; }));
+  runInNewContext(MOBILE_BRIDGE, p.context);
+  p.context.navigator.onLine = false;
+  complete(Response.json({role:'CONSUMER'}));
+  await flushBridge();
+  assert.deepEqual(p.messages(), [{type:'connection-error'}]);
 });
 
 function networkPage(onLine: boolean | undefined, fallback = false) {
