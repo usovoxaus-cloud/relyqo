@@ -1,0 +1,31 @@
+name: Prepare mobile network dependency
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/prepare-mobile-network.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - run: npx expo install expo-network --npm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RELYQO-network-dependency
+          path: |
+            mobile/package.json
+            mobile/package-lock.json
+          retention-days: 3
+          if-no-files-found: error
