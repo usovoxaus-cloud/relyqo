@@ -52,7 +52,17 @@ jobs:
       - run: npm ci
       - run: npx expo prebuild --platform android --no-install
       - name: Build self-contained preview APK
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+        run: |
+          if ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64 2>&1 | tee ../gradle-release.log; then
+            exit 0
+          fi
+          # Retry a repository outage once, invalidating Gradle's cached misses.
+          # Compilation/test failures remain failures without an automatic retry.
+          if ! grep -Eq 'Could not (resolve|find|GET|HEAD)|Read timed out|Connection timed out' ../gradle-release.log; then
+            exit 1
+          fi
+          sleep 20
+          ./gradlew assembleRelease --no-daemon --refresh-dependencies -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
         working-directory: mobile/android
       - name: Package APK with checksum
         run: |
