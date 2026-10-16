@@ -114,6 +114,12 @@ function MobileApp() {
     setTab(tabForUrl(state.url));
     const value = languageFromUrl(state.url);
     if (value && value !== language) rememberLanguage(value);
+    // Android also sends load-start for history.replaceState / hash changes.
+    // Those documents get no subsequent onLoad: re-check the existing bridge.
+    if (!state.loading) {
+      loadEvent('success');
+      web.current?.injectJavaScript(MOBILE_BRIDGE);
+    }
   }
 
   function openExternal(url: string) {
@@ -137,7 +143,7 @@ function MobileApp() {
       if (message.type !== 'ready' || event.nativeEvent.url !== currentUrl.current) return;
       const signedIn = message.authenticated === true;
       setAuthenticated(signedIn);
-      if (!signedIn) { setScanner(false); setMenu(false); }
+      if (!signedIn) { pendingQr.current = null; setScanner(false); setMenu(false); }
       if (message.language === 'ru' || message.language === 'uz') rememberLanguage(message.language);
       // A queued scan is delivered once, to the rating page only; never put it in a URL, log or disk storage.
       const path = new URL(event.nativeEvent.url).pathname;
@@ -186,7 +192,13 @@ function MobileApp() {
         injectedJavaScript={MOBILE_BRIDGE}
         onLoadStart={({ nativeEvent }) => {
           if (isConsumerUrl(nativeEvent.url)) currentUrl.current = nativeEvent.url;
-          loadEvent('start'); setAuthenticated(false);
+          if (nativeEvent.loading) loadEvent('start');
+          // Loading/history events are not logout signals. Keep the confirmed
+          // session until the next document reports its state or loading fails.
+          // Entry/recovery screens must still close native account actions.
+          if (isInternalUrl(nativeEvent.url) && ['/welcome', '/recover', '/forgot-password', '/reset-password', '/phone-recovery'].includes(new URL(nativeEvent.url).pathname)) {
+            setAuthenticated(false); setScanner(false); setMenu(false);
+          }
         }}
         onLoad={({ nativeEvent }) => {
           loadEvent('success');

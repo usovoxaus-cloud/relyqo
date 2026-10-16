@@ -51,6 +51,20 @@ test('an explicit server session marker is reported without an extra request', (
   }
 });
 
+test('a changed page layout cannot prevent a confirmed session from reaching the native menu', () => {
+  const p = networkPage(true);
+  const document = {
+    ...p.context.document,
+    getElementById: (id: string) => id === 'relyqo-native-style' ? {} : null,
+    createElement: () => ({id: '', textContent: ''}),
+    head: {append() {}},
+    body: {...p.context.document.body, classList: {contains: () => true}},
+  };
+  // Simulate an older/newer nearby page without the adapter's directoryPanel.
+  runInNewContext(MOBILE_BRIDGE, {...p.context, document});
+  assert.deepEqual(p.messages(), [{type:'ready', language:'uz', authenticated:true}]);
+});
+
 function unmarkedPage(fetchSession: typeof fetch) {
   const p = networkPage(true);
   delete (p.context.document.body.dataset as {consumerAuthenticated?: string}).consumerAuthenticated;

@@ -21,7 +21,9 @@ export const MOBILE_BRIDGE = `
     style.textContent = '.languageBar,main>header.top,main>header.homeHeader{display:none!important} body{padding-top:0!important} main.shell,main{padding-top:14px!important} .page-index .heroCard{display:none!important} input,select,textarea{font-size:16px!important} .page-nearby .results{height:auto!important;max-height:none!important}';
     document.head.appendChild(style);
   }
-  ${CONSUMER_PRESENTATION}
+  // Page layouts can evolve independently of this installed APK. A cosmetic
+  // adapter failure must never suppress session reporting and native tabs.
+  try { ${CONSUMER_PRESENTATION} } catch (_) { /* Keep the site's own layout. */ }
   if (!window.__relyqoNativeBridge) {
     window.__relyqoNativeBridge = true;
     window.addEventListener('offline', connectionFailed);

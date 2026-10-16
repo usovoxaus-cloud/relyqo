@@ -61,6 +61,14 @@ jobs:
           cp README.md release/README.md
           cd release
           sha256sum RELYQO-Android-preview.apk > SHA256SUMS.txt
+      - name: Build separate native navigation test
+        run: bash scripts/build-navigation-test.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RELYQO-navigation-test
+          path: mobile/navigation-test/
+          retention-days: 7
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: RELYQO-Android-preview
@@ -68,7 +76,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
   android-smoke:
-    # Read-only guest flow against the live site; tests the new native APK before merge.
+    # Read-only guest flow plus isolated signed-in document fixtures in the release WebView.
     # Web changes in this PR are covered by unit tests until separately deployed.
     needs: android
     runs-on: ubuntu-latest
@@ -79,6 +87,10 @@ jobs:
         with:
           name: RELYQO-Android-preview
           path: mobile/release
+      - uses: actions/download-artifact@v4
+        with:
+          name: RELYQO-navigation-test
+          path: mobile/navigation-test
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -91,7 +103,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: python mobile/scripts/smoke_android.py
+          script: python mobile/scripts/smoke_android.py && python mobile/scripts/navigation_smoke.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
