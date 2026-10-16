@@ -8,6 +8,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 import { MOBILE_BRIDGE, deliverQrScript } from './src/bridge';
+import { bridgePageUrl } from './src/bridge-message';
 import { Icon } from './src/Icon';
 import { Scanner } from './src/Scanner';
 import { strings } from './src/strings';
@@ -133,20 +134,22 @@ function MobileApp() {
   }
 
   function onMessage(event: WebViewMessageEvent) {
-    if (!isInternalUrl(event.nativeEvent.url) || event.nativeEvent.data.length > 512) return;
+    if (!isInternalUrl(event.nativeEvent.url) || event.nativeEvent.data.length > 16384) return;
     try {
       const message = JSON.parse(event.nativeEvent.data);
       if (!message || typeof message !== 'object') return;
+      const pageUrl = bridgePageUrl(event.nativeEvent.url, message.url, currentUrl.current);
+      if (!pageUrl) return;
       if (offline) { pageFailed(); return; }
-      if (message.type === 'connection-error' && event.nativeEvent.url === currentUrl.current) { pageFailed(); return; }
+      if (message.type === 'connection-error') { pageFailed(); return; }
       if (message.type === 'scan') { if (authenticated && !failed) setScanner(true); return; }
-      if (message.type !== 'ready' || event.nativeEvent.url !== currentUrl.current) return;
+      if (message.type !== 'ready') return;
       const signedIn = message.authenticated === true;
       setAuthenticated(signedIn);
       if (!signedIn) { pendingQr.current = null; setScanner(false); setMenu(false); }
       if (message.language === 'ru' || message.language === 'uz') rememberLanguage(message.language);
       // A queued scan is delivered once, to the rating page only; never put it in a URL, log or disk storage.
-      const path = new URL(event.nativeEvent.url).pathname;
+      const path = new URL(pageUrl).pathname;
       if (signedIn && pendingQr.current && ['/', '/consumer', '/rate'].includes(path)) {
         const token = pendingQr.current;
         pendingQr.current = null;

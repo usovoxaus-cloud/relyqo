@@ -39,15 +39,19 @@ test('presentation bridge does nothing on an external page', () => {
   runInNewContext(MOBILE_BRIDGE, { location: { origin: 'https://evil.test' } });
 });
 
+test('the injected script does not report a nested frame as the current document', () => {
+  runInNewContext(MOBILE_BRIDGE, {location: {origin: ORIGIN}, window: {top: {}, self: {}}});
+});
+
 test('an explicit server session marker is reported without an extra request', () => {
   for (const authenticated of ['false', 'true']) {
     const messages: string[] = [];
     runInNewContext(MOBILE_BRIDGE, {
-      location: {origin: ORIGIN}, navigator: {onLine: true},
+      location: {origin: ORIGIN, href: ORIGIN + '/'}, navigator: {onLine: true},
       document: {getElementById: () => ({}), documentElement: {lang: 'uz'}, body: {dataset: {consumerAuthenticated: authenticated}}},
       window: {__relyqoNativeBridge: true, ReactNativeWebView: {postMessage: (message: string) => messages.push(message)}}
     });
-    assert.deepEqual(JSON.parse(messages[0]), {type:'ready', language:'uz', authenticated:authenticated === 'true'});
+    assert.deepEqual(JSON.parse(messages[0]), {url:ORIGIN + '/', type:'ready', language:'uz', authenticated:authenticated === 'true'});
   }
 });
 
@@ -62,7 +66,7 @@ test('a changed page layout cannot prevent a confirmed session from reaching the
   };
   // Simulate an older/newer nearby page without the adapter's directoryPanel.
   runInNewContext(MOBILE_BRIDGE, {...p.context, document});
-  assert.deepEqual(p.messages(), [{type:'ready', language:'uz', authenticated:true}]);
+  assert.deepEqual(p.messages(), [{url:ORIGIN + '/', type:'ready', language:'uz', authenticated:true}]);
 });
 
 function unmarkedPage(fetchSession: typeof fetch) {
@@ -91,7 +95,7 @@ test('an unmarked community rating page retains navigation for a signed-in consu
   await flushBridge();
   assert.equal(requests, 1);
   assert.ok(p.messages().length > 0);
-  for (const message of p.messages()) assert.deepEqual(message, {type:'ready', language:'uz', authenticated:true});
+  for (const message of p.messages()) assert.deepEqual(message, {url:ORIGIN + '/', type:'ready', language:'uz', authenticated:true});
 });
 
 test('missing, expired, non-consumer and failed sessions never enable navigation', async () => {
@@ -106,7 +110,7 @@ test('missing, expired, non-consumer and failed sessions never enable navigation
     const p = unmarkedPage(async () => response());
     runInNewContext(MOBILE_BRIDGE, p.context);
     await flushBridge();
-    assert.deepEqual(p.messages(), [{type:'ready', language:'uz', authenticated:false}]);
+    assert.deepEqual(p.messages(), [{url:ORIGIN + '/', type:'ready', language:'uz', authenticated:false}]);
   }
 });
 
@@ -117,14 +121,14 @@ test('a session check completing after disconnection cannot reopen native naviga
   p.context.navigator.onLine = false;
   complete(Response.json({role:'CONSUMER'}));
   await flushBridge();
-  assert.deepEqual(p.messages(), [{type:'connection-error'}]);
+  assert.deepEqual(p.messages(), [{url:ORIGIN + '/', type:'connection-error'}]);
 });
 
 function networkPage(onLine: boolean | undefined, fallback = false) {
   const messages: string[] = [];
   const listeners: Record<string, () => void> = {};
   const context = {
-    location: {origin: ORIGIN}, navigator: {onLine},
+    location: {origin: ORIGIN, href: ORIGIN + '/'}, navigator: {onLine},
     document: {
       getElementById: () => ({}), documentElement: {lang: fallback ? 'ru' : 'uz'},
       body: {dataset: {relyqoOffline: fallback ? 'true' : undefined, consumerAuthenticated: 'true'}},
@@ -155,14 +159,14 @@ test('service-worker fallback is a native error even when Wi-Fi reports online',
   const p = networkPage(true, true);
   runInNewContext(MOBILE_BRIDGE, p.context);
   // No 'ready' message carrying the fallback's Russian language or auth state.
-  assert.deepEqual(p.messages(), [{type:'connection-error'}]);
+  assert.deepEqual(p.messages(), [{url:ORIGIN + '/', type:'connection-error'}]);
   assert.equal(pageLoad(pageLoad('ready', 'error'), 'success'), 'failed');
 });
 
 test('old fallback without the marker is detected after all network interfaces are disabled', () => {
   const p = networkPage(false);
   runInNewContext(MOBILE_BRIDGE, p.context);
-  assert.deepEqual(p.messages(), [{type:'connection-error'}]);
+  assert.deepEqual(p.messages(), [{url:ORIGIN + '/', type:'connection-error'}]);
 });
 
 test('loss of connection after a loaded document reports an error once per event', () => {
@@ -176,5 +180,5 @@ test('loss of connection after a loaded document reports an error once per event
 test('an unknown network state does not block a successfully loaded document', () => {
   const p = networkPage(undefined);
   runInNewContext(MOBILE_BRIDGE, p.context);
-  assert.deepEqual(p.messages(), [{type:'ready', language:'uz', authenticated:true}]);
+  assert.deepEqual(p.messages(), [{url:ORIGIN + '/', type:'ready', language:'uz', authenticated:true}]);
 });

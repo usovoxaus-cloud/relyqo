@@ -6,10 +6,15 @@ import { ORIGIN } from './navigation.ts';
 export const MOBILE_BRIDGE = `
 (function () {
   if (location.origin !== ${JSON.stringify(ORIGIN)}) return;
+  if (window.top !== window.self) return;
+  function send(message) {
+    message.url = location.href;
+    window.ReactNativeWebView.postMessage(JSON.stringify(message));
+  }
   // A service-worker fallback can fire onLoad without WebView's onHttpError.
   // Report it before 'ready', preserving the saved language and native retry.
   function connectionFailed() {
-    window.ReactNativeWebView.postMessage(JSON.stringify({type:'connection-error'}));
+    send({type:'connection-error'});
   }
   if (document.body.dataset.relyqoOffline === 'true' || navigator.onLine === false) {
     connectionFailed();
@@ -30,13 +35,13 @@ export const MOBILE_BRIDGE = `
     document.addEventListener('click', function (event) {
       if (event.target.closest && event.target.closest('#startCamera')) {
         event.preventDefault(); event.stopImmediatePropagation();
-        window.ReactNativeWebView.postMessage(JSON.stringify({type:'scan'}));
+        send({type:'scan'});
       }
     }, true);
   }
   function ready(authenticated) {
     if (navigator.onLine === false) { connectionFailed(); return; }
-    window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready',language:document.documentElement.lang,authenticated:authenticated}));
+    send({type:'ready',language:document.documentElement.lang,authenticated:authenticated});
   }
   var authenticated = document.body.dataset.consumerAuthenticated;
   if (authenticated === 'true' || authenticated === 'false') {
