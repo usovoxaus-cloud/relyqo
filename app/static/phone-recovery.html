@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><title>Телефон и восстановление — RELYQO</title><script src="/static/i18n.js?v=polish-20261004"></script><link rel="stylesheet" href="/static/password-recovery.css"><link rel="stylesheet" href="/static/phone-recovery.css"><link rel="stylesheet" href="/static/feedback.css?v=polish-20261004"><script src="/static/phone-recovery.js" defer></script></head>
+<body><main class="recoveryShell"><a class="brand" href="/">RELYQO</a><section class="recoveryCard">
+<h1 id="title">Восстановление по SMS</h1><p id="intro"></p><p id="status" role="status"></p>
+<form id="phoneForm" hidden>
+<label for="region" data-copy="country">Страна номера</label><select id="region" name="region" autocomplete="country" required></select>
+<label for="phone" data-copy="phone">Мобильный номер</label><input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="40" aria-describedby="phoneHint" required>
+<p class="hint" id="phoneHint" data-copy="hint">Выберите страну вашего номера. Можно ввести номер с кодом страны или в местном формате.</p>
+<div id="currentFields" class="phoneFields" hidden><label for="currentPassword" data-copy="current">Текущий пароль</label><input id="currentPassword" type="password" autocomplete="current-password" minlength="8" maxlength="200"></div>
+<button id="send" type="submit" data-copy="send">Получить SMS-код</button></form>
+<form id="codeForm" hidden><label for="code" data-copy="code">Код из SMS</label><input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,10}" minlength="4" maxlength="10" required>
+<div id="passwordFields" class="phoneFields"><label for="newPassword" data-copy="newPassword">Новый пароль — от 10 символов</label><input id="newPassword" type="password" autocomplete="new-password" minlength="10" maxlength="200" required><label for="confirmPassword" data-copy="confirm">Повторите новый пароль</label><input id="confirmPassword" type="password" autocomplete="new-password" minlength="10" maxlength="200" required></div>
+<button id="verify" type="submit" data-copy="save">Сохранить новый пароль</button><button id="restart" type="button" class="secondary" data-copy="restart">Другой номер или новый код</button></form>
+<p id="message" role="status" aria-live="polite"></p><p id="error" role="alert"></p>
+<nav><a href="/forgot-password" data-copy="email">Восстановить по email</a><a href="/recover" data-copy="reserve">Использовать резервный код</a><a href="/me" data-copy="account">Войти в аккаунт</a></nav>
+</section></main></body></html>

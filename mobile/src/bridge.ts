@@ -6,23 +6,62 @@ import { ORIGIN } from './navigation.ts';
 export const MOBILE_BRIDGE = `
 (function () {
   if (location.origin !== ${JSON.stringify(ORIGIN)}) return;
+  if (window.top !== window.self) return;
+  function send(message) {
+    message.url = location.href;
+    window.ReactNativeWebView.postMessage(JSON.stringify(message));
+  }
+  // A service-worker fallback can fire onLoad without WebView's onHttpError.
+  // Report it before 'ready', preserving the saved language and native retry.
+  function connectionFailed() {
+    send({type:'connection-error'});
+  }
+  if (document.body.dataset.relyqoOffline === 'true' || navigator.onLine === false) {
+    connectionFailed();
+    return;
+  }
   if (!document.getElementById('relyqo-native-style')) {
     var style = document.createElement('style');
     style.id = 'relyqo-native-style';
     style.textContent = '.languageBar,main>header.top,main>header.homeHeader{display:none!important} body{padding-top:0!important} main.shell,main{padding-top:14px!important} .page-index .heroCard{display:none!important} input,select,textarea{font-size:16px!important} .page-nearby .results{height:auto!important;max-height:none!important}';
     document.head.appendChild(style);
   }
-  ${CONSUMER_PRESENTATION}
+  // Page layouts can evolve independently of this installed APK. A cosmetic
+  // adapter failure must never suppress session reporting and native tabs.
+  try { ${CONSUMER_PRESENTATION} } catch (_) { /* Keep the site's own layout. */ }
   if (!window.__relyqoNativeBridge) {
     window.__relyqoNativeBridge = true;
+    window.addEventListener('offline', connectionFailed);
     document.addEventListener('click', function (event) {
       if (event.target.closest && event.target.closest('#startCamera')) {
         event.preventDefault(); event.stopImmediatePropagation();
-        window.ReactNativeWebView.postMessage(JSON.stringify({type:'scan'}));
+        send({type:'scan'});
       }
     }, true);
   }
-  window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready',language:document.documentElement.lang,authenticated:document.body.dataset.consumerAuthenticated==='true'}));
+  function ready(authenticated) {
+    if (navigator.onLine === false) { connectionFailed(); return; }
+    send({type:'ready',language:document.documentElement.lang,authenticated:authenticated});
+  }
+  var authenticated = document.body.dataset.consumerAuthenticated;
+  if (authenticated === 'true' || authenticated === 'false') {
+    ready(authenticated === 'true');
+  } else {
+    // Older/public documents may omit the marker even with a valid session.
+    // Ask the existing first-party endpoint; absence is not a logout signal.
+    if (!window.__relyqoNativeSessionCheck) {
+      var controller = new AbortController();
+      var timeout = setTimeout(function () { controller.abort(); }, 8000);
+      window.__relyqoNativeSessionCheck = fetch('/v1/auth/me', {
+        credentials:'same-origin', cache:'no-store', signal:controller.signal
+      }).then(function (response) {
+        return response.ok ? response.json() : null;
+      }).then(function (user) { return !!user && user.role === 'CONSUMER'; })
+        .catch(function () { return false; })
+        .finally(function () { clearTimeout(timeout); window.__relyqoNativeSessionCheck = null; });
+    }
+    window.__relyqoNativeSessionCheck.then(ready);
+  }
 })(); true;
 `;
 

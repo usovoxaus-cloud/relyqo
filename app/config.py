@@ -19,6 +19,17 @@ class Settings:
             os.getenv("DATABASE_URL", "sqlite:///./relyqo.db")
         )
         self.resend_api_key = os.getenv("RESEND_API_KEY", "")
+        self.sms_provider = os.getenv("SMS_PROVIDER", "twilio").strip().lower()
+        self.eskiz_email = os.getenv("ESKIZ_EMAIL", "")
+        self.eskiz_password = os.getenv("ESKIZ_PASSWORD", "")
+        self.eskiz_sender = os.getenv("ESKIZ_SENDER", "4546")
+        self.eskiz_message_template = os.getenv("ESKIZ_MESSAGE_TEMPLATE", "")
+        self.sms_otp_secret = os.getenv("SMS_OTP_SECRET", "")
+        self.twilio_account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+        self.twilio_auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+        self.twilio_verify_service_sid = os.getenv("TWILIO_VERIFY_SERVICE_SID", "")
+        # Enable countries explicitly after checking provider coverage and costs.
+        self.sms_allowed_regions = os.getenv("SMS_ALLOWED_REGIONS", "")
         self.recovery_email_from = os.getenv("RECOVERY_EMAIL_FROM", "")
         self.recovery_allow_local_urls = (
             os.getenv("RECOVERY_ALLOW_LOCAL_URLS", "false").lower() == "true"

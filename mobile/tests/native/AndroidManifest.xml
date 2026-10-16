@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="uz.relyqo.mobile.navigationtest">
+  <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />
+  <application android:label="RELYQO navigation test" />
+  <instrumentation android:name="uz.relyqo.mobile.navigationtest.NavigationTest"
+    android:targetPackage="uz.relyqo.mobile.preview" android:functionalTest="true" />
+</manifest>

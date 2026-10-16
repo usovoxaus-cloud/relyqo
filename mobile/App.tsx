@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ActivityIndicator, Alert, AppState, BackHandler, Keyboard, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { getLocales } from 'expo-localization';
+import { useNetworkState } from 'expo-network';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 import { MOBILE_BRIDGE, deliverQrScript } from './src/bridge';
+import { bridgePageUrl } from './src/bridge-message';
 import { Icon } from './src/Icon';
 import { Scanner } from './src/Scanner';
 import { strings } from './src/strings';
@@ -32,8 +34,11 @@ function MobileApp() {
   const [webKey, setWebKey] = useState(0);
   const [canGoBack, setCanGoBack] = useState(false);
   const [pageState, loadEvent] = useReducer(pageLoad, 'loading');
+  const network = useNetworkState();
+  // Undefined during initial detection is not evidence of a lost connection.
+  const offline = network.isConnected === false;
   const loading = pageState === 'loading';
-  const failed = pageState === 'failed';
+  const failed = pageState === 'failed' || offline;
   const [slow, setSlow] = useState(false);
   const [scanner, setScanner] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -55,6 +60,14 @@ function MobileApp() {
   }, [uri]);
 
   const goBack = useCallback(() => { loadEvent('retry'); web.current?.goBack(); }, []);
+
+  useEffect(() => {
+    // WebView may never emit an error for a service-worker response. Keep the
+    // native error latched until retry, including a retry while still offline.
+    if (offline && pageState !== 'failed') {
+      loadEvent('error'); setAuthenticated(false); setScanner(false); setMenu(false);
+    }
+  }, [offline, pageState]);
 
   useEffect(() => {
     let alive = true;
@@ -102,6 +115,12 @@ function MobileApp() {
     setTab(tabForUrl(state.url));
     const value = languageFromUrl(state.url);
     if (value && value !== language) rememberLanguage(value);
+    // Android also sends load-start for history.replaceState / hash changes.
+    // Those documents get no subsequent onLoad: re-check the existing bridge.
+    if (!state.loading) {
+      loadEvent('success');
+      web.current?.injectJavaScript(MOBILE_BRIDGE);
+    }
   }
 
   function openExternal(url: string) {
@@ -115,18 +134,22 @@ function MobileApp() {
   }
 
   function onMessage(event: WebViewMessageEvent) {
-    if (!isInternalUrl(event.nativeEvent.url) || event.nativeEvent.data.length > 512) return;
+    if (!isInternalUrl(event.nativeEvent.url) || event.nativeEvent.data.length > 16384) return;
     try {
       const message = JSON.parse(event.nativeEvent.data);
       if (!message || typeof message !== 'object') return;
-      if (message.type === 'scan') { if (authenticated) setScanner(true); return; }
-      if (message.type !== 'ready' || event.nativeEvent.url !== currentUrl.current) return;
+      const pageUrl = bridgePageUrl(event.nativeEvent.url, message.url, currentUrl.current);
+      if (!pageUrl) return;
+      if (offline) { pageFailed(); return; }
+      if (message.type === 'connection-error') { pageFailed(); return; }
+      if (message.type === 'scan') { if (authenticated && !failed) setScanner(true); return; }
+      if (message.type !== 'ready') return;
       const signedIn = message.authenticated === true;
       setAuthenticated(signedIn);
-      if (!signedIn) { setScanner(false); setMenu(false); }
+      if (!signedIn) { pendingQr.current = null; setScanner(false); setMenu(false); }
       if (message.language === 'ru' || message.language === 'uz') rememberLanguage(message.language);
       // A queued scan is delivered once, to the rating page only; never put it in a URL, log or disk storage.
-      const path = new URL(event.nativeEvent.url).pathname;
+      const path = new URL(pageUrl).pathname;
       if (signedIn && pendingQr.current && ['/', '/consumer', '/rate'].includes(path)) {
         const token = pendingQr.current;
         pendingQr.current = null;
@@ -141,7 +164,7 @@ function MobileApp() {
     navigate(tabUrl('qr', language), true);
   }
 
-  function pageFailed() { loadEvent('error'); }
+  function pageFailed() { loadEvent('error'); setAuthenticated(false); setScanner(false); setMenu(false); }
 
   return <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
     <StatusBar style="light"/>
@@ -151,7 +174,7 @@ function MobileApp() {
       <Pressable accessibilityRole="button" accessibilityLabel={copy.language} style={styles.language} onPress={() => {
         const next = language === 'ru' ? 'uz' : 'ru'; rememberLanguage(next); navigate(withLanguage(currentUrl.current, next));
       }}><Text style={styles.languageText}>{language.toUpperCase()}</Text></Pressable>
-      {authenticated && <Pressable accessibilityRole="button" accessibilityLabel={copy.settings} style={styles.iconButton} onPress={() => setMenu(true)}><Icon name="menu" color="#eaf9f4"/></Pressable>}
+      {authenticated && !failed && <Pressable accessibilityRole="button" accessibilityLabel={copy.settings} style={styles.iconButton} onPress={() => setMenu(true)}><Icon name="menu" color="#eaf9f4"/></Pressable>}
     </View>
     <View style={styles.content}>
       {initialized && <WebView ref={web} key={webKey} source={source} style={styles.web}
@@ -170,8 +193,25 @@ function MobileApp() {
         }}
         onNavigationStateChange={navigationChanged} onMessage={onMessage}
         injectedJavaScript={MOBILE_BRIDGE}
-        onLoadStart={() => { loadEvent('start'); setAuthenticated(false); }}
-        onLoad={() => loadEvent('success')}
+        onLoadStart={({ nativeEvent }) => {
+          if (isConsumerUrl(nativeEvent.url)) currentUrl.current = nativeEvent.url;
+          if (nativeEvent.loading) loadEvent('start');
+          // Loading/history events are not logout signals. Keep the confirmed
+          // session until the next document reports its state or loading fails.
+          // Entry/recovery screens must still close native account actions.
+          if (isInternalUrl(nativeEvent.url) && ['/welcome', '/recover', '/forgot-password', '/reset-password', '/phone-recovery'].includes(new URL(nativeEvent.url).pathname)) {
+            setAuthenticated(false); setScanner(false); setMenu(false);
+          }
+        }}
+        onLoad={({ nativeEvent }) => {
+          loadEvent('success');
+          if (isConsumerUrl(nativeEvent.url)) {
+            currentUrl.current = nativeEvent.url;
+            // Re-report after navigation callbacks settle. Android can deliver
+            // the initial injected message before its final URL is reported.
+            web.current?.injectJavaScript(MOBILE_BRIDGE);
+          }
+        }}
         onError={event => { event.preventDefault(); pageFailed(); }} onHttpError={({ nativeEvent }) => { if (nativeEvent.statusCode >= 400 && nativeEvent.url === currentUrl.current) pageFailed(); }}
         onContentProcessDidTerminate={pageFailed} onRenderProcessGone={pageFailed}
         javaScriptCanOpenWindowsAutomatically={false} setSupportMultipleWindows
@@ -190,7 +230,7 @@ function MobileApp() {
         <Pressable accessibilityRole="button" style={styles.textButton} onPress={() => openExternal(currentUrl.current)}><Text style={styles.lightText}>{copy.browser}</Text></Pressable>
       </View>}
     </View>
-    {authenticated && !keyboard && <View style={styles.tabs} accessibilityRole="tablist">{tabs.map(item => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={copy[item]} accessibilityState={{ selected: item === tab }} style={styles.tab} onPress={() => item === 'qr' ? setScanner(true) : navigate(tabUrl(item, language))}>
+    {authenticated && !failed && !keyboard && <View style={styles.tabs} accessibilityRole="tablist">{tabs.map(item => <Pressable key={item} accessibilityRole="tab" accessibilityLabel={copy[item]} accessibilityState={{ selected: item === tab }} style={styles.tab} onPress={() => item === 'qr' ? setScanner(true) : navigate(tabUrl(item, language))}>
       <View style={[styles.tabIcon, item === tab && styles.activeIcon]}><Icon name={item} color={item === tab ? '#76e4c0' : '#8aa1aa'}/></View>
       <Text style={[styles.tabText, item === tab && styles.activeText]}>{copy[item]}</Text>
     </Pressable>)}</View>}

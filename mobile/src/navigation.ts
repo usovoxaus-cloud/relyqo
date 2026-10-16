@@ -54,7 +54,7 @@ export function tabForUrl(value: string): Tab {
   const path = new URL(value).pathname;
   if ((path === '/' && new URL(value).searchParams.has('token')) || path === '/rate' || path === '/community-rate' || (path === '/consumer' && new URL(value).searchParams.has('token'))) return 'qr';
   if (path === '/rankings') return 'search';
-  if (['/me', '/recover', '/forgot-password', '/reset-password', '/account-security'].some(p => path === p || path.startsWith(p + '/'))) return 'account';
+  if (['/me', '/recover', '/forgot-password', '/reset-password', '/account-security', '/account-phone', '/phone-recovery'].some(p => path === p || path.startsWith(p + '/'))) return 'account';
   return 'search';
 }
 
