@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from typing import Literal
 from sqlalchemy.orm import Session
 from .db import get_db
+from .static_assets import PUBLIC_SUFFIXES, assets
 
 language_context = ContextVar("relyqo_language", default="ru")
 _dictionary = json.loads(
@@ -62,11 +63,11 @@ def register_i18n(app, session_user):
             )
             public_asset = request.url.path.startswith("/static/") and Path(
                 request.url.path
-            ).suffix in {".js", ".css", ".json", ".svg", ".ico", ".woff2"}
+            ).suffix in PUBLIC_SUFFIXES
             if public_asset and response.status_code in {200, 304}:
-                # These bytes do not depend on language, login, or cookies. Keep ETag revalidation.
-                response.headers["Cache-Control"] = (
-                    "public, max-age=300, must-revalidate"
+                # Only verified content hashes allow long caching; legacy URLs still revalidate.
+                response.headers["Cache-Control"] = assets.cache_control(
+                    request.url.path, request.query_params.getlist("v")
                 )
             else:
                 response.headers["Content-Language"] = selected
