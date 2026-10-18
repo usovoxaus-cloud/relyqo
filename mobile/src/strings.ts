@@ -2,7 +2,7 @@ export const strings = {
   ru: {
     country: 'Узбекистан', search: 'Найти', qr: 'Оценить', top: 'Рейтинги', account: 'Профиль',
     back: 'Назад', settings: 'Меню приложения', close: 'Закрыть', loading: 'Открываем RELYQO…',
-    slow: 'Сервер просыпается. Первый запуск может занять около минуты.',
+    slow: 'Загрузка занимает больше времени, чем обычно. Проверьте интернет-соединение.',
     failed: 'Не удалось подключиться', offline: 'Проверьте интернет и попробуйте ещё раз. Ваш аккаунт сохранён.',
     retry: 'Повторить', browser: 'Открыть в браузере', scanTitle: 'Оцените посещение',
     scanHint: 'Наведите камеру на одноразовый QR RELYQO с чека.',
@@ -22,7 +22,7 @@ export const strings = {
   uz: {
     country: 'O‘zbekiston', search: 'Qidiruv', qr: 'Baholash', top: 'Reytinglar', account: 'Profil',
     back: 'Orqaga', settings: 'Ilova menyusi', close: 'Yopish', loading: 'RELYQO ochilmoqda…',
-    slow: 'Server ishga tushmoqda. Birinchi ochilish bir daqiqacha vaqt olishi mumkin.',
+    slow: 'Yuklash odatdagidan ko‘proq vaqt olmoqda. Internet aloqasini tekshiring.',
     failed: 'Ulanib bo‘lmadi', offline: 'Internetni tekshiring va qayta urinib ko‘ring. Profilingiz saqlangan.',
     retry: 'Qayta urinish', browser: 'Brauzerda ochish', scanTitle: 'Tashrifni baholang',
     scanHint: 'Kamerani chekdagi bir martalik RELYQO QR-kodiga qarating.',
