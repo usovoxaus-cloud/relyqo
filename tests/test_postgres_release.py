@@ -35,6 +35,8 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     # Remove only the new, empty tables to reproduce an actual pre-0024 schema.
     with engine.begin() as c:
         for table in (
+            "phone_challenges",
+            "account_phones",
             "request_email_jobs",
             "request_email_preferences",
             "service_request_reads",
@@ -150,7 +152,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0031"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0033"
         assert len(list(db.scalars(select(AuditLog).where(AuditLog.action.like("LOCATION_QUARANTINED_0031:%"))))) == 3
         for table, record_id, *_ in cleanup_migration().REPAIRS:
             card = db.get(ManualPlace if table == "manual_places" else Branch, record_id)

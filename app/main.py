@@ -43,6 +43,7 @@ from .admin_workflow import register_admin_workflow
 from .scheduled_backups import register_scheduled_backups
 from .operations import register_operations_routes
 from .i18n import register_i18n
+from .phone_recovery import register_phone_routes
 from .password_recovery import (
     register_recovery_routes,
     issue_email,
@@ -4720,6 +4721,7 @@ register_consumer_entry(app, session_user)
 
 # Consumer recovery extends the same users, password hashes and session revocation.
 register_recovery_routes(app, session_user, revoke_user_sessions)
+register_phone_routes(app, session_user, revoke_user_sessions)
 
 register_category_routes(app, session_user)
 register_admin_directory(app, session_user)
