@@ -24,6 +24,7 @@
     <form id="createRequestForm">
       <label for="requestText">Что нужно исправить?</label><textarea id="requestText" data-user-content required minlength="10" maxlength="2000" rows="5" placeholder="Опишите ситуацию и какой результат вы ожидаете"></textarea>
       <p class="muted small">От 10 до 2000 символов. Не указывайте пароли, данные карты и документы.</p>
+      <div class="draftTools" id="requestDraftTools"><p class="muted small">Черновик сохраняется в вашем аккаунте. Организация получит текст только после отправки.</p><div class="actions"><button id="requestDraftSave" class="secondary" type="button">Сохранить черновик</button><button id="requestDraftRestore" class="secondary" type="button">Восстановить черновик</button><button id="requestDraftDelete" class="secondary" type="button">Удалить черновик</button></div><p id="requestDraftStatus" class="muted small" role="status" aria-live="polite"></p></div>
       <label class="check"><input id="shareConsent" type="checkbox" required><span>Согласен передать текст этого обращения и дальнейшей переписки подтверждённой организации и администратору RELYQO. Мой исходный комментарий, причины оценки, фотографии и данные аккаунта не передаются.</span></label>
       <button type="submit">Отправить обращение</button>
     </form>
@@ -40,7 +41,7 @@
     <p id="recipient" class="muted" hidden><span>Получатель:</span> <b id="recipientName" data-user-content></b></p>
     <div id="messages" class="messages" aria-label="Переписка"></div>
     <div id="requestActions" class="actions"></div>
-    <form id="replyForm" hidden><label for="replyText">Ваше сообщение</label><textarea id="replyText" data-user-content required minlength="2" maxlength="2000" rows="4"></textarea><button id="sendReply" type="submit">Отправить сообщение</button></form>
+    <form id="replyForm" hidden><label for="replyText">Ваше сообщение</label><textarea id="replyText" data-user-content required minlength="2" maxlength="2000" rows="4"></textarea><div class="draftTools" id="replyDraftTools"><p class="muted small">Черновик сохраняется в вашем аккаунте. Организация получит текст только после отправки.</p><div class="actions"><button id="replyDraftSave" class="secondary" type="button">Сохранить черновик</button><button id="replyDraftRestore" class="secondary" type="button">Восстановить черновик</button><button id="replyDraftDelete" class="secondary" type="button">Удалить черновик</button></div><p id="replyDraftStatus" class="muted small" role="status" aria-live="polite"></p></div><button id="sendReply" type="submit">Отправить сообщение</button></form>
     <section id="assignment" hidden>
       <h3>Подключить организацию</h3><p class="muted">Проверьте название, адрес и владельца. Отправляйте обращение только в кабинет той организации, которую оценил потребитель.</p>
       <form id="branchSearch"><label for="branchQuery">Название организации</label><div class="searchRow"><input id="branchQuery" required minlength="2" maxlength="100"><button type="submit">Найти</button></div></form>

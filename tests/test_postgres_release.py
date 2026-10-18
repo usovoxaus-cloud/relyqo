@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import User, Organization, Branch, Visit, Rating, RatingPhoto, AppContent, ServiceRequest, ServiceMessage
 from app.models import ServiceRequestRead, RepresentationClaim, ServiceRepresentative
-from app.models import RequestEmailPreference, RequestEmailJob, AuditLog, ManualPlace
+from app.models import RequestEmailPreference, RequestEmailJob, AuditLog, ManualPlace, RequestDraft
 from test_location_cleanup import cleanup_migration, seed_bad_locations
 from app.analytics import AnalyticsFilter, build_report
 from app.backups import create_snapshot, restore_snapshot
@@ -35,6 +35,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
     # Remove only the new, empty tables to reproduce an actual pre-0024 schema.
     with engine.begin() as c:
         for table in (
+            "request_drafts",
             "request_email_jobs",
             "request_email_preferences",
             "service_request_reads",
@@ -112,6 +113,7 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         db.add(request)
         db.flush()
         db.add(ServiceMessage(request_id=request.id, author_id=request.consumer_user_id, side="CONSUMER", body="Shared PostgreSQL fixture"))
+        db.add(RequestDraft(user_id=request.consumer_user_id, kind="reply", context_id=request.id, body="Private PostgreSQL draft"))
         db.add(ServiceRequestRead(user_id=request.consumer_user_id, request_id=request.id, version=1))
         claim = RepresentationClaim(user_id=request.consumer_user_id, object_key=request.object_key, contact="fixture@example.test", evidence="Independent PostgreSQL fixture", status="APPROVED")
         db.add(claim)
@@ -150,7 +152,8 @@ def test_postgres_additive_migration_and_independent_restore(monkeypatch):
         assert db.get(AppContent, "home").version == 1
         assert "Sinov" in db.get(AppContent, "home").content_json
         assert db.scalar(select(RatingPhoto.image_data)) == b"fixture-photo-bytes"
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0031"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0032_request_drafts"
+        assert db.scalar(select(RequestDraft.body)) == "Private PostgreSQL draft"
         assert len(list(db.scalars(select(AuditLog).where(AuditLog.action.like("LOCATION_QUARANTINED_0031:%"))))) == 3
         for table, record_id, *_ in cleanup_migration().REPAIRS:
             card = db.get(ManualPlace if table == "manual_places" else Branch, record_id)

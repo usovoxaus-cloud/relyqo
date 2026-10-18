@@ -345,6 +345,20 @@ class ServiceMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
+class RequestDraft(Base):
+    __tablename__ = "request_drafts"
+    __table_args__ = (
+        CheckConstraint("kind IN ('new','reply')", name="ck_request_draft_kind"),
+        CheckConstraint("version > 0", name="ck_request_draft_version"),
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(10), primary_key=True)
+    context_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    body: Mapped[str] = mapped_column(Text)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now)
+
+
 class ServiceRequestRead(Base):
     __tablename__ = "service_request_reads"
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)

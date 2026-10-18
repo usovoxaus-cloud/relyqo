@@ -7,7 +7,7 @@ const script=fs.readFileSync('app/static/service-requests.js','utf8');
 const dictionary=JSON.parse(fs.readFileSync('app/static/i18n-uz.json','utf8'));
 const settle=async()=>{for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));};
 const base={id:'request-one',version:1,status:'ANSWERED',organization:{name:'Fixture organization',address:'Fixture address'},created_at:'2026-10-05T00:00:00Z',updated_at:'2026-10-05T00:00:00Z',messages:[{side:'BUSINESS',body:'An answer',created_at:'2026-10-05T00:00:00Z'}]};
-async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',lang='ru',fail=false,pending=false,auth=false,network=false,message='An answer'}={}){
+async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',lang='ru',fail=false,pending=false,auth=false,network=false,message='An answer',draftStore=new Map()}={}){
   const {window,document}=parseHTML(html),calls=[],saved=[];
   document.documentElement.lang=lang;
   window.HTMLElement.prototype.scrollIntoView=function(){};
@@ -23,6 +23,15 @@ async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',
     const body=options.body?JSON.parse(options.body):null;calls.push({url,body});
     const reply=(data,status=200)=>({ok:status<400,status,json:async()=>data});
     if(auth)return reply({detail:'Войдите в аккаунт'},401);
+    if(url.startsWith('/v1/request-drafts/')) {
+      const key=url.split('?')[0].replace(/\/remove$/,'');
+      const prior=draftStore.get(key);
+      if(!body)return reply({draft:prior?structuredClone(prior):null});
+      if(network)throw new TypeError('Failed to fetch');
+      if(body.version!==(prior?.version||0))return reply({detail:'Черновик изменён в другом окне. Загрузите сохранённую версию перед изменением.'},409);
+      if(url.includes('/remove?')){draftStore.delete(key);return reply({draft:null});}
+      const draft={message:body.message.trim(),version:body.version+1};draftStore.set(key,draft);return reply({draft});
+    }
     if(url.includes('/read?'))return reply({read:true});
     if(body){
       if(network)throw new TypeError('Failed to fetch');
@@ -40,8 +49,38 @@ async function setup({mode='consumer',status='ANSWERED',query='?id=request-one',
   const get=id=>document.getElementById(id);
   const submit=id=>get(id).dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
   const button=text=>[...get('requestActions').querySelectorAll('button')].find(b=>b.textContent===text);
-  return{window,document,get,calls,saved,submit,button,release:()=>resolvePost?.(),item:()=>item};
+  return{window,document,get,calls,saved,submit,button,draftStore,release:()=>resolvePost?.(),item:()=>item};
 }
+
+test('draft persists only after explicit save and restores after page closure',async()=>{
+  const draftStore=new Map();const x=await setup({query:'?rating_id=own-rating',draftStore});
+  x.get('requestText').value='Private unfinished request';x.get('requestText').dispatchEvent(new x.window.Event('input'));
+  assert.equal(draftStore.size,0);assert(!x.get('requestDraftSave').disabled);
+  x.get('requestDraftSave').click();await settle();assert.equal(draftStore.size,1);
+  assert.equal(x.saved.length,0);assert(!x.get('shareConsent').checked);
+  assert.match(x.get('requestDraftStatus').textContent,/сохранён/);
+  const reopened=await setup({query:'?rating_id=own-rating',draftStore});
+  assert.equal(reopened.get('requestText').value,'Private unfinished request');
+  assert(!reopened.get('shareConsent').checked);
+});
+
+test('conflicting draft save preserves typed text and explicit restore reloads newer version',async()=>{
+  const draftStore=new Map();const first=await setup({draftStore}),second=await setup({draftStore});
+  first.get('replyText').value='First window saved';first.get('replyText').dispatchEvent(new first.window.Event('input'));
+  first.get('replyDraftSave').click();await settle();
+  second.get('replyText').value='Second window unsent';second.get('replyText').dispatchEvent(new second.window.Event('input'));
+  second.get('replyDraftSave').click();await settle();
+  assert.equal(second.get('replyText').value,'Second window unsent');assert(!second.get('requestError').hidden);
+  second.get('replyDraftRestore').click();await settle();assert.equal(second.get('replyText').value,'First window saved');
+});
+
+test('failed draft save retains text and deletion does not send a message',async()=>{
+  const x=await setup({network:true});x.get('replyText').value='Keep my text';x.get('replyText').dispatchEvent(new x.window.Event('input'));
+  x.get('replyDraftSave').click();await settle();assert.equal(x.get('replyText').value,'Keep my text');assert.equal(x.draftStore.size,0);
+  const saved=await setup();saved.get('replyText').value='Saved then deleted';saved.get('replyText').dispatchEvent(new saved.window.Event('input'));
+  saved.get('replyDraftSave').click();await settle();saved.get('replyDraftDelete').click();await settle();
+  assert.equal(saved.draftStore.size,0);assert.equal(saved.get('replyText').value,'Saved then deleted');assert.equal(saved.saved.length,0);
+});
 
 test('new conversation needs unchecked explicit consent and never copies original rating text',async()=>{
   const x=await setup({query:'?rating_id=own-rating'});
@@ -59,6 +98,15 @@ test('only the consumer sees resolution; owners can take open requests into work
   consumer.get('replyText').value='Still need help';consumer.submit('replyForm');await settle();assert.equal(consumer.saved[1].action,'reopen');
   const owner=await setup({mode:'business',status:'OPEN'});assert(owner.button('Взять в работу'));assert(!owner.button('Проблема решена'));assert(!owner.button('Отозвать обращение'));
   const admin=await setup({mode:'admin',status:'WAITING_ORGANIZATION'});assert(admin.get('replyForm').hidden);assert(!admin.get('assignment').hidden);
+});
+
+test('changing request status never erases an unsent reply',async()=>{
+  const consumer=await setup();consumer.get('replyText').value='Keep this unsent reply';
+  consumer.button('Проблема решена').click();await settle();
+  assert.equal(consumer.get('replyText').value,'Keep this unsent reply');
+  const owner=await setup({mode:'business',status:'OPEN'});owner.get('replyText').value='Preparing a response';
+  owner.button('Взять в работу').click();await settle();
+  assert.equal(owner.get('replyText').value,'Preparing a response');
 });
 
 test('stale update preserves draft and refresh keeps it available',async()=>{
