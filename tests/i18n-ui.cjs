@@ -68,6 +68,14 @@ test('a missing dictionary retries once and reloads a consistent Russian page',a
   const x=await setup({failed:true});assert.equal(x.requests.length,2);assert.equal(x.navigations[0],'/me?lang=ru#account');assert.equal(x.storage.get('relyqo_language'),'ru');
 });
 
+test('Uzbek loads the versioned dictionary while Russian does not download it',async()=>{
+  const url='/static/i18n-uz.json?v='+ 'a'.repeat(64);
+  const html='<html><head><meta name="relyqo-dictionary" content="'+url+'"></head><body></body></html>';
+  const uz=await setup({html});assert.equal(uz.requests.length,1);assert.equal(uz.requests[0].url,url);
+  assert.equal(uz.requests[0].options.cache,'default');
+  const ru=await setup({html,query:'?lang=ru'});assert.equal(ru.requests.length,0);
+});
+
 const protectedContent='script,style,code,[data-user-content],[translate="no"],.languageBar,#placeName,#placeAddress,#organizationTitle,#organizationLead,#username,#name,#description,#assistantAnswer,#aiText,#analysis,#photoAnalysis';
 function untranslated(document) {
   const missing=[];

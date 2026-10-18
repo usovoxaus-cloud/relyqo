@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .web_ui import STATIC
+from .static_assets import assets
 
 CONSUMER_PAGES = {
     "/", "/consumer", "/rate", "/nearby", "/community-rate", "/place",
@@ -73,7 +74,8 @@ def register_consumer_entry(app, session_user):
         except HTTPException as error:
             if error.status_code not in {401, 403}:
                 raise
-            return HTMLResponse((STATIC / "welcome.html").read_text(encoding="utf-8"), headers=headers)
+            content = (STATIC / "welcome.html").read_text(encoding="utf-8")
+            return HTMLResponse(assets.html(content), headers=headers)
         destination = safe_destination(request.query_params.get("return_to", "/consumer"))
         language = request.query_params.get("lang")
         if language in {"ru", "uz"}:

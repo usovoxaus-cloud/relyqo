@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi.responses import HTMLResponse
 
 from .config import settings
+from .static_assets import assets
 
 STATIC = Path(__file__).parent / "static"
 CONSUMER_TABS = (
@@ -44,4 +45,4 @@ def consumer_html(filename: str, *, active_tab: str | None = None) -> HTMLRespon
     ).replace(
         "</body>", '<script src="/static/ads.js?v=ads-3"></script></body>', 1,
     )
-    return HTMLResponse(content, headers={"Cache-Control": "no-store, max-age=0"})
+    return HTMLResponse(assets.html(content), headers={"Cache-Control": "no-store, max-age=0"})
