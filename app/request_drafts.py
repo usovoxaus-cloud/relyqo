@@ -30,10 +30,14 @@ def draft_key(user_id, kind, context_id):
             RequestDraft.context_id == context_id)
 
 
-def clear_sent_draft(db, user_id, kind, context_id, message):
+def clear_sent_draft(db, user_id, kind, context_id, message, created_request_id=None):
     # A newer draft from another device must not be deleted by an older send.
     db.execute(delete(RequestDraft).where(*draft_key(user_id, kind, context_id),
                                          RequestDraft.body == message))
+    if created_request_id:
+        # Keep a different, newer first-message draft reachable in the new conversation.
+        db.execute(update(RequestDraft).where(*draft_key(user_id, kind, context_id))
+                   .values(kind="reply", context_id=created_request_id))
 
 
 def register_request_drafts(app, session_user):

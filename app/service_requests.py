@@ -225,7 +225,7 @@ def register_service_requests(app, session_user):
             mark_read(db, user.id, item.id, item.version)
             audit(db, user, item, "CREATED")
             queue_request_notifications(db, item, user.id)
-            clear_sent_draft(db, user.id, "new", body.rating_id, message)
+            clear_sent_draft(db, user.id, "new", body.rating_id, message, item.id)
             db.commit()
             wake.set()
         except IntegrityError:

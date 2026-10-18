@@ -93,6 +93,19 @@ def test_business_draft_is_not_visible_to_consumer_admin_or_another_owner(conver
     assert c('owner').get(url).status_code == 401
 
 
+def test_newer_unsent_first_message_stays_reachable_after_another_device_sends(conversations):
+    c, factory, ids, _ = conversations
+    user = c('consumer')
+    user.post(path('new', ids['rating']), json={'message': 'Newer private unsent text', 'version': 0})
+    item = create(user, ids['rating'])
+    reply = path('reply', item['id'])
+    assert user.get(reply).json()['draft']['message'] == 'Newer private unsent text'
+    assert 'Newer private unsent text' not in json.dumps(c('owner').get('/v1/service-requests/'+item['id']).json())
+    assert user.post(reply+'/remove', json={'version': 1}).status_code == 200
+    with factory() as db:
+        assert db.scalar(select(RequestDraft)) is None
+
+
 def test_draft_requires_valid_context_and_bounded_text(conversations):
     c, _, ids, _ = conversations
     url = path('new', ids['rating'])
