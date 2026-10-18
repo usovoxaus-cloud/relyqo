@@ -7,12 +7,66 @@
   const mode = location.pathname.startsWith('/admin/') ? 'admin' : location.pathname.startsWith('/business/') ? 'business' : 'consumer';
   const statuses = {WAITING_ORGANIZATION:'Ожидает подключения организации',OPEN:'Передано организации',IN_PROGRESS:'В работе',ANSWERED:'Организация ответила',RESOLVED:'Решено потребителем',WITHDRAWN:'Обращение отозвано'};
   let selected = null, offset = 0, busy = false, detailGeneration = 0;
+  const drafts = {request: {kind:'new', context:null, version:0, message:'', known:false, generation:0}, reply: {kind:'reply', context:null, version:0, message:'', known:false, generation:0}};
+  function dirtyDraft(name) {
+    const state = drafts[name], value = $(name+'Text').value.trim();
+    return Boolean(value && (!state.known || value !== state.message));
+  }
+  function draftControls(name) {
+    const state = drafts[name];
+    $(name+'DraftSave').disabled = busy || !state.context || !state.known || !$(name+'Text').value.trim();
+    $(name+'DraftRestore').disabled = busy || !state.context;
+    $(name+'DraftDelete').disabled = busy || !state.context || !state.version;
+  }
+  function draftUrl(state) {
+    return '/v1/request-drafts/'+state.kind+'/'+encodeURIComponent(state.context);
+  }
+  async function loadDraft(name, context, replace = false) {
+    const state = drafts[name], generation = ++state.generation, before = $(name+'Text').value;
+    state.context = context;
+    if (!context) { state.known=false; state.version=0; state.message=''; draftControls(name); return; }
+    try {
+      const result = await api(draftUrl(state));
+      if (generation !== state.generation || context !== state.context) return;
+      state.version=result.draft?.version || 0; state.message=result.draft?.message || ''; state.known=true;
+      if (result.draft && $(name+'Text').value === before && (!before || replace)) $(name+'Text').value=state.message;
+      text(name+'DraftStatus', result.draft ? (dirtyDraft(name) ? 'Есть несохранённые изменения.' : 'Черновик восстановлен.') : 'Сохранённого черновика нет.');
+    } catch (error) {
+      if (generation !== state.generation || context !== state.context) return;
+      state.known=false;
+      text(name+'DraftStatus','Не удалось загрузить черновик. Текст в форме сохранён. Нажмите «Восстановить черновик» для повтора.');
+      if (error.message) showError(error);
+    } finally { draftControls(name); }
+  }
+  for (const name of ['request','reply']) {
+    $(name+'Text').addEventListener('input',()=>{
+      text(name+'DraftStatus',dirtyDraft(name)?'Есть несохранённые изменения.':drafts[name].version?'Черновик сохранён.':'Сохранённого черновика нет.'); draftControls(name);
+    });
+    $(name+'DraftSave').addEventListener('click',()=>run(async()=>{
+      const state=drafts[name];
+      if (!state.known || !state.context) return;
+      const result=await api(draftUrl(state),{message:$(name+'Text').value,version:state.version});
+      state.version=result.draft.version;state.message=result.draft.message;
+      text(name+'DraftStatus','Черновик сохранён.');
+    }));
+    $(name+'DraftRestore').addEventListener('click',()=>run(async()=>{
+      if (dirtyDraft(name) && !window.confirm(t('Заменить неотправленный текст сохранённым черновиком?'))) return;
+      await loadDraft(name,drafts[name].context,true);
+    }));
+    $(name+'DraftDelete').addEventListener('click',()=>run(async()=>{
+      const state=drafts[name];
+      if (!state.version || !window.confirm(t('Удалить сохранённый черновик? Текст в форме останется.'))) return;
+      await api(draftUrl(state)+'/remove',{version:state.version});
+      state.version=0;state.message='';text(name+'DraftStatus','Сохранённый черновик удалён.');
+    }));
+    draftControls(name);
+  }
   function text(id, value) { $(id).textContent = t(value); }
   function showError(error) { text('requestError', error.message); $('requestError').hidden = false; }
   function clearError() { $('requestError').hidden = true; }
   function date(value) { return new Date(value).toLocaleString(document.documentElement.lang === 'uz' ? 'uz-UZ' : 'ru-RU', {dateStyle:'short',timeStyle:'short'}); }
   async function api(url, body) {
-    if(url.startsWith('/v1/service-requests'))url+=(url.includes('?')?'&':'?')+'view='+mode;
+    if(url.startsWith('/v1/service-requests') || url.startsWith('/v1/request-drafts'))url+=(url.includes('?')?'&':'?')+'view='+mode;
     let response, data;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
@@ -36,7 +90,7 @@
     const controls = '.requestsShell button,.requestsShell input,.requestsShell textarea,.requestsShell select';
     document.querySelectorAll(controls).forEach(control => { control.disabled = true; });
     try { await task(); } catch (error) { showError(error); }
-    finally { busy = false; document.querySelectorAll(controls).forEach(control => { control.disabled = false; }); }
+    finally { busy = false; document.querySelectorAll(controls).forEach(control => { control.disabled = false; }); for (const name of ['request','reply']) draftControls(name); }
   }
   function element(tag, value, authored = false) {
     const node = document.createElement(tag); node.textContent = authored ? value : t(value);
@@ -115,15 +169,22 @@
     const generation = ++detailGeneration;
     const item = await api('/v1/service-requests/' + encodeURIComponent(id));
     if (generation !== detailGeneration) return;
-    if (selected?.id !== id && $('replyText').value && !window.confirm(t('Открыть другое обращение и удалить неотправленный текст?'))) return;
-    if (selected?.id !== id) $('replyText').value = '';
+    const changed = selected?.id !== id;
+    if (changed && dirtyDraft('reply') && !window.confirm(t('Открыть другое обращение и удалить неотправленный текст?'))) return;
+    if (changed) $('replyText').value = '';
     renderConversation(item);
+    if (!$('replyForm').hidden && (changed || !drafts.reply.known)) await loadDraft('reply',id);
     try{await api('/v1/service-requests/'+encodeURIComponent(id)+'/read',{version:item.version});window.dispatchEvent(new window.Event('relyqo-inbox-updated'));await loadList();}catch(error){showError(error);}
     if (focus) { $('conversation').focus({preventScroll:true}); $('conversation').scrollIntoView({behavior:'smooth',block:'start'}); }
   }
   async function sendAction(action, message = '') {
     const item = await api('/v1/service-requests/' + encodeURIComponent(selected.id) + '/actions', {version:selected.version,action,message});
-    renderConversation(item); $('replyText').value = '';
+    renderConversation(item);
+    if (['reply','reopen'].includes(action)) {
+      $('replyText').value = '';
+      drafts.reply.version=0;drafts.reply.message='';
+      if (!$('replyForm').hidden) await loadDraft('reply',item.id);
+    }
     text('actionNotice','Сохранено'); $('actionNotice').hidden = false;
     await loadList();
     window.dispatchEvent(new window.Event('relyqo-inbox-updated'));
@@ -135,12 +196,15 @@
     $('newOrganization').textContent = data.organization.name; $('newAddress').textContent = data.organization.address;
     text('deliveryNote',data.ready ? 'Сообщение получит подтверждённая организация. Ответ появится в разделе «Ответы организаций».' : 'Кабинет организации ещё не подключён. Администратор проверит получателя. Срок ответа пока неизвестен.');
     $('newRequest').hidden = false;
+    await loadDraft('request',ratingId);
   }
   $('createRequestForm').addEventListener('submit', event => { event.preventDefault(); run(async () => {
     if (!$('shareConsent').checked) throw new Error(t('Подтвердите согласие на передачу текста организации'));
     const item = await api('/v1/service-requests',{rating_id:params.get('rating_id'),message:$('requestText').value,consent:$('shareConsent').checked});
     $('newRequest').hidden = true; $('requestText').value = ''; $('shareConsent').checked = false;
+    await loadDraft('request',null);
     renderConversation(item); await loadList(); $('conversation').scrollIntoView({behavior:'smooth',block:'start'});
+    if (!$('replyForm').hidden) await loadDraft('reply',item.id);
   }); });
   $('replyForm').addEventListener('submit',event => { event.preventDefault(); run(() => sendAction(selected.status === 'RESOLVED' ? 'reopen' : 'reply',$('replyText').value)); });
   $('reloadList').addEventListener('click',() => run(() => loadList()));
@@ -171,7 +235,7 @@
   if(mode==='admin')$('claimsAdminLink').hidden=false;
   if(mode==='business'){$('backLink').href='/representative';$('loginLink').href='/me?return_to='+encodeURIComponent(location.pathname+location.search);$('ownerLoginLink').hidden=false;}
   if(['ALL','UNREAD','NEEDS_REPLY','OVERDUE','WAITING_ORGANIZATION','ANSWERED','RESOLVED','WITHDRAWN'].includes(params.get('filter')))$('requestFilter').value=params.get('filter');
-  // Drafts stay only in memory and are never stored in browser storage.
-  window.addEventListener('beforeunload',event => { if ($('replyText').value || $('requestText').value) { event.preventDefault(); event.returnValue = ''; } });
+  // Only an explicit save persists text behind account authorization; never browser storage.
+  window.addEventListener('beforeunload',event => { if (dirtyDraft('reply') || dirtyDraft('request')) { event.preventDefault(); event.returnValue = ''; } });
   Promise.resolve(window.relyqoLanguageReady).then(() => run(async () => { await loadList(); await setupCreate(); if(params.get('id')) await openConversation(params.get('id')); }));
 })();

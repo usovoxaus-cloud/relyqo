@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Request, APIRouter, Cookie, Depends, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy import false, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -16,7 +16,9 @@ from .models import (AuditLog, Branch, CommunityRating, ManualPlace, Organizatio
                      Rating, ServiceMessage, ServiceRequest, User, Visit)
 from .password_recovery import limited
 from .request_notifications import queue_request_notifications, wake
+from .request_drafts import clear_sent_draft, register_request_drafts
 from .consumer_entry import require_consumer_page
+from .static_assets import assets
 from .request_engagement import (active_representative, decorate_rows, mark_read, overdue_condition,
                                  represented_keys, statistics, unread_condition)
 
@@ -175,10 +177,10 @@ def register_service_requests(app, session_user):
     @app.get("/business/requests", include_in_schema=False)
     @app.get("/admin/requests", include_in_schema=False)
     def page(request: Request):
+        content = (Path(__file__).parent / "static" / "service-requests.html").read_text(encoding="utf-8")
         if request.url.path == "/me/requests":
-            content = (Path(__file__).parent / "static" / "service-requests.html").read_text(encoding="utf-8")
-            return HTMLResponse(content.replace("<body", '<body data-consumer-authenticated="true"', 1), headers={"Cache-Control": "no-store"})
-        return FileResponse(Path(__file__).parent / "static" / "service-requests.html", headers={"Cache-Control": "no-store"})
+            content = content.replace("<body", '<body data-consumer-authenticated="true"', 1)
+        return HTMLResponse(assets.html(content), headers={"Cache-Control": "no-store"})
 
     @api.get("/v1/service-requests/context")
     def context(rating_id: str = Query(max_length=36), db: Session = Depends(get_db),
@@ -223,6 +225,7 @@ def register_service_requests(app, session_user):
             mark_read(db, user.id, item.id, item.version)
             audit(db, user, item, "CREATED")
             queue_request_notifications(db, item, user.id)
+            clear_sent_draft(db, user.id, "new", body.rating_id, message, item.id)
             db.commit()
             wake.set()
         except IntegrityError:
@@ -329,6 +332,7 @@ def register_service_requests(app, session_user):
         if body.action in {"reply", "reopen"}:
             db.add(ServiceMessage(request_id=item.id, author_id=user.id,
                                   side="BUSINESS" if owner else "CONSUMER", body=message))
+            clear_sent_draft(db, user.id, "reply", item.id, message)
         audit(db, user, item, body.action.upper())
         mark_read(db, user.id, item.id, item.version)
         queue_request_notifications(db, item, user.id)
@@ -337,3 +341,4 @@ def register_service_requests(app, session_user):
         return serialize(db, item, user, True)
 
     app.include_router(api)
+    register_request_drafts(app, session_user)
