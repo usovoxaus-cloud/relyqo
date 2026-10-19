@@ -2325,5 +2325,7 @@
   "Обращение уже отправлено. Откройте переписку.": "Murojaat allaqachon yuborilgan. Yozishmani oching.",
   "Введите текст черновика": "Qoralama matnini kiriting",
   "Слишком много изменений. Попробуйте позже.": "O‘zgarishlar juda ko‘p. Keyinroq urinib ko‘ring.",
-  "Сохранено 20 черновиков. Удалите ненужный черновик.": "20 ta qoralama saqlangan. Keraksiz qoralamani o‘chiring."
+  "Сохранено 20 черновиков. Удалите ненужный черновик.": "20 ta qoralama saqlangan. Keraksiz qoralamani o‘chiring.",
+  "Сервер долго не отвечает. Проверьте связь и повторите попытку.": "Server uzoq vaqt javob bermayapti. Aloqani tekshiring va qayta urinib ko‘ring.",
+  "Нет связи с сервером. Проверьте интернет и повторите попытку.": "Server bilan aloqa yo‘q. Internetni tekshiring va qayta urinib ko‘ring."
 }
