@@ -884,3 +884,28 @@ test('list name and address search rejects unrelated provider results without br
   assert(!x.calls.find(c=>c.text).text.textQuery.includes('Образование'));
   assert.equal(x.gps(),0);
 });
+
+test('medical-center name searches remain visible in the Health sector in both interface languages',async()=>{
+  for(const uz of [false,true]){
+    const clinic={...externalPlace('medical-center'),displayName:uz?'COMPLEXMED-CLINIC':'Complex Med Clinic',primaryType:'medical_center'};
+    const x=await harness({uz,search:'?find=search&q=Complex%20med',localPlaces:[],textSearch:()=>({places:[clinic]})});
+    await chooseSector(x,'HEALTH');await x.runTimer(350);
+    assert.deepEqual(names(x),[clinic.displayName]);
+    assert.equal(vm.runInContext('lastCityPlaces[0].category',x.context),'HEALTH');
+    assert.equal(x.gps(),0);
+    assert(!x.calls.some(c=>c.method && c.method!=='GET'));
+  }
+});
+
+test('name search accepts Cyrillic, joined words and partial names without unrelated medical results',async()=>{
+  for(const query of ['Комплекс мед','комплекс','ComplexMed','complex med','COMPLEX-MED']){
+    const clinic={...externalPlace('clinic'),displayName:'Complex Med Clinic',primaryType:'medical_center'};
+    const unrelated={...externalPlace('other-clinic'),displayName:'Central-Med',primaryType:'medical_clinic'};
+    const x=await harness({search:'?find=search&q='+encodeURIComponent(query),localPlaces:[],textSearch:()=>({places:[clinic,unrelated]})});
+    await x.runTimer(350);
+    assert.deepEqual(names(x),['Complex Med Clinic'],query);
+    assert(!x.calls.some(c=>c.url==='/v1/public/search/plan'));
+    await chooseSector(x,'FOOD');await x.runTimer(350);
+    assert.deepEqual(names(x),[],'explicit sector still applies');
+  }
+});
