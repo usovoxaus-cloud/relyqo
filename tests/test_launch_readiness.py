@@ -190,6 +190,27 @@ def test_manual_place_without_gps_is_searchable_in_both_alphabets(fixture):
     assert search_matches('ўқув','o‘quv') and search_matches('Фрегат','Fregat')
 
 
+def test_name_search_accepts_spelling_variants_without_bypassing_sector(fixture):
+    client = TestClient(app)
+    for index, name in enumerate(['Complex Med Clinic', 'Central-Med']):
+        created = client.post('/v1/public/manual-places', json={
+            'name': name, 'category': 'HEALTH', 'city': 'Tashkent',
+            'country_code': 'UZ', 'address': f'Fixture street {index + 1}',
+        })
+        assert created.status_code == 200, created.text
+    for query in ["Complex med", "Комплекс мед", "комплекс", "ComplexMed", "COMPLEX-MED"]:
+        params = {"q": query, "include_unrated": True, "category": "HEALTH"}
+        reply = client.get('/v1/public/rated-organizations', params=params)
+        assert reply.status_code == 200, reply.text
+        assert [item['name'] for item in reply.json()['items']] == ['Complex Med Clinic']
+        params['category'] = 'FOOD'
+        assert client.get('/v1/public/rated-organizations', params=params).json()['items'] == []
+    assert search_matches('Скопус', 'SCOPUS')
+    assert search_matches('complex med', 'Комплекс-Мед')
+    assert search_matches('ўқув', 'O‘quv markazi')
+    assert not search_matches('Complex med', 'Central-Med')
+
+
 def test_startup_retries_connection_but_does_not_expose_credentials():
     from contextlib import contextmanager
     from sqlalchemy.exc import OperationalError

@@ -83,7 +83,7 @@ const googlePlaceTypes = {
   ALL: [
     "restaurant", "cafe", "coffee_shop", "bakery", "bar", "food_court",
     "hotel", "motel", "hostel", "beauty_salon", "hair_salon", "barber_shop",
-    "spa", "hospital", "medical_clinic", "doctor", "dentist", "pharmacy",
+    "spa", "hospital", "medical_center", "medical_clinic", "doctor", "dentist", "pharmacy",
     "movie_theater", "amusement_park", "museum", "park", "shopping_mall",
     "supermarket", "clothing_store", "electronics_store", "car_repair",
     "car_wash", "gas_station", "lawyer", "real_estate_agency", "travel_agency",
@@ -95,7 +95,7 @@ const googlePlaceTypes = {
   ],
   HOTEL: ["hotel", "motel", "hostel", "guest_house", "bed_and_breakfast", "resort_hotel", "lodging"],
   BEAUTY: ["beauty_salon", "hair_salon", "barber_shop", "nail_salon", "spa"],
-  HEALTH: ["hospital", "medical_clinic", "doctor", "dentist", "pharmacy", "physiotherapist", "wellness_center"],
+  HEALTH: ["hospital", "general_hospital", "medical_center", "medical_clinic", "medical_lab", "dental_clinic", "doctor", "dentist", "pharmacy", "physiotherapist", "wellness_center"],
   ENTERTAINMENT: ["movie_theater", "amusement_park", "aquarium", "museum", "bowling_alley", "karaoke", "night_club", "event_venue", "park", "art_gallery"],
   RETAIL: ["shopping_mall", "store", "supermarket", "grocery_store", "clothing_store", "electronics_store", "home_goods_store", "book_store", "jewelry_store", "pet_store"],
   AUTO_SERVICE: ["car_dealer", "car_rental", "car_repair", "car_wash", "gas_station", "tire_shop", "auto_parts_store"],
@@ -361,6 +361,14 @@ function normalizeSearch(value) {
   return String(value || "").normalize("NFKC").toLocaleLowerCase("ru").split("").map(c => letters[c] ?? c).join("").replace(/['‘’ʻʼ`ʹ]/gu, "").replace(/[^\p{L}\p{N}_]+/gu, " ").trim();
 }
 
+function matchesSearch(query, value) {
+  // Compare common Latin spellings (Complex / Комплекс, Scopus / Скопус).
+  // Keep normalizeSearch unchanged for callers that need literal normalization.
+  const key = text => normalizeSearch(text).replace(/c(?=[eiy])/g, "s").replace(/c(?!h)/g, "k").replace(/x/g, "ks");
+  const searchable = key(value), compact = searchable.replace(/\s+/g, "");
+  return key(query).split(/\s+/).every(token => searchable.includes(token) || compact.includes(token));
+}
+
 function displayedCount(item) {
   const type = ratedFilterValue("#ratedScoreType");
   return type === "COMMUNITY" ? Number(item.community_rating_count) || 0 : type === "VERIFIED" ? Number(item.verified_rating_count) || 0 : Number(item.verified_rating_count) || Number(item.community_rating_count) || 0;
@@ -429,7 +437,7 @@ function viewRows() {
   if (findingHere) return currentCenter && window.relyqoLocationUsable?.() !== false
     ? withinHere(rows).filter(matchesCategory).filter(item => !query
       || (item.kind === 'external' && item._nearbyQuery === query)
-      || normalizeSearch(query).split(' ').every(token => normalizeSearch([item.title,item.address,item.city,categoryNames[item.category]].filter(Boolean).join(' ')).includes(token)))
+      || matchesSearch(query, [item.title,item.address,item.city,categoryNames[item.category]].filter(Boolean).join(' ')))
       .sort((a,b) => a.distance - b.distance) : [];
   rows = rows.filter(showRatedOnly ? matchesRatedFilters : matchesCategory);
   if (query) {
@@ -437,7 +445,7 @@ function viewRows() {
       item.kind === "external"
       && (item._citySearch || query === remoteSearchQuery)
       && (item._citySearch || remoteSearchIds.has(item.id))
-    ) || normalizeSearch(query).split(" ").every(token => normalizeSearch(item.search_text || [item.title, item.address, item.city, item.description, categoryNames[item.category]].filter(Boolean).join(" ")).includes(token)));
+    ) || matchesSearch(query, item.search_text || [item.title, item.address, item.city, item.description, categoryNames[item.category]].filter(Boolean).join(" ")));
   }
   if (showFavoritesOnly) rows = rows.filter((item) => item.kind !== "external" && favorites.has(objectKey(item)));
   if (showRatedOnly && ratedFilterValue("#ratedScoreType") === "RATED") rows = rows.filter(hasRelyqoRatings);

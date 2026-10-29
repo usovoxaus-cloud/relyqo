@@ -29,5 +29,12 @@ def normalize_search(value):
 
 
 def search_matches(query, value):
-    searchable = normalize_search(value)
-    return all(token in searchable for token in normalize_search(query).split())
+    # Search accepts common Latin spellings of Cyrillic names. Do not change
+    # normalize_search: duplicate detection still needs its existing semantics.
+    def key(text):
+        text = re.sub(r"c(?=[eiy])", "s", normalize_search(text))
+        return re.sub(r"c(?!h)", "k", text).replace("x", "ks")
+
+    searchable = key(value)
+    compact = "".join(searchable.split())
+    return all(token in searchable or token in compact for token in key(query).split())
